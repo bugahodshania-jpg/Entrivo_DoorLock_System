@@ -1,0 +1,269 @@
+.access-logs-page {
+  color: #13251f;
+  width: 100%;
+}
+
+.access-logs-summary-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.access-logs-card {
+  min-width: 0;
+}
+
+.dashboard-recent-card.access-logs-card .dashboard-panel-header {
+  margin-bottom: 0;
+}
+
+.access-logs-header-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.access-logs-date-filter {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.access-logs-date-filter svg {
+  color: #60716a;
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
+.access-logs-date-filter label {
+  align-items: center;
+  color: #60716a;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.access-logs-date-filter label span {
+  color: #60716a;
+  display: inline;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.access-logs-date-filter input {
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  color: #18372b;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  min-height: 28px;
+  padding: 0 6px;
+  width: 118px;
+}
+
+.access-logs-date-filter input:focus {
+  border-color: #8eb89e;
+  box-shadow: 0 0 0 3px rgba(12, 122, 67, 0.12);
+  outline: none;
+}
+
+.access-logs-download-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  padding: 0 0 12px;
+}
+
+.access-logs-download-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.access-logs-tabs {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8e5;
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  margin-top: 9px;
+  overflow-x: auto;
+  padding: 6px;
+}
+
+.access-logs-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #415249;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.access-logs-tab:hover {
+  background: #ecfdf3;
+  color: #0c4b2d;
+}
+
+.access-logs-tab.is-active {
+  background: #b7d8c6;
+  border-color: #b7d8c6;
+  color: #043d20;
+}
+
+.access-logs-tab:focus-visible {
+  box-shadow: 0 0 0 3px rgba(12, 122, 67, 0.18);
+  outline: none;
+}
+
+.access-logs-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-top: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.access-logs-table {
+  min-width: 980px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.access-logs-table th,
+.access-logs-table td {
+  padding: 10px 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.access-logs-table th:nth-child(1),
+.access-logs-table td:nth-child(1) {
+  width: 16%;
+}
+
+.access-logs-table th:nth-child(2),
+.access-logs-table td:nth-child(2) {
+  width: 22%;
+}
+
+.access-logs-table th:nth-child(3),
+.access-logs-table td:nth-child(3) {
+  width: 12%;
+}
+
+.access-logs-table th:nth-child(4),
+.access-logs-table td:nth-child(4) {
+  width: 14%;
+}
+
+.access-logs-table th:nth-child(5),
+.access-logs-table td:nth-child(5) {
+  overflow: visible;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: 24%;
+}
+
+.access-logs-table th:nth-child(6),
+.access-logs-table td:nth-child(6) {
+  overflow: visible;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: 12%;
+}
+
+.access-logs-table td:nth-child(1) strong,
+.access-logs-table td:nth-child(1) span,
+.access-logs-table td:nth-child(2) strong,
+.access-logs-table td:nth-child(2) span,
+.access-logs-table td:nth-child(3) strong,
+.access-logs-table td:nth-child(3) span,
+.access-logs-table td:nth-child(4) strong,
+.access-logs-table td:nth-child(4) span,
+.access-logs-table td:nth-child(5) strong,
+.access-logs-table td:nth-child(5) span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.access-logs-pagination {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-top: 14px;
+}
+
+.access-logs-pagination p,
+.access-logs-pagination span {
+  color: #60716a;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.access-logs-pagination-controls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.access-logs-pagination-controls button {
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  color: #18372b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.access-logs-pagination-controls button:hover:not(:disabled) {
+  background: #eef6f1;
+  border-color: #bfd2c7;
+}
+
+.access-logs-pagination-controls button:disabled {
+  color: #98a7a0;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+@media (max-width: 1080px) {
+  .access-logs-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .access-logs-header-actions {
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 100%;
+  }
+}

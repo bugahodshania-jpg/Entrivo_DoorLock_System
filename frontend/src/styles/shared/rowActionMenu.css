@@ -1,0 +1,87 @@
+.row-action-menu-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.row-action-menu-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #7b8798;
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.row-action-menu-button:hover,
+.row-action-menu-button[aria-expanded='true'] {
+  background: #f3f5f8;
+  color: #4d5b70;
+}
+
+.row-action-menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.row-action-menu {
+  background: #ffffff;
+  border: 1px solid #e6ebf0;
+  border-radius: 0;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 6px 0;
+  position: fixed;
+  z-index: 80;
+}
+
+.row-action-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #3d4b61;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 10px;
+  padding: 9px 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.row-action-menu button svg {
+  color: #64748b;
+  flex: 0 0 auto;
+}
+
+.row-action-menu button:hover {
+  background: #f5f7fa;
+}
+
+.row-action-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.row-action-menu-divider {
+  background: #eef1f4;
+  height: 1px;
+  margin: 6px 8px;
+}
+
+.row-action-menu button.is-danger,
+.row-action-menu button.is-danger svg {
+  color: #ef4444;
+}
+
+.row-action-menu button.is-danger:hover {
+  background: #fff5f5;
+}

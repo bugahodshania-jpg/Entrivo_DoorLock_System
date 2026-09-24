@@ -1,0 +1,109 @@
+**Step By Step Test**
+
+1. Start backend server
+
+```powershell
+cd "C:\xampp_new\htdocs\Entrivo_DoorLock_System"
+php -S 0.0.0.0:8000 -t backend
+```
+
+2. Start frontend
+
+Open another PowerShell:
+
+```powershell
+cd "C:\xampp_new\htdocs\Entrivo_DoorLock_System\frontend"
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Open:
+
+[http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+3. Upload Sensor B firmware
+
+Plug in Sensor B ESP32, then check COM port:
+
+```powershell
+arduino-cli board list
+```
+
+Upload the combined firmware. Replace `COM3` with your ESP32 port:
+
+```powershell
+cd "C:\xampp_new\htdocs\Entrivo_DoorLock_System"
+arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32 "esp32\door_controller"
+```
+
+4. Open Sensor B serial monitor
+
+Replace `COM3` again:
+
+```powershell
+arduino-cli monitor -p COM3 -c baudrate=115200
+```
+
+You should see WiFi/backend/sync messages.
+
+5. Enroll fingerprint
+
+Use your enrollment station like normal:
+
+```text
+Super Admin > Fingerprint
+Select user
+Start enrollment
+Place finger on enrollment sensor
+Wait until enrollment completes
+```
+
+6. Click Sync
+
+After enrollment/template is stored:
+
+```text
+Click Sync
+```
+
+The new modal should appear.
+
+Expected modal progress:
+
+```text
+Queued -> Syncing -> Synced
+```
+
+7. Watch Sensor B serial monitor
+
+You should see something like:
+
+```text
+Template sync job #... claimed
+Writing template to slot ...
+Template sync job #... completed successfully
+```
+
+8. Test door access
+
+Place the synced finger on **Sensor B**.
+
+Expected result:
+
+```text
+Access granted
+Door relay activated
+Solenoid unlocks for 3 seconds
+Door relay reset
+```
+
+If the modal stays on **Queued**, Sensor B is not reaching the backend. Check WiFi and `SERVER_URL` in:
+
+```text
+esp32\door_controller\Config.h
+```
+
+Current backend URL is:
+
+```cpp
+#define SERVER_URL "http://192.168.137.1:8000"
+```

@@ -1,0 +1,622 @@
+.pending-registration-status,
+.pending-registration-error {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.pending-registration-status {
+  color: #0c4b2d;
+}
+
+.pending-registration-error {
+  color: #b93636;
+}
+
+.pending-registration-approve {
+  align-items: center;
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.pending-registration-approve:hover {
+  background: #083d24;
+  border-color: #083d24;
+}
+
+.pending-registration-approve:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pending-registrations-page .rfid-summary-grid {
+  grid-template-columns: minmax(240px, 320px);
+}
+
+.pending-registrations-header {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.pending-registrations-header > div:first-child {
+  min-width: 220px;
+}
+
+.pending-registrations-page .pending-registrations-search {
+  flex: 0 0 250px;
+  height: 30px;
+  max-width: 250px;
+  min-height: 30px;
+  min-width: 250px;
+  padding: 0 8px;
+  width: 250px;
+}
+
+.pending-registrations-page .pending-registrations-search svg {
+  height: 13px;
+  width: 13px;
+}
+
+.pending-registrations-page .pending-registrations-search input {
+  -webkit-appearance: none;
+  appearance: none;
+  font-size: 12px;
+  height: 28px;
+  line-height: 28px;
+  min-width: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.pending-registrations-page .pending-registrations-search input::placeholder {
+  font-size: 12px;
+  line-height: 28px;
+  opacity: 1;
+}
+
+.pending-registrations-table-wrap {
+  overflow-x: auto;
+  padding-top: 4px;
+}
+
+.pending-registrations-table {
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.pending-registrations-page .pending-registrations-table th,
+.pending-registrations-page .pending-registrations-table td {
+  overflow-wrap: break-word;
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(1),
+.pending-registrations-page .pending-registrations-table td:nth-child(1) {
+  width: 19%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(2),
+.pending-registrations-page .pending-registrations-table td:nth-child(2) {
+  width: 9%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(3),
+.pending-registrations-page .pending-registrations-table td:nth-child(3) {
+  width: 18%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(4),
+.pending-registrations-page .pending-registrations-table td:nth-child(4) {
+  width: 11%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(5),
+.pending-registrations-page .pending-registrations-table td:nth-child(5) {
+  width: 11%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(6),
+.pending-registrations-page .pending-registrations-table td:nth-child(6),
+.pending-registrations-page .pending-registrations-table th:nth-child(7),
+.pending-registrations-page .pending-registrations-table td:nth-child(7) {
+  width: 12%;
+}
+
+.pending-registrations-page .pending-registrations-table th:nth-child(8),
+.pending-registrations-page .pending-registrations-table td:nth-child(8) {
+  text-align: center;
+  width: 8%;
+}
+
+.pending-registration-menu-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #7b8798;
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.pending-registration-menu-button:hover,
+.pending-registration-menu-button[aria-expanded='true'] {
+  background: #f3f5f8;
+  color: #4d5b70;
+}
+
+.pending-registration-menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pending-registration-menu {
+  background: #ffffff;
+  border: 1px solid #e6ebf0;
+  border-radius: 0;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 6px 0;
+  position: fixed;
+  z-index: 40;
+}
+
+.pending-registration-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #3d4b61;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 10px;
+  padding: 9px 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.pending-registration-menu button svg {
+  color: #64748b;
+  flex: 0 0 auto;
+}
+
+.pending-registration-menu button:hover {
+  background: #f5f7fa;
+}
+
+.pending-registration-menu-divider {
+  background: #eef1f4;
+  height: 1px;
+  margin: 6px 8px;
+}
+
+.pending-registration-menu button.is-danger,
+.pending-registration-menu button.is-danger svg {
+  color: #ef4444;
+}
+
+.pending-registration-menu button.is-danger:hover {
+  background: #fff5f5;
+}
+
+.pending-registration-review-backdrop {
+  align-items: center;
+  background: rgba(4, 20, 13, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 50;
+}
+
+.pending-registration-review {
+  background: #ffffff;
+  border: 1px solid #e3ebe6;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(16, 37, 29, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: min(760px, calc(100dvh - 48px));
+  max-width: 760px;
+  padding: 22px;
+  width: 100%;
+}
+
+.pending-registration-review header,
+.pending-registration-review footer {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.pending-registration-review header h2 {
+  color: #10251d;
+  font-size: 20px;
+  margin: 0;
+}
+
+.pending-registration-review header p,
+.pending-registration-review-note {
+  color: #5f6f68;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.pending-registration-review header button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 6px;
+  color: #1c2b25;
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.pending-registration-review-body {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+}
+
+.pending-registration-review-body img,
+.pending-registration-review-photo-empty {
+  background: #f7faf8;
+  border: 1px solid #e3ebe6;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.pending-registration-review-body img {
+  display: block;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.pending-registration-review-photo-empty {
+  align-items: center;
+  color: #5f6f68;
+  display: flex;
+  font-size: 13px;
+  justify-content: center;
+  min-height: 180px;
+  padding: 12px;
+  text-align: center;
+}
+
+.pending-registration-review-body dl {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.pending-registration-review-body dl div.is-wide {
+  grid-column: 1 / -1;
+}
+
+.pending-registration-review-body dt {
+  color: #7a8882;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pending-registration-review-body dd {
+  color: #10251d;
+  font-size: 14px;
+  margin: 2px 0 0;
+}
+
+.pending-registration-review footer {
+  justify-content: flex-end;
+}
+
+.pending-registration-reject {
+  background: #ffffff;
+  border: 1px solid #e7c5c5;
+  border-radius: 6px;
+  color: #b93636;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+.pending-registration-reject:hover {
+  background: #fbeaea;
+}
+
+.pending-registration-approve:disabled,
+.pending-registration-reject:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 720px) {
+  .pending-registration-review-body,
+  .pending-registration-review-body dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pending-registrations-page .pending-registrations-table td strong,
+.pending-registrations-page .pending-registrations-table td span:not(.dashboard-log-status) {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+}
+
+.rfid-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rfid-summary-card {
+  min-height: 82px;
+}
+
+.rfid-card {
+  min-width: 0;
+}
+
+.rfid-header-actions {
+  align-items: flex-end;
+  display: inline-flex;
+  gap: 12px;
+}
+
+.rfid-search-stack {
+  align-items: flex-end;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rfid-search {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.rfid-search svg {
+  color: #60716a;
+  flex: 0 0 auto;
+}
+
+.rfid-search input {
+  background: transparent;
+  border: 0;
+  color: #13251f;
+  font: inherit;
+  min-width: 280px;
+  outline: none;
+}
+
+.rfid-search input::placeholder {
+  color: #8a9892;
+}
+
+.rfid-page:not(.pending-registrations-page) .rfid-search {
+  box-sizing: border-box;
+  flex: none;
+  height: 30px;
+  max-height: 30px;
+  max-width: 250px;
+  min-height: 30px;
+  padding: 0 8px;
+  width: 250px;
+}
+
+.rfid-page:not(.pending-registrations-page) .rfid-search svg {
+  height: 14px;
+  width: 14px;
+}
+
+.rfid-page:not(.pending-registrations-page) .rfid-search input {
+  -webkit-appearance: none;
+  appearance: none;
+  font-size: 12px;
+  height: 28px;
+  line-height: 28px;
+  min-width: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.rfid-page:not(.pending-registrations-page) .rfid-search input::placeholder {
+  font-size: 12px;
+  line-height: 28px;
+  opacity: 1;
+}
+
+.rfid-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 42%, #9ca3af 42%, #9ca3af 58%, transparent 58%),
+    linear-gradient(-45deg, transparent 42%, #9ca3af 42%, #9ca3af 58%, transparent 58%);
+  cursor: pointer;
+  height: 12px;
+  opacity: 1;
+  width: 12px;
+}
+
+.rfid-search input::-webkit-search-cancel-button:hover {
+  background:
+    linear-gradient(45deg, transparent 42%, #6b7280 42%, #6b7280 58%, transparent 58%),
+    linear-gradient(-45deg, transparent 42%, #6b7280 42%, #6b7280 58%, transparent 58%);
+}
+
+.rfid-table-wrap {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-top: 12px;
+}
+
+.rfid-table {
+  border-top: 1px solid #d8e4dd;
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.rfid-table th:nth-child(1),
+.rfid-table td:nth-child(1) {
+  width: 19%;
+}
+
+.rfid-table th:nth-child(2),
+.rfid-table td:nth-child(2) {
+  width: 10%;
+}
+
+.rfid-table th:nth-child(3),
+.rfid-table td:nth-child(3) {
+  width: 24%;
+}
+
+.rfid-table th:nth-child(4),
+.rfid-table td:nth-child(4) {
+  width: 9%;
+}
+
+.rfid-table th:nth-child(5),
+.rfid-table td:nth-child(5) {
+  width: 14%;
+}
+
+.rfid-table th:nth-child(6),
+.rfid-table td:nth-child(6) {
+  text-align: center;
+  width: 6%;
+}
+
+.rfid-table th:nth-child(7),
+.rfid-table td:nth-child(7) {
+  width: 18%;
+  white-space: nowrap;
+}
+
+.rfid-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.rfid-table td .dashboard-log-status {
+  margin-top: 5px;
+}
+
+.rfid-table th,
+.rfid-table td {
+  padding-right: 8px;
+}
+
+.rfid-table th {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.rfid-table td strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rfid-uid {
+  word-break: break-all;
+}
+
+.rfid-status {
+  justify-content: center;
+}
+
+.rfid-status-active {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.rfid-status-inactive {
+  background: #f2f4f3;
+  color: #68766f;
+}
+
+.rfid-status-lost {
+  background: #fbeaea;
+  color: #b93636;
+}
+
+.rfid-download-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  padding: 0 0 9px;
+}
+
+.rfid-download-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 900px) {
+  .rfid-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .rfid-search-stack {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .rfid-page:not(.pending-registrations-page) .rfid-search {
+    max-width: none;
+    width: 100%;
+  }
+
+  .rfid-search input {
+    min-width: 0;
+    width: 100%;
+  }
+}

@@ -1,0 +1,3 @@
+<?php
+
+// Attendance endpoints.

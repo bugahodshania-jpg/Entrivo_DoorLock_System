@@ -1,0 +1,124 @@
+.standard-admin-dashboard {
+  background: #f5f7f7;
+  color: #13251f;
+  display: grid;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.standard-admin-hero {
+  align-items: flex-start;
+  background: #ffffff;
+  border: 1px solid #d9e2de;
+  border-radius: 8px;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 24px;
+}
+
+.standard-admin-hero p {
+  color: #49615a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.standard-admin-hero h1 {
+  color: #0d2d22;
+  font-size: 28px;
+  line-height: 1.15;
+  margin: 0 0 10px;
+}
+
+.standard-admin-hero span {
+  color: #51635d;
+  line-height: 1.5;
+}
+
+.standard-admin-hero button {
+  background: #0d2d22;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-weight: 800;
+  min-height: 40px;
+  padding: 10px 14px;
+}
+
+.standard-admin-identity {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.standard-admin-identity div,
+.standard-admin-grid article {
+  background: #ffffff;
+  border: 1px solid #d9e2de;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.standard-admin-identity span {
+  color: #60716a;
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.standard-admin-identity strong {
+  color: #0d2d22;
+  display: block;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.standard-admin-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.standard-admin-grid article {
+  display: grid;
+  gap: 10px;
+}
+
+.standard-admin-grid svg {
+  color: #0d2d22;
+}
+
+.standard-admin-grid h2 {
+  color: #0d2d22;
+  font-size: 18px;
+  margin: 0;
+}
+
+.standard-admin-grid p {
+  color: #51635d;
+  line-height: 1.5;
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .standard-admin-dashboard {
+    padding: 20px;
+  }
+
+  .standard-admin-hero {
+    flex-direction: column;
+  }
+
+  .standard-admin-identity,
+  .standard-admin-grid {
+    grid-template-columns: 1fr;
+  }
+}
