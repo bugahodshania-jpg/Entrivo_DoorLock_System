@@ -36,6 +36,8 @@ class FingerprintEnrollmentService
             ];
         }
 
+        $this->jobModel->ensureEnrollmentDevice((int) $deviceId);
+
         if (!$this->jobModel->deviceExists($deviceId)) {
             return [
                 "success" => false,
@@ -128,6 +130,7 @@ class FingerprintEnrollmentService
         }
 
         $this->jobModel->requeueStaleProcessingJobs($deviceId);
+        $this->jobModel->cancelIdleWaitingJobs();
 
         return $this->jobModel->getNextWaitingJob($deviceId);
     }
@@ -177,6 +180,7 @@ class FingerprintEnrollmentService
 
     public function listEnrollmentJobs(array $query = []): array
     {
+        $this->jobModel->cancelIdleWaitingJobs();
         $jobId = isset($query['job_id']) && $query['job_id'] > 0 ? (int) $query['job_id'] : 0;
 
         if ($jobId > 0) {

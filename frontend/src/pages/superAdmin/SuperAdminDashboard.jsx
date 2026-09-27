@@ -1,11 +1,6 @@
 import {
   CalendarCheck,
-  CalendarPlus,
   CheckCircle2,
-  Download,
-  FileText,
-  ShieldAlert,
-  UserPlus,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -68,7 +63,7 @@ export default function SuperAdminDashboard() {
   const [todayAccessTrend, setTodayAccessTrend] = useState([]);
   const [todaySchedules, setTodaySchedules] = useState([]);
   const [recentAccessLogs, setRecentAccessLogs] = useState([]);
-  const [pendingOverrides, setPendingOverrides] = useState([]);
+  const [overrideRequests, setOverrideRequests] = useState([]);
   const [chartRange, setChartRange] = useState('week');
   const [isSummaryLoading, setIsSummaryLoading] = useState(true);
 
@@ -91,7 +86,7 @@ export default function SuperAdminDashboard() {
         setTodayAccessTrend(response.data.todayAccessTrend || []);
         setTodaySchedules(response.data.todaySchedules || []);
         setRecentAccessLogs(response.data.recentAccessLogs || []);
-        setPendingOverrides(response.data.pendingOverrides || []);
+        setOverrideRequests(response.data.overrideRequests || response.data.pendingOverrides || []);
       } catch {
         if (isActive) {
           setSummary(initialDashboardSummary);
@@ -99,7 +94,7 @@ export default function SuperAdminDashboard() {
           setTodayAccessTrend([]);
           setTodaySchedules([]);
           setRecentAccessLogs([]);
-          setPendingOverrides([]);
+          setOverrideRequests([]);
         }
       } finally {
         if (isActive) {
@@ -153,28 +148,6 @@ export default function SuperAdminDashboard() {
   const hasDeniedData = chartData.some((item) => Number(item.denied) > 0);
   const grantedPoints = getChartPoints(chartData, 'granted', maxChartValue);
   const deniedPoints = getChartPoints(chartData, 'denied', maxChartValue);
-  const quickActions = [
-    {
-      label: 'Add Schedule',
-      href: '/super-admin/schedules',
-      icon: CalendarPlus,
-    },
-    {
-      label: 'Register User',
-      href: '/super-admin/manage-users',
-      icon: UserPlus,
-    },
-    {
-      label: 'Download All User',
-      href: '/super-admin/manage-users',
-      icon: Download,
-    },
-    {
-      label: 'Generate Report',
-      href: '/super-admin/reports',
-      icon: FileText,
-    },
-  ];
 
   return (
     <main className="admin-dashboard" aria-label="Super admin dashboard">
@@ -328,51 +301,40 @@ export default function SuperAdminDashboard() {
               </div>
             </article>
 
-            <aside className="dashboard-actions-card" aria-label="Quick actions and override approvals">
+            <aside className="dashboard-schedule-card dashboard-override-card" aria-label="Override requests">
               <div className="dashboard-panel-header">
                 <div>
-                  <h2>Quick Actions</h2>
+                  <h2>Override Requests</h2>
+                  <p>Overridden schedules for this week only. Resets every Monday.</p>
                 </div>
               </div>
 
-              <div className="dashboard-quick-actions">
-                {quickActions.map(({ label, href, icon: Icon }) => (
-                  <a href={href} key={label}>
-                    <Icon size={18} aria-hidden="true" />
-                    <span>{label}</span>
-                  </a>
-                ))}
-              </div>
-
-              <div className="dashboard-override-panel">
-                <div className="dashboard-override-header">
-                  <div className="dashboard-override-title">
-                    <ShieldAlert size={16} aria-hidden="true" />
-                    <span>Request Override</span>
-                  </div>
-                  {pendingOverrides.length > 0 && (
-                    <a className="dashboard-text-link" href="/super-admin/access-logs">
-                      View
-                    </a>
-                  )}
-                </div>
-
-                <div className="dashboard-override-list">
-                  {pendingOverrides.length ? (
-                    pendingOverrides.map((override) => (
-                      <div className="dashboard-override-item" key={override.id}>
-                        <div>
-                          <strong>{override.owner}</strong>
-                          <span>{override.reason}</span>
-                        </div>
-                        <small>{override.time}</small>
+              <div className="dashboard-schedule-list">
+                {overrideRequests.length ? (
+                  overrideRequests.map((override) => (
+                    <div
+                      className={`dashboard-schedule-item dashboard-schedule-item-${override.state || 'upcoming'}`}
+                      key={override.id}
+                    >
+                      <div className="dashboard-schedule-copy">
+                        <span>{override.owner}</span>
+                        <strong>{override.time}</strong>
                       </div>
-                    ))
-                  ) : (
-                    <p>No override requests to approve.</p>
-                  )}
-                </div>
+                      <small
+                        className={`dashboard-schedule-badge dashboard-schedule-badge-${override.state || 'upcoming'}`}
+                      >
+                        {override.stateLabel || 'Incoming'}
+                      </small>
+                    </div>
+                  ))
+                ) : (
+                  <p>No overridden schedules right now.</p>
+                )}
               </div>
+
+              <a className="dashboard-schedule-button" href="/super-admin/schedules">
+                View All Overrides
+              </a>
             </aside>
           </div>
 

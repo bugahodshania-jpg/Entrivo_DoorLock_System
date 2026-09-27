@@ -47,7 +47,7 @@ export default function RowActionMenu({ label, items, disabled = false }) {
 
     const rect = event.currentTarget.getBoundingClientRect();
     const width = 188;
-    const height = 12 + visibleItems.length * 38 + (dangerItems.length > 0 && regularItems.length > 0 ? 13 : 0);
+    const height = 12 + visibleItems.length * 32 + (dangerItems.length > 0 && regularItems.length > 0 ? 13 : 0);
     const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8);
     const top = rect.bottom + 6 + height < window.innerHeight
       ? rect.bottom + 6
@@ -71,7 +71,7 @@ export default function RowActionMenu({ label, items, disabled = false }) {
           item.onClick?.();
         }}
       >
-        {Icon ? <Icon size={16} strokeWidth={1.75} aria-hidden="true" /> : null}
+        {Icon ? <Icon size={13} strokeWidth={1.75} aria-hidden="true" /> : null}
         {item.label}
       </button>
     );

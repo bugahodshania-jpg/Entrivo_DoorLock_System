@@ -235,34 +235,85 @@ $userCounts = $pdo->query(
 
     $overrideStatement = $pdo->query(
         "SELECT
-            access_overrides.override_id,
+            schedules.schedule_id,
+            COALESCE(schedules.schedule_date, schedules.start_date) AS schedule_date,
+            schedules.time_start AS time_start_value,
+            schedules.time_end AS time_end_value,
+            TIME_FORMAT(schedules.time_start, '%h:%i %p') AS time_start,
+            TIME_FORMAT(schedules.time_end, '%h:%i %p') AS time_end,
+            DATE_FORMAT(COALESCE(schedules.schedule_date, schedules.start_date), '%b %e') AS schedule_date_label,
             COALESCE(
                 NULLIF(TRIM(CONCAT_WS(' ', student_info.first_name, student_info.last_name)), ''),
                 NULLIF(TRIM(CONCAT_WS(' ', faculty_info.first_name, faculty_info.last_name)), ''),
                 NULLIF(TRIM(CONCAT_WS(' ', staff_info.first_name, staff_info.last_name)), ''),
                 NULLIF(TRIM(CONCAT_WS(' ', admin_info.first_name, admin_info.last_name)), ''),
                 users.username
-            ) AS request_owner,
-            DATE_FORMAT(access_overrides.override_start, '%b %e, %h:%i %p') AS override_start,
-            DATE_FORMAT(access_overrides.override_end, '%h:%i %p') AS override_end,
-            access_overrides.reason
-         FROM access_overrides
-         INNER JOIN users ON users.id = access_overrides.user_id
+            ) AS schedule_owner
+         FROM schedules
+         INNER JOIN users ON users.id = schedules.user_id
          LEFT JOIN student_info ON student_info.user_id = users.id
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
-         WHERE access_overrides.approved_by IS NULL
-         ORDER BY access_overrides.created_at DESC
-         LIMIT 3"
+         WHERE schedules.status = 'overridden'
+            AND COALESCE(schedules.schedule_date, schedules.start_date)
+                BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+                    AND DATE_ADD(
+                        DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY),
+                        INTERVAL 6 DAY
+                    )
+         ORDER BY
+            CASE
+                WHEN COALESCE(schedules.schedule_date, schedules.start_date) = CURDATE()
+                    AND CURTIME() BETWEEN schedules.time_start AND schedules.time_end THEN 0
+                WHEN COALESCE(schedules.schedule_date, schedules.start_date) = CURDATE()
+                    AND schedules.time_start > CURTIME() THEN 1
+                WHEN COALESCE(schedules.schedule_date, schedules.start_date) > CURDATE() THEN 2
+                WHEN COALESCE(schedules.schedule_date, schedules.start_date) = CURDATE() THEN 3
+                ELSE 4
+            END ASC,
+            COALESCE(schedules.schedule_date, schedules.start_date) DESC,
+            schedules.time_start ASC
+         LIMIT 8"
     );
-    $pendingOverrides = array_map(
-        static fn ($override) => [
-            'id' => (int) $override['override_id'],
-            'owner' => $override['request_owner'],
-            'time' => $override['override_start'] . ' - ' . $override['override_end'],
-            'reason' => $override['reason'] ?: 'No reason provided',
-        ],
+    $overrideRequests = array_map(
+        static function ($schedule) use ($currentTime) {
+            $scheduleDate = $schedule['schedule_date'] ?: $currentTime->format('Y-m-d');
+            $startRaw = strlen((string) $schedule['time_start_value']) === 5
+                ? $schedule['time_start_value'] . ':00'
+                : $schedule['time_start_value'];
+            $endRaw = strlen((string) $schedule['time_end_value']) === 5
+                ? $schedule['time_end_value'] . ':00'
+                : $schedule['time_end_value'];
+            $startTime = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $scheduleDate . ' ' . $startRaw);
+            $endTime = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $scheduleDate . ' ' . $endRaw);
+
+            $state = 'upcoming';
+            $stateLabel = 'Incoming';
+
+            if ($startTime && $endTime) {
+                if ($currentTime > $endTime) {
+                    $state = 'done';
+                    $stateLabel = 'Done';
+                } elseif ($currentTime >= $startTime) {
+                    $state = 'active';
+                    $stateLabel = 'Active';
+                }
+            }
+
+            $isToday = $scheduleDate === $currentTime->format('Y-m-d');
+            $timeLabel = $isToday
+                ? $schedule['time_start'] . ' - ' . $schedule['time_end']
+                : $schedule['schedule_date_label'] . ', ' . $schedule['time_start'] . ' - ' . $schedule['time_end'];
+
+            return [
+                'id' => (int) $schedule['schedule_id'],
+                'owner' => $schedule['schedule_owner'],
+                'time' => $timeLabel,
+                'state' => $state,
+                'stateLabel' => $stateLabel,
+            ];
+        },
         $overrideStatement->fetchAll()
     );
 
@@ -280,7 +331,8 @@ $userCounts = $pdo->query(
         'todayAccessTrend' => $todayAccessTrend,
         'todaySchedules' => $todaySchedules,
         'recentAccessLogs' => $recentAccessLogs,
-        'pendingOverrides' => $pendingOverrides,
+        'overrideRequests' => $overrideRequests,
+        'pendingOverrides' => $overrideRequests,
     ]);
 } catch (Throwable $error) {
     http_response_code(500);

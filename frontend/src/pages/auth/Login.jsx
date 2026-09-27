@@ -3,6 +3,7 @@ import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
 import logo from '../../assets/images/entrivo_logo.png';
 import PixelWave from '../../components/PixelWave';
 import PasswordReset, { readPasswordResetSession } from './PasswordReset';
+import { firstAllowedSuperAdminPath } from '../../utils/privileges';
 import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
 
@@ -69,6 +70,18 @@ export default function Login() {
   const lockRestoreDoneRef = useRef(false);
 
   const isLocked = lockoutSeconds > 0;
+
+  useEffect(() => {
+    const notice = window.sessionStorage.getItem('entrivo_login_notice');
+
+    if (!notice) {
+      return;
+    }
+
+    window.sessionStorage.removeItem('entrivo_login_notice');
+    setStatus({ type: 'error', message: notice });
+    setFieldErrors({ username: notice, password: '' });
+  }, []);
 
   useEffect(() => {
     if (carouselPaused) return undefined;
@@ -313,13 +326,8 @@ export default function Login() {
       storage.setItem('entrivo_user', JSON.stringify(data.user));
       setStatus({ type: 'success', message: data.message });
 
-      if (data.user.role === 'super_admin') {
-        window.location.assign('/super-admin/dashboard');
-        return;
-      }
-
-      if (data.user.role === 'admin') {
-        window.location.assign('/admin/dashboard');
+      if (data.user.role === 'super_admin' || data.user.role === 'admin') {
+        window.location.assign(firstAllowedSuperAdminPath(data.user));
         return;
       }
 

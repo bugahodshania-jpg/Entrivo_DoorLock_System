@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 /**
  * Trae-style grid pixel field: green → gray, with left-bottom slant.
- * variant: "home" | "auth"
+ * variant: "home" | "auth" | "cta"
  */
 export default function PixelWave({ className = '', variant = 'home' }) {
   const canvasRef = useRef(null);
@@ -19,6 +19,7 @@ export default function PixelWave({ className = '', variant = 'home' }) {
     }
 
     const isAuth = variant === 'auth';
+    const isCta = variant === 'cta';
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let frameId = 0;
     let width = 0;
@@ -30,9 +31,10 @@ export default function PixelWave({ className = '', variant = 'home' }) {
     let cell = 8;
     let gap = 2;
     let particles = [];
+    let stacked = false;
 
-    const green = [0, 120, 40];
-    const gray = [150, 158, 154];
+    const green = isCta ? [72, 214, 116] : [0, 120, 40];
+    const gray = isCta ? [196, 214, 202] : [150, 158, 154];
 
     const mixColor = (t, alpha) => {
       const k = Math.min(1, Math.max(0, t));
@@ -42,28 +44,39 @@ export default function PixelWave({ className = '', variant = 'home' }) {
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
 
+    const ctaReach = () => (stacked ? 0.86 : 0.56);
+
     const createParticles = () => {
       particles = [];
       for (let row = 0; row < rows; row += 1) {
         for (let col = 0; col < cols; col += 1) {
           const nx = cols <= 1 ? 0.5 : col / (cols - 1);
           const ny = rows <= 1 ? 0.5 : row / (rows - 1);
-
-          const density = isAuth ? 0.22 + ny * 0.5 : 0.28 + ny * 0.55;
           const seed = Math.random();
-          if (seed > density) {
-            continue;
-          }
 
-          // Soft diagonal cut on bottom-left (ny=1 is bottom)
-          const leftBottomMask = nx + (1 - ny);
-          const slantThreshold = isAuth ? 0.62 + seed * 0.3 : 0.72 + seed * 0.28;
-          if (leftBottomMask < slantThreshold) {
-            continue;
+          if (isCta) {
+            if (nx > ctaReach()) {
+              continue;
+            }
+            if (seed > 0.9) {
+              continue;
+            }
+          } else {
+            const density = isAuth ? 0.22 + ny * 0.5 : 0.28 + ny * 0.55;
+            if (seed > density) {
+              continue;
+            }
+
+            // Soft diagonal cut on bottom-left (ny=1 is bottom)
+            const leftBottomMask = nx + (1 - ny);
+            const slantThreshold = isAuth ? 0.62 + seed * 0.3 : 0.72 + seed * 0.28;
+            if (leftBottomMask < slantThreshold) {
+              continue;
+            }
           }
 
           // Home only: soft clear zone for heading readability
-          const inTextZone = !isAuth && nx < 0.68 && ny < 0.28;
+          const inTextZone = !isAuth && !isCta && nx < 0.68 && ny < 0.28;
           if (inTextZone && seed > 0.12) {
             continue;
           }
@@ -74,10 +87,14 @@ export default function PixelWave({ className = '', variant = 'home' }) {
             nx,
             ny,
             phase: Math.random() * Math.PI * 2,
-            speed: 0.55 + Math.random() * 0.25,
+            speed: isCta ? 0.9 + Math.random() * 0.45 : 0.55 + Math.random() * 0.25,
             pulse: 0.5 + Math.random() * 0.4,
             grayBias: Math.random() * 0.2,
             soft: inTextZone,
+            scatter: Math.random(),
+            cutoff: isCta
+              ? 0.5 + Math.sin(row * 2.35 + col * 0.17) * 0.055 + seed * 0.07
+              : 1,
           });
         }
       }
@@ -89,11 +106,12 @@ export default function PixelWave({ className = '', variant = 'home' }) {
       height = Math.max(1, parent?.clientHeight || canvas.clientHeight || 320);
       dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      cell = width < 560 ? 7 : isAuth ? 8 : 9;
+      stacked = width < 900;
+      cell = width < 560 ? 7 : isCta ? 7 : isAuth ? 8 : 9;
       gap = 2;
       const step = cell + gap;
       cols = Math.ceil(width / step) + 2;
-      rows = Math.max(10, Math.floor(height / step));
+      rows = isCta ? Math.max(4, Math.ceil(height / step) + 1) : Math.max(10, Math.floor(height / step));
 
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
@@ -108,24 +126,49 @@ export default function PixelWave({ className = '', variant = 'home' }) {
 
       const step = cell + gap;
       const xOffset = (width - cols * step) / 2;
-      const yOffset = Math.round((height - rows * step) / 2);
+      const yOffset = isCta ? 0 : Math.round((height - rows * step) / 2);
 
       particles.forEach((p) => {
         const flow = p.col + (reducedMotion ? 0 : time * p.speed);
-        const wrappedCol = ((flow % cols) + cols) % cols;
+        const zoneCols = isCta ? Math.max(2, Math.ceil(cols * ctaReach())) : cols;
+        const wrappedCol = ((flow % zoneCols) + zoneCols) % zoneCols;
         const progress = wrappedCol / Math.max(1, cols - 1);
 
         const edgeX = Math.min(progress, 1 - progress) * 2;
-        const edgeFade = Math.min(1, edgeX * (isAuth ? 1.8 : 1.35) + (isAuth ? 0.05 : 0.2));
+        let edgeFade = Math.min(1, edgeX * (isAuth ? 1.8 : 1.35) + (isAuth ? 0.05 : 0.2));
+        if (isCta) {
+          const along = progress;
+          const cutoff =
+            (stacked ? Math.min(0.82, p.cutoff + 0.22) : p.cutoff) +
+            (reducedMotion ? 0 : Math.sin(time * 0.65 + p.phase) * 0.012);
+          const solidUntil = stacked ? 0.28 : 0.32;
+          const dissolveStart = Math.max(solidUntil + 0.04, cutoff - 0.1);
+
+          if (along >= cutoff) {
+            edgeFade = 0;
+          } else if (along > dissolveStart) {
+            const t = (along - dissolveStart) / Math.max(0.001, cutoff - dissolveStart);
+            if (p.scatter < 0.45 + t * 0.5) {
+              edgeFade = 0;
+            } else {
+              edgeFade = 0.16 + p.scatter * 0.28;
+            }
+          } else if (along > solidUntil) {
+            const t = (along - solidUntil) / (dissolveStart - solidUntil);
+            edgeFade = 1 - t * 0.12;
+          } else {
+            edgeFade = 1;
+          }
+        }
         const flicker = 0.78 + Math.sin(time * 2 + p.phase) * 0.22;
 
-        const topFade = Math.min(1, p.ny / (isAuth ? 0.22 : 0.18));
-        const bottomFade = Math.min(1, (1 - p.ny) / (isAuth ? 0.22 : 0.12));
-        const textClear = !isAuth && p.ny < 0.28 && progress < 0.65 ? 0.2 : 1;
+        const topFade = isCta ? 1 : Math.min(1, p.ny / (isAuth ? 0.22 : 0.18));
+        const bottomFade = isCta ? 1 : Math.min(1, (1 - p.ny) / (isAuth ? 0.22 : 0.12));
+        const textClear = !isAuth && !isCta && p.ny < 0.28 && progress < 0.65 ? 0.2 : 1;
         const softMul = p.soft ? 0.3 : 1;
 
         const leftBottom = Math.max(0, (1 - progress) * p.ny);
-        const leftBottomSlant = 1 - leftBottom * (isAuth ? 0.98 : 0.92);
+        const leftBottomSlant = 1 - leftBottom * (isCta ? 0.35 : isAuth ? 0.98 : 0.92);
 
         const alpha =
           p.pulse *
@@ -136,7 +179,7 @@ export default function PixelWave({ className = '', variant = 'home' }) {
           textClear *
           softMul *
           leftBottomSlant *
-          (isAuth ? 0.72 : 0.95);
+          (isCta ? 0.85 : isAuth ? 0.72 : 0.95);
 
         if (alpha < 0.08) {
           return;

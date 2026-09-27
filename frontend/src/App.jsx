@@ -18,6 +18,11 @@ import Settings from './pages/superAdmin/Settings.jsx';
 import ViewProfile from './pages/superAdmin/ViewProfile.jsx';
 import SuperAdminDashboard from './pages/superAdmin/SuperAdminDashboard.jsx';
 import SuperAdminLayout from './pages/superAdmin/SuperAdminLayout.jsx';
+import {
+  firstAllowedSuperAdminPath,
+  privilegeForPath,
+  userHasPrivilege,
+} from './utils/privileges';
 
 const superAdminRoutes = {
   '/super-admin/dashboard': SuperAdminDashboard,
@@ -64,7 +69,7 @@ function getStoredUserLocation() {
   return null;
 }
 
-function logout() {
+function logout(reasonMessage = '') {
   const savedUser =
     window.localStorage.getItem('entrivo_user') ||
     window.sessionStorage.getItem('entrivo_user');
@@ -91,6 +96,11 @@ function logout() {
 
   window.localStorage.removeItem('entrivo_user');
   window.sessionStorage.removeItem('entrivo_user');
+
+  if (reasonMessage) {
+    window.sessionStorage.setItem('entrivo_login_notice', reasonMessage);
+  }
+
   window.location.assign('/login');
 }
 
@@ -111,6 +121,11 @@ export default function App() {
         const data = await response.json();
 
         if (!response.ok) {
+          if (data?.code === 'super_admin_session_taken' || response.status === 409) {
+            logout(data?.message || 'Another Super Admin is currently active. Only one Super Admin can be active at a time. Please try again later.');
+            return;
+          }
+
           throw new Error(data.message || 'Unable to refresh user profile.');
         }
 
@@ -137,6 +152,46 @@ export default function App() {
     };
   }, [path, user?.id]);
 
+  useEffect(() => {
+    if (user?.role !== 'super_admin' || !user?.id) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function sendHeartbeat() {
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/auth.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'super_admin_heartbeat',
+            user_id: user.id,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!isActive) {
+          return;
+        }
+
+        if (!response.ok || data?.code === 'super_admin_session_taken') {
+          logout(data?.message || 'Another Super Admin is currently active. Only one Super Admin can be active at a time. Please try again later.');
+        }
+      } catch {
+        // Ignore transient heartbeat failures; the next tick retries.
+      }
+    }
+
+    sendHeartbeat();
+    const intervalId = window.setInterval(sendHeartbeat, 30000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, [user?.id, user?.role]);
+
   if (path === '/') {
     return <Home />;
   }
@@ -150,8 +205,17 @@ export default function App() {
   }
 
   if (superAdminRoutes[path]) {
-    if (user?.role !== 'super_admin') {
+    const isAdminPortalUser = user?.role === 'super_admin' || user?.role === 'admin';
+
+    if (!isAdminPortalUser) {
       window.location.replace('/login');
+      return null;
+    }
+
+    const requiredPrivilege = privilegeForPath(path);
+
+    if (requiredPrivilege && !userHasPrivilege(user, requiredPrivilege)) {
+      window.location.replace(firstAllowedSuperAdminPath(user));
       return null;
     }
 

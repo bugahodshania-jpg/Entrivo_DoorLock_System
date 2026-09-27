@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ActionConfirmProvider } from '../../components/ActionConfirm';
 import {
   ClipboardCheck,
   Activity,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
 import { formatDateInManila } from '../../utils/dateTime';
+import { normalizePrivileges, PRIVILEGE_PATHS } from '../../utils/privileges';
 import '../../styles/superAdmin/adminLayout.css';
 
 const navSections = [
@@ -30,6 +32,7 @@ const navSections = [
         label: 'Dashboard',
         href: '/super-admin/dashboard',
         icon: LayoutDashboard,
+        privilege: 'dashboard',
       },
     ],
   },
@@ -40,21 +43,25 @@ const navSections = [
         label: 'Manage Users',
         href: '/super-admin/manage-users',
         icon: Users,
+        privilege: 'manage_users',
       },
       {
         label: 'Pending registration',
         href: '/super-admin/pending-registrations',
         icon: ClipboardCheck,
+        privilege: 'pending_registrations',
       },
       {
         label: 'Fingerprint',
         href: '/super-admin/fingerprint',
         icon: Fingerprint,
+        privilege: 'fingerprint',
       },
       {
         label: 'RFID Cards',
         href: '/super-admin/rfid-cards',
         icon: IdCard,
+        privilege: 'rfid_cards',
       },
     ],
   },
@@ -65,16 +72,19 @@ const navSections = [
         label: 'Schedules',
         href: '/super-admin/schedules',
         icon: CalendarClock,
+        privilege: 'schedules',
       },
       {
         label: 'Access Logs',
         href: '/super-admin/access-logs',
         icon: Activity,
+        privilege: 'access_logs',
       },
       {
         label: 'Activity Logs',
         href: '/super-admin/activity-logs',
         icon: ScrollText,
+        privilege: 'activity_logs',
       },
     ],
   },
@@ -85,6 +95,7 @@ const navSections = [
         label: 'Reports',
         href: '/super-admin/reports',
         icon: FileBarChart,
+        privilege: 'reports',
       },
     ],
   },
@@ -95,6 +106,7 @@ const navSections = [
         label: 'Settings',
         href: '/super-admin/settings',
         icon: Settings,
+        privilege: 'settings',
       },
     ],
   },
@@ -102,17 +114,19 @@ const navSections = [
 
 const navLinks = navSections.flatMap((section) => section.links);
 
-function ProfileMenu({ className = '', onLogout }) {
+function ProfileMenu({ className = '', onLogout, canOpenSettings = true }) {
   return (
     <div className={`super-admin-profile-menu ${className}`.trim()} role="menu">
       <a className="super-admin-profile-menu-link" href="/super-admin/profile" role="menuitem">
         <User size={16} strokeWidth={1.75} aria-hidden="true" />
         <span>View Profile</span>
       </a>
-      <a className="super-admin-profile-menu-link" href="/super-admin/settings" role="menuitem">
-        <Settings size={16} strokeWidth={1.75} aria-hidden="true" />
-        <span>Settings</span>
-      </a>
+      {canOpenSettings ? (
+        <a className="super-admin-profile-menu-link" href="/super-admin/settings" role="menuitem">
+          <Settings size={16} strokeWidth={1.75} aria-hidden="true" />
+          <span>Settings</span>
+        </a>
+      ) : null}
       <div className="super-admin-profile-menu-divider" />
       <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={onLogout}>
         <LogOut size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -178,6 +192,17 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   const unreadNotificationCount = Number(user?.unread_notifications || user?.unreadNotifications || 0);
   const profilePhoto = headerProfilePhoto(user);
   const profileInitial = (displayName.trim().charAt(0) || 'A').toUpperCase();
+  const userPrivileges = normalizePrivileges(user?.privileges, user?.role);
+  const visibleNavSections = navSections
+    .map((section) => ({
+      ...section,
+      links: section.links.filter((link) => userPrivileges.includes(link.privilege)),
+    }))
+    .filter((section) => section.links.length > 0);
+  const dashboardHref = userPrivileges.includes('dashboard')
+    ? PRIVILEGE_PATHS.dashboard
+    : visibleNavSections[0]?.links?.[0]?.href || '/super-admin/dashboard';
+  const canOpenSettings = userPrivileges.includes('settings');
 
   useEffect(() => {
     window.localStorage.setItem('super_admin_sidebar_collapsed', String(isCollapsed));
@@ -227,7 +252,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
     <div className={`super-admin-layout${isCollapsed ? ' is-sidebar-collapsed' : ''}`}>
       <aside className="super-admin-sidebar" aria-label="Super admin navigation">
         <div className="super-admin-sidebar-brand">
-          <a className="super-admin-logo" href="/super-admin/dashboard" aria-label="Entrivo dashboard">
+          <a className="super-admin-logo" href={dashboardHref} aria-label="Entrivo dashboard">
             <img className="super-admin-logo-mark" src={entrivoLogo} alt="" aria-hidden="true" />
             <span className="super-admin-logo-text">
               <strong>Entrivo</strong>
@@ -246,7 +271,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
         </div>
 
         <nav className="super-admin-nav" aria-label="Super admin pages">
-          {navSections.map(({ heading, links }) => (
+          {visibleNavSections.map(({ heading, links }) => (
             <div className="super-admin-nav-section" key={heading}>
               <p className="super-admin-nav-heading" aria-hidden={isCollapsed}>
                 {heading}
@@ -296,7 +321,11 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
           </div>
 
           {isSidebarProfileOpen && (
-            <ProfileMenu className="super-admin-sidebar-profile-menu" onLogout={onLogout} />
+            <ProfileMenu
+              className="super-admin-sidebar-profile-menu"
+              onLogout={onLogout}
+              canOpenSettings={canOpenSettings}
+            />
           )}
         </div>
 
@@ -354,12 +383,14 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
                 </div>
               </button>
 
-              {isProfileDrawerOpen && <ProfileMenu onLogout={onLogout} />}
+              {isProfileDrawerOpen && (
+                <ProfileMenu onLogout={onLogout} canOpenSettings={canOpenSettings} />
+              )}
             </div>
           </div>
         </header>
 
-        {children}
+        <ActionConfirmProvider user={user}>{children}</ActionConfirmProvider>
       </div>
     </div>
   );

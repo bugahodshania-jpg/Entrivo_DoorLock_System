@@ -1,16 +1,12 @@
 import {
-  CalendarDays,
   Eye,
   EyeOff,
   Fingerprint,
-  Home,
   IdCard,
-  Mail,
   Pencil,
   RefreshCcw,
   Save,
   ShieldCheck,
-  User,
   UserCircle,
   X,
 } from 'lucide-react';
@@ -22,8 +18,10 @@ import {
   defaultGracePeriodMinutes,
   normalizeGracePeriodMinutes,
 } from '../../utils/systemSettings';
+import { useActionConfirm } from '../../components/ActionConfirm';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/settings.css';
+import '../../styles/superAdmin/rfid.css';
 
 const defaultSettings = {
   defaultGracePeriodMinutes,
@@ -90,6 +88,7 @@ function getSettingsTabFromHash() {
 }
 
 export default function Settings({ user }) {
+  const confirmAction = useActionConfirm();
   const [settings, setSettings] = useState(() => readStoredSettings());
   const [savedAt, setSavedAt] = useState(() => window.localStorage.getItem(`${SETTINGS_STORAGE_KEY}_saved_at`) || '');
   const [saveNotice, setSaveNotice] = useState('');
@@ -263,30 +262,35 @@ export default function Settings({ user }) {
   }, [user?.id]);
 
   const adminPersonalInfo = useMemo(() => {
-    const sexLabel = adminProfile?.sex || 'Not available';
-    const ageLabel =
-      adminProfile?.age != null && adminProfile?.age !== '' ? String(adminProfile.age) : 'Not available';
-    const addressParts = [
-      adminProfile?.street_address,
-      adminProfile?.barangay,
-      adminProfile?.city_municipality,
-      adminProfile?.province,
-    ].filter(Boolean);
-
     return [
       { label: 'Name', value: adminDisplayName },
-      { label: 'Sex', value: sexLabel },
-      { label: 'Age', value: ageLabel },
-      { label: 'Address', value: addressParts.length ? addressParts.join(', ') : 'Not available' },
+      { label: 'Sex', value: adminProfile?.sex || 'Not available' },
+      {
+        label: 'Age',
+        value: adminProfile?.age != null && adminProfile?.age !== '' ? String(adminProfile.age) : 'Not available',
+      },
+      {
+        label: 'Contact number',
+        value: adminProfile?.contact_number || 'Not available',
+      },
     ];
   }, [adminDisplayName, adminProfile]);
 
+  const adminAddressInfo = useMemo(() => {
+    return [
+      { label: 'Street address', value: adminProfile?.street_address || 'Not available' },
+      { label: 'Barangay', value: adminProfile?.barangay || 'Not available' },
+      { label: 'City / Municipality', value: adminProfile?.city_municipality || 'Not available' },
+      { label: 'Province', value: adminProfile?.province || 'Not available' },
+    ];
+  }, [adminProfile]);
+
   const adminAccountInfo = useMemo(() => {
     return [
-      { label: 'Username', value: user?.username || 'Not available', icon: User },
-      { label: 'Employee ID', value: employeeIdValue, icon: IdCard },
-      { label: 'Email', value: user?.email || 'Not available', icon: Mail },
-      { label: 'Role', value: roleLabelValue, icon: ShieldCheck },
+      { label: 'Username', value: user?.username || 'Not available' },
+      { label: 'Employee ID', value: employeeIdValue },
+      { label: 'Email', value: user?.email || 'Not available' },
+      { label: 'Role', value: roleLabelValue },
     ];
   }, [employeeIdValue, roleLabelValue, user]);
 
@@ -473,6 +477,14 @@ export default function Settings({ user }) {
       return;
     }
 
+    const confirmed = await confirmAction({
+      title: 'Update profile',
+      message: 'Are you sure you want to update this profile?',
+    });
+    if (!confirmed) {
+      return;
+    }
+
     setIsSavingAdminProfile(true);
     try {
       await axiosClient.post('/api/admin_profile.php', {
@@ -504,6 +516,14 @@ export default function Settings({ user }) {
 
   async function handleSaveAdminPassword() {
     if (!user?.id) {
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Update password',
+      message: 'Are you sure you want to update this password?',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -634,8 +654,17 @@ export default function Settings({ user }) {
     setPendingConfirmation(null);
   }
 
-  function confirmPendingChange() {
+  async function confirmPendingChange() {
     if (!pendingConfirmation) {
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      step: 'password',
+      title: 'Security Verification',
+      message: 'Enter your password to confirm this action.',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -668,33 +697,33 @@ export default function Settings({ user }) {
     const isVisible = passwordVisibility[fieldKey];
 
     return (
-      <label
-        className={`settings-field settings-admin-security-field${
-          disabled ? ' settings-field-readonly' : ''
-        }${errorText ? ' settings-field-has-error' : ''}`}
-      >
-        <span>{label}</span>
-        <div className="settings-password-input-wrap">
-          <input
-            type={isVisible ? 'text' : 'password'}
-            placeholder={placeholder}
-            value={adminProfileForm[fieldKey]}
-            onChange={(event) => updateAdminProfileForm(fieldKey, event.target.value)}
-            disabled={disabled}
-          />
-          <button
-            type="button"
-            className="settings-password-toggle"
-            onClick={() => togglePasswordVisibility(fieldKey)}
-            disabled={disabled}
-            aria-label={`${isVisible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
-            aria-pressed={isVisible}
-          >
-            {isVisible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-          </button>
-        </div>
-        {errorText ? <small className="settings-admin-field-error">{errorText}</small> : null}
-      </label>
+      <div className={`settings-admin-edit-field${errorText ? ' settings-admin-edit-field-error' : ''}`}>
+        <dt>{label}</dt>
+        <dd>
+          <div className="settings-password-input-wrap">
+            <input
+              type={isVisible ? 'text' : 'password'}
+              placeholder={placeholder}
+              value={adminProfileForm[fieldKey]}
+              onChange={(event) => updateAdminProfileForm(fieldKey, event.target.value)}
+              disabled={disabled}
+            />
+            {!disabled ? (
+              <button
+                type="button"
+                className="settings-password-toggle"
+                onClick={() => togglePasswordVisibility(fieldKey)}
+                disabled={disabled}
+                aria-label={`${isVisible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+                aria-pressed={isVisible}
+              >
+                {isVisible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+              </button>
+            ) : null}
+          </div>
+          {errorText ? <small className="settings-admin-field-error">{errorText}</small> : null}
+        </dd>
+      </div>
     );
   }
 
@@ -859,7 +888,7 @@ export default function Settings({ user }) {
 
             <section className="settings-admin-card settings-admin-personal-card" aria-label="Personal information">
               <header className="settings-admin-card-header">
-                <h4>Personal Information</h4>
+                <h4>Profile Details</h4>
                 <button
                   type="button"
                   className="settings-secondary-button settings-admin-edit-button"
@@ -871,40 +900,43 @@ export default function Settings({ user }) {
                 </button>
               </header>
 
-              <div className="settings-admin-info-grid">
-                {adminPersonalInfo.map((item) => (
-                  <div className="settings-admin-info-item" key={item.label}>
-                    <span className="settings-admin-info-icon" aria-hidden="true">
-                      {item.label === 'Name' ? <User size={18} /> : null}
-                      {item.label === 'Sex' ? <UserCircle size={18} strokeWidth={1.6} /> : null}
-                      {item.label === 'Age' ? <CalendarDays size={18} /> : null}
-                      {item.label === 'Address' ? <Home size={18} /> : null}
-                    </span>
-                    <div className="settings-admin-info-body">
-                      <span className="settings-admin-info-label">{item.label}</span>
-                      <span className="settings-admin-info-value">{item.value}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="settings-admin-subsection">
-                <div className="settings-admin-subsection-title">Account Information</div>
-                <div className="settings-admin-info-grid">
-                  {adminAccountInfo.map(({ label, value, icon: Icon }) => (
-                    <div className="settings-admin-info-item" key={label}>
-                      <span className="settings-admin-info-icon" aria-hidden="true">
-                        <Icon size={18} />
-                      </span>
-                      <div className="settings-admin-info-body">
-                        <span className="settings-admin-info-label">{label}</span>
-                        <span className="settings-admin-info-value">{value}</span>
+              <div className="settings-admin-review-stack">
+                <section className="pending-registration-review-card">
+                  <h3>Personal Information</h3>
+                  <dl>
+                    {adminPersonalInfo.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                    ))}
+                  </dl>
+                </section>
 
+                <section className="pending-registration-review-card">
+                  <h3>Address</h3>
+                  <dl>
+                    {adminAddressInfo.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+
+                <section className="pending-registration-review-card">
+                  <h3>Account Information</h3>
+                  <dl>
+                    {adminAccountInfo.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              </div>
             </section>
 
             <section className="settings-admin-card settings-admin-overview-card" aria-label="Security overview">
@@ -941,82 +973,98 @@ export default function Settings({ user }) {
                 </button>
               </header>
 
-              <div className="settings-admin-security-grid">
-                <label
-                  className={`settings-field settings-admin-security-field${
-                    !isEditingAdminPassword ? ' settings-field-readonly' : ''
-                  }${adminPasswordErrors.current_password ? ' settings-field-has-error' : ''}`}
-                >
-                  <span>Current password</span>
-                  <div className="settings-password-input-wrap">
-                    <input
-                      type={isEditingAdminPassword && passwordVisibility.current_password ? 'text' : 'password'}
-                      placeholder="**********"
-                      value={adminProfileForm.current_password}
-                      onChange={(event) => updateAdminProfileForm('current_password', event.target.value)}
-                      onBlur={() => {
-                        if (isEditingAdminPassword && adminProfileForm.current_password.trim() !== '') {
-                          validateCurrentPassword();
-                        }
-                      }}
-                      disabled={!isEditingAdminPassword || isSavingAdminProfile || isAdminProfileLoading}
-                    />
-                    {isEditingAdminPassword ? (
-                      <button
-                        type="button"
-                        className="settings-password-toggle"
-                        onClick={() => togglePasswordVisibility('current_password')}
-                        disabled={isSavingAdminProfile || isAdminProfileLoading}
-                        aria-label={`${
-                          passwordVisibility.current_password ? 'Hide' : 'Show'
-                        } current password`}
-                        aria-pressed={passwordVisibility.current_password}
-                      >
-                        {passwordVisibility.current_password ? (
-                          <EyeOff size={16} aria-hidden="true" />
-                        ) : (
-                          <Eye size={16} aria-hidden="true" />
+              <div className="settings-admin-review-stack">
+                <section className="pending-registration-review-card settings-admin-password-card">
+                  <h3>Password</h3>
+                  <dl>
+                    {!isEditingAdminPassword ? (
+                      <>
+                        <div>
+                          <dt>Current password</dt>
+                          <dd>**********</dd>
+                        </div>
+                        <div>
+                          <dt>Last updated</dt>
+                          <dd>{passwordLastUpdatedLabel}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          className={`settings-admin-edit-field${
+                            adminPasswordErrors.current_password ? ' settings-admin-edit-field-error' : ''
+                          }`}
+                        >
+                          <dt>Current password</dt>
+                          <dd>
+                            <div className="settings-password-input-wrap">
+                              <input
+                                type={passwordVisibility.current_password ? 'text' : 'password'}
+                                placeholder="Enter current password"
+                                value={adminProfileForm.current_password}
+                                onChange={(event) => updateAdminProfileForm('current_password', event.target.value)}
+                                onBlur={() => {
+                                  if (adminProfileForm.current_password.trim() !== '') {
+                                    validateCurrentPassword();
+                                  }
+                                }}
+                                disabled={isSavingAdminProfile || isAdminProfileLoading}
+                              />
+                              <button
+                                type="button"
+                                className="settings-password-toggle"
+                                onClick={() => togglePasswordVisibility('current_password')}
+                                disabled={isSavingAdminProfile || isAdminProfileLoading}
+                                aria-label={`${
+                                  passwordVisibility.current_password ? 'Hide' : 'Show'
+                                } current password`}
+                                aria-pressed={passwordVisibility.current_password}
+                              >
+                                {passwordVisibility.current_password ? (
+                                  <EyeOff size={16} aria-hidden="true" />
+                                ) : (
+                                  <Eye size={16} aria-hidden="true" />
+                                )}
+                              </button>
+                            </div>
+                            <small className="settings-admin-security-note">
+                              Last updated: {passwordLastUpdatedLabel}
+                            </small>
+                            {isCheckingCurrentPassword ? (
+                              <small className="settings-admin-security-checking">
+                                Checking current password...
+                              </small>
+                            ) : null}
+                            {currentPasswordValidationMessage && !adminPasswordErrors.current_password ? (
+                              <small className="settings-admin-security-success">
+                                {currentPasswordValidationMessage}
+                              </small>
+                            ) : null}
+                            {adminPasswordErrors.current_password ? (
+                              <small className="settings-admin-field-error">
+                                {adminPasswordErrors.current_password}
+                              </small>
+                            ) : null}
+                          </dd>
+                        </div>
+                        {renderPasswordField(
+                          'new_password',
+                          'New password',
+                          'Enter new password',
+                          isSavingAdminProfile || isAdminProfileLoading,
+                          adminPasswordErrors.new_password,
                         )}
-                      </button>
-                    ) : null}
-                  </div>
-                  <small className="settings-admin-security-note">
-                    Last updated: {passwordLastUpdatedLabel}
-                  </small>
-                  {isEditingAdminPassword && isCheckingCurrentPassword ? (
-                    <small className="settings-admin-security-checking">Checking current password...</small>
-                  ) : null}
-                  {isEditingAdminPassword &&
-                  currentPasswordValidationMessage &&
-                  !adminPasswordErrors.current_password ? (
-                    <small className="settings-admin-security-success">
-                      {currentPasswordValidationMessage}
-                    </small>
-                  ) : null}
-                  {adminPasswordErrors.current_password ? (
-                    <small className="settings-admin-field-error">
-                      {adminPasswordErrors.current_password}
-                    </small>
-                  ) : null}
-                </label>
-                {isEditingAdminPassword ? (
-                  <>
-                    {renderPasswordField(
-                      'new_password',
-                      'New password',
-                      'Enter new password',
-                      isSavingAdminProfile || isAdminProfileLoading,
-                      adminPasswordErrors.new_password,
+                        {renderPasswordField(
+                          'confirm_password',
+                          'Confirm password',
+                          'Confirm new password',
+                          isSavingAdminProfile || isAdminProfileLoading,
+                          adminPasswordErrors.confirm_password,
+                        )}
+                      </>
                     )}
-                    {renderPasswordField(
-                      'confirm_password',
-                      'Confirm password',
-                      'Confirm new password',
-                      isSavingAdminProfile || isAdminProfileLoading,
-                      adminPasswordErrors.confirm_password,
-                    )}
-                  </>
-                ) : null}
+                  </dl>
+                </section>
               </div>
 
               {adminPasswordErrors.general ? (
@@ -1026,137 +1074,167 @@ export default function Settings({ user }) {
               ) : null}
 
               {isEditingAdminPassword ? (
-                <button
-                  type="button"
-                  className="settings-admin-security-submit"
-                  onClick={handleSaveAdminPassword}
-                  disabled={isSavingAdminProfile || isAdminProfileLoading}
-                >
-                  <ShieldCheck size={16} aria-hidden="true" />
-                  {isSavingAdminProfile ? 'Updating...' : 'Change Password'}
-                </button>
+                <div className="settings-admin-security-actions">
+                  <button
+                    type="button"
+                    className="pending-registration-approve"
+                    onClick={handleSaveAdminPassword}
+                    disabled={isSavingAdminProfile || isAdminProfileLoading}
+                  >
+                    <ShieldCheck size={16} aria-hidden="true" />
+                    {isSavingAdminProfile ? 'Updating...' : 'Change Password'}
+                  </button>
+                </div>
               ) : null}
             </section>
           </div>
 
           {isEditingAdminProfile ? (
             <div
-              className="settings-modal-overlay"
+              className="pending-registration-review-backdrop settings-admin-edit-backdrop"
               role="presentation"
               onClick={handleCancelAdminProfileEdit}
             >
-              <div
-                className="settings-modal settings-admin-edit-modal"
+              <form
+                className="pending-registration-review settings-admin-edit-modal"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Edit admin information"
+                aria-labelledby="settings-admin-edit-title"
                 onClick={(event) => event.stopPropagation()}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleSaveAdminInfo();
+                }}
               >
-                <div className="settings-modal-header">
-                  <h3>Edit admin information</h3>
+                <header>
+                  <div>
+                    <h2 id="settings-admin-edit-title">Edit Admin Information</h2>
+                    <p>Update personal and address details for this account.</p>
+                  </div>
                   <button
                     type="button"
-                    className="settings-modal-close"
-                    onClick={handleCancelAdminProfileEdit}
                     aria-label="Close dialog"
+                    onClick={handleCancelAdminProfileEdit}
+                    disabled={isSavingAdminProfile}
                   >
-                    <X size={18} aria-hidden="true" />
+                    <X size={16} aria-hidden="true" />
                   </button>
+                </header>
+
+                {adminProfileError ? <p className="pending-registration-error" role="alert">{adminProfileError}</p> : null}
+
+                <div className="pending-registration-review-body">
+                  <section className="pending-registration-review-card">
+                    <h3>Account Information</h3>
+                    <dl>
+                      {adminEditReadonlyFields.map((field) => (
+                        <div key={field.label} className="settings-admin-edit-field">
+                          <dt>{field.label}</dt>
+                          <dd>
+                            <input type="text" value={field.value} readOnly />
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+
+                  <section className="pending-registration-review-card">
+                    <h3>Personal Information</h3>
+                    <dl>
+                      <div className="settings-admin-edit-field">
+                        <dt>Sex</dt>
+                        <dd>
+                          <select
+                            value={adminProfileForm.sex}
+                            onChange={(event) => updateAdminProfileForm('sex', event.target.value)}
+                          >
+                            <option value="">Select sex</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                          </select>
+                        </dd>
+                      </div>
+                      <div className="settings-admin-edit-field">
+                        <dt>Age</dt>
+                        <dd>
+                          <input
+                            type="number"
+                            min="0"
+                            max="120"
+                            value={adminProfileForm.age}
+                            onChange={(event) => updateAdminProfileForm('age', event.target.value)}
+                          />
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section className="pending-registration-review-card">
+                    <h3>Address</h3>
+                    <dl>
+                      <div className="settings-admin-edit-field">
+                        <dt>Street address</dt>
+                        <dd>
+                          <input
+                            type="text"
+                            value={adminProfileForm.street_address}
+                            onChange={(event) => updateAdminProfileForm('street_address', event.target.value)}
+                          />
+                        </dd>
+                      </div>
+                      <div className="settings-admin-edit-field">
+                        <dt>Barangay</dt>
+                        <dd>
+                          <input
+                            type="text"
+                            value={adminProfileForm.barangay}
+                            onChange={(event) => updateAdminProfileForm('barangay', event.target.value)}
+                          />
+                        </dd>
+                      </div>
+                      <div className="settings-admin-edit-field">
+                        <dt>City / Municipality</dt>
+                        <dd>
+                          <input
+                            type="text"
+                            value={adminProfileForm.city_municipality}
+                            onChange={(event) => updateAdminProfileForm('city_municipality', event.target.value)}
+                          />
+                        </dd>
+                      </div>
+                      <div className="settings-admin-edit-field">
+                        <dt>Province</dt>
+                        <dd>
+                          <input
+                            type="text"
+                            value={adminProfileForm.province}
+                            onChange={(event) => updateAdminProfileForm('province', event.target.value)}
+                          />
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
                 </div>
 
-                <p className="settings-modal-body">
-                  Review all profile details below. Only editable fields are enabled.
-                </p>
-
-                {adminProfileError ? <p className="settings-admin-error">{adminProfileError}</p> : null}
-
-                <div className="settings-admin-edit-grid">
-                  {adminEditReadonlyFields.map((field) => (
-                    <label className="settings-field settings-field-readonly" key={field.label}>
-                      <span>{field.label}</span>
-                      <input type="text" value={field.value} readOnly disabled />
-                    </label>
-                  ))}
-
-                  <label className="settings-field">
-                    <span>Sex</span>
-                    <select
-                      value={adminProfileForm.sex}
-                      onChange={(event) => updateAdminProfileForm('sex', event.target.value)}
-                    >
-                      <option value="">Select sex</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                    </select>
-                  </label>
-
-                  <label className="settings-field" key="Age">
-                    <span>Age</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="120"
-                      value={adminProfileForm.age}
-                      onChange={(event) => updateAdminProfileForm('age', event.target.value)}
-                    />
-                  </label>
-
-                  <label className="settings-field">
-                    <span>Province</span>
-                    <input
-                      type="text"
-                      value={adminProfileForm.province}
-                      onChange={(event) => updateAdminProfileForm('province', event.target.value)}
-                    />
-                  </label>
-
-                  <label className="settings-field">
-                    <span>City / Municipality</span>
-                    <input
-                      type="text"
-                      value={adminProfileForm.city_municipality}
-                      onChange={(event) => updateAdminProfileForm('city_municipality', event.target.value)}
-                    />
-                  </label>
-
-                  <label className="settings-field">
-                    <span>Barangay</span>
-                    <input
-                      type="text"
-                      value={adminProfileForm.barangay}
-                      onChange={(event) => updateAdminProfileForm('barangay', event.target.value)}
-                    />
-                  </label>
-
-                  <label className="settings-field settings-admin-edit-full">
-                    <span>Street address</span>
-                    <input
-                      type="text"
-                      value={adminProfileForm.street_address}
-                      onChange={(event) => updateAdminProfileForm('street_address', event.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className="settings-modal-actions">
+                <footer>
                   <button
                     type="button"
-                    className="settings-secondary-button"
+                    className="pending-registration-reject"
                     onClick={handleCancelAdminProfileEdit}
+                    disabled={isSavingAdminProfile}
                   >
                     Cancel
                   </button>
                   <button
-                    type="button"
-                    className="settings-primary-button"
-                    onClick={handleSaveAdminInfo}
+                    type="submit"
+                    className="pending-registration-approve"
                     disabled={isSavingAdminProfile || isAdminProfileLoading}
                   >
                     <Save size={16} aria-hidden="true" />
-                    {isSavingAdminProfile ? 'Saving...' : 'Save admin info'}
+                    {isSavingAdminProfile ? 'Saving...' : 'Save Changes'}
                   </button>
-                </div>
-              </div>
+                </footer>
+              </form>
             </div>
           ) : null}
         </article>

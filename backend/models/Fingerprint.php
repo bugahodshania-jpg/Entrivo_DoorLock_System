@@ -328,4 +328,36 @@ class Fingerprint
 
         return $statement->execute();
     }
+
+    public function deleteById(int $fingerprintId): bool
+    {
+        $existing = $this->getById($fingerprintId);
+
+        if (!$existing) {
+            return false;
+        }
+
+        $jobsHasFingerprintId = (bool) $this->conn
+            ->query("SHOW COLUMNS FROM fingerprint_enrollment_jobs LIKE 'fingerprint_id'")
+            ->fetch();
+
+        if ($jobsHasFingerprintId) {
+            $clearJobs = $this->conn->prepare(
+                "UPDATE fingerprint_enrollment_jobs
+                 SET fingerprint_id = NULL
+                 WHERE fingerprint_id = :fingerprint_id"
+            );
+            $clearJobs->bindValue(':fingerprint_id', $fingerprintId, PDO::PARAM_INT);
+            $clearJobs->execute();
+        }
+
+        $statement = $this->conn->prepare(
+            "DELETE FROM fingerprints
+             WHERE fingerprint_id = :fingerprint_id"
+        );
+        $statement->bindValue(':fingerprint_id', $fingerprintId, PDO::PARAM_INT);
+        $statement->execute();
+
+        return $statement->rowCount() > 0;
+    }
 }

@@ -1,11 +1,13 @@
-import { CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import RowActionMenu from '../../components/RowActionMenu';
-import { formatDateInManila, getManilaDateStamp, parseManilaDateTime } from '../../utils/dateTime';
+import { useActionConfirm } from '../../components/ActionConfirm';
+import { formatDateInManila, getManilaDateStamp, getManilaDateTimeStamp, parseManilaDateTime } from '../../utils/dateTime';
 import { getDefaultGracePeriodMinutes } from '../../utils/systemSettings';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/schedules.css';
+import '../../styles/superAdmin/rfid.css';
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const scheduleStatusOptions = [
@@ -14,7 +16,6 @@ const scheduleStatusOptions = [
   { value: 'overridden', label: 'Overridden' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
-  { value: 'expired', label: 'Expired' },
 ];
 
 const initialFormState = {
@@ -32,10 +33,16 @@ const initialFormState = {
 };
 
 const scheduleTableTabs = [
-  { value: 'today', label: "Today's Schedule" },
-  { value: 'all', label: 'All Schedule' },
-  { value: 'recent', label: 'Recently Add' },
-  { value: 'past', label: 'Past Schedule' },
+  { value: 'today', label: "Today's schedules" },
+  { value: 'incoming', label: 'Incoming schedules' },
+  { value: 'all', label: 'All schedules' },
+  { value: 'recent', label: 'Recently added' },
+  { value: 'past', label: 'Past schedules' },
+];
+
+const scheduleStatusFilterOptions = [
+  { value: 'all', label: 'All statuses' },
+  ...scheduleStatusOptions,
 ];
 
 function normalizeLookupValue(value) {
@@ -65,6 +72,27 @@ function formatScheduleDate(dateValue) {
 
 function getPrimaryScheduleDate(schedule) {
   return schedule.scheduleDate || schedule.startDate || '';
+}
+
+function getScheduleStartStamp(schedule) {
+  const date = getPrimaryScheduleDate(schedule);
+  const time = String(schedule.timeStart || '').trim();
+
+  if (!date || !time) {
+    return '';
+  }
+
+  return `${date} ${time.length === 5 ? `${time}:00` : time}`;
+}
+
+function isIncomingSchedule(schedule, nowStamp) {
+  const startStamp = getScheduleStartStamp(schedule);
+
+  if (!startStamp || startStamp <= nowStamp) {
+    return false;
+  }
+
+  return !['completed', 'cancelled', 'expired'].includes(schedule.status);
 }
 
 function getRecentSortValue(schedule) {
@@ -111,6 +139,26 @@ function getCalendarCellClass(cell) {
     : '';
 
   return `schedules-calendar-cell${cell.isToday ? ' is-today' : ''}${tone}`;
+}
+
+function formatScheduleStatusLabel(status) {
+  const value = String(status || '').trim();
+
+  if (!value) {
+    return 'Unknown';
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatScheduleTypeLabel(type) {
+  const value = String(type || '').trim();
+
+  if (!value) {
+    return '—';
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function CalendarEvent({ schedule }) {
@@ -295,6 +343,7 @@ function getCreatedAtParts(schedule) {
 }
 
 export default function Schedules({ user }) {
+  const confirmAction = useActionConfirm();
   const rowsPerPage = 10;
   const [schedules, setSchedules] = useState([]);
   const [usersByRole, setUsersByRole] = useState({
@@ -322,6 +371,11 @@ export default function Schedules({ user }) {
   const [pendingPayload, setPendingPayload] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [activeScheduleTab, setActiveScheduleTab] = useState('today');
+  const [isScheduleTabMenuOpen, setIsScheduleTabMenuOpen] = useState(false);
+  const [activeStatusFilter, setActiveStatusFilter] = useState('all');
+  const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
+  const scheduleTabMenuRef = useRef(null);
+  const statusFilterMenuRef = useRef(null);
 
   useEffect(() => {
     let isActive = true;
@@ -474,9 +528,12 @@ export default function Schedules({ user }) {
 
   const columns = ['Sched ID', 'User', 'Schedule Window', 'Status', 'Created', 'Actions'];
   const todayStamp = useMemo(() => getManilaDateStamp(), []);
-  const filteredSchedules = useMemo(() => {
-    if (activeScheduleTab === 'all') {
-      return schedules;
+  const nowStamp = useMemo(() => getManilaDateTimeStamp(), [schedules]);
+  const schedulesForActiveTab = useMemo(() => {
+    if (activeScheduleTab === 'incoming') {
+      return schedules
+        .filter((schedule) => isIncomingSchedule(schedule, nowStamp))
+        .sort((left, right) => getScheduleStartStamp(left).localeCompare(getScheduleStartStamp(right)));
     }
 
     if (activeScheduleTab === 'today') {
@@ -508,21 +565,49 @@ export default function Schedules({ user }) {
         });
     }
 
-    return schedules
-      .filter((schedule) => isRecentlyAddedSchedule(schedule))
-      .sort((left, right) => getRecentSortValue(right) - getRecentSortValue(left));
-  }, [activeScheduleTab, schedules, todayStamp]);
+    if (activeScheduleTab === 'recent') {
+      return schedules
+        .filter((schedule) => isRecentlyAddedSchedule(schedule))
+        .sort((left, right) => getRecentSortValue(right) - getRecentSortValue(left));
+    }
+
+    return schedules;
+  }, [activeScheduleTab, nowStamp, schedules, todayStamp]);
+  const filteredSchedules = useMemo(() => {
+    if (activeStatusFilter === 'all') {
+      return schedulesForActiveTab;
+    }
+
+    return schedulesForActiveTab.filter((schedule) => schedule.status === activeStatusFilter);
+  }, [activeStatusFilter, schedulesForActiveTab]);
   const scheduleTabCounts = useMemo(() => {
     return {
       all: schedules.length,
       today: schedules.filter((schedule) => getPrimaryScheduleDate(schedule) === todayStamp).length,
+      incoming: schedules.filter((schedule) => isIncomingSchedule(schedule, nowStamp)).length,
       recent: schedules.filter((schedule) => isRecentlyAddedSchedule(schedule)).length,
       past: schedules.filter((schedule) => {
         const scheduleDate = getPrimaryScheduleDate(schedule);
         return scheduleDate && scheduleDate < todayStamp;
       }).length,
     };
-  }, [schedules, todayStamp]);
+  }, [nowStamp, schedules, todayStamp]);
+  const statusFilterCounts = useMemo(() => {
+    return {
+      all: schedulesForActiveTab.length,
+      ...Object.fromEntries(
+        scheduleStatusOptions.map((option) => [
+          option.value,
+          schedulesForActiveTab.filter((schedule) => schedule.status === option.value).length,
+        ]),
+      ),
+    };
+  }, [schedulesForActiveTab]);
+  const activeScheduleTabConfig =
+    scheduleTableTabs.find((tab) => tab.value === activeScheduleTab) || scheduleTableTabs[0];
+  const activeStatusFilterConfig =
+    scheduleStatusFilterOptions.find((option) => option.value === activeStatusFilter) ||
+    scheduleStatusFilterOptions[0];
   const totalPages = Math.max(1, Math.ceil(filteredSchedules.length / rowsPerPage));
   const paginatedSchedules = useMemo(() => {
     const startIndex = (currentPage - 1) * rowsPerPage;
@@ -537,7 +622,38 @@ export default function Schedules({ user }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeScheduleTab]);
+  }, [activeScheduleTab, activeStatusFilter]);
+
+  useEffect(() => {
+    if (!isScheduleTabMenuOpen && !isStatusFilterMenuOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (isScheduleTabMenuOpen && !scheduleTabMenuRef.current?.contains(event.target)) {
+        setIsScheduleTabMenuOpen(false);
+      }
+
+      if (isStatusFilterMenuOpen && !statusFilterMenuRef.current?.contains(event.target)) {
+        setIsStatusFilterMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsScheduleTabMenuOpen(false);
+        setIsStatusFilterMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isScheduleTabMenuOpen, isStatusFilterMenuOpen]);
 
   useEffect(() => {
     if (!isModalOpen && !editingSchedule && !viewSchedule && !deleteSchedule && !historySchedule && !conflictInfo) {
@@ -667,6 +783,16 @@ export default function Schedules({ user }) {
       return;
     }
 
+    const confirmed = await confirmAction({
+      step: 'password',
+      title: 'Security Verification',
+      message: 'Enter your password to confirm this action.',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+
     try {
       await axiosClient.delete('/api/schedules.php?id=' + deleteSchedule.id);
       setSchedules((previous) => previous.filter((s) => s.id !== deleteSchedule.id));
@@ -762,6 +888,14 @@ export default function Schedules({ user }) {
         return;
       }
 
+      const confirmed = await confirmAction({
+        title: 'Update schedule',
+        message: 'Are you sure you want to update this schedule?',
+      });
+      if (!confirmed) {
+        return;
+      }
+
       setIsSubmitting(true);
 
       try {
@@ -824,6 +958,14 @@ export default function Schedules({ user }) {
 
     if (formState.scheduleType === 'recurring' && formState.repeatType === 'weekly_selected' && formState.repeatDays.length === 0) {
       setFormError('Select at least one repeat day.');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Add schedule',
+      message: 'Are you sure you want to add this schedule?',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -902,7 +1044,7 @@ export default function Schedules({ user }) {
     const grouped = new Map();
 
     schedules.forEach((schedule) => {
-      if (!schedule.scheduleDate) {
+      if (!schedule.scheduleDate || schedule.status === 'pending') {
         return;
       }
 
@@ -1003,12 +1145,30 @@ export default function Schedules({ user }) {
 
   function exportPendingCalendar() {
     const title = `${monthNames[calMonth]} ${calYear}`;
+    const pendingByDate = new Map();
+
+    schedules.forEach((schedule) => {
+      if (!schedule.scheduleDate || schedule.status !== 'pending') {
+        return;
+      }
+
+      const [year, month] = schedule.scheduleDate.split('-').map(Number);
+
+      if (year !== calYear || month !== calMonth + 1) {
+        return;
+      }
+
+      const entries = pendingByDate.get(schedule.scheduleDate) || [];
+      entries.push(schedule);
+      pendingByDate.set(schedule.scheduleDate, entries);
+    });
+
     const cells = calendarGrid.map((cell) => {
       if (!cell) {
         return null;
       }
 
-      const entries = cell.entries.filter((schedule) => schedule.status === 'pending');
+      const entries = pendingByDate.get(cell.dateStr) || [];
 
       return {
         day: cell.day,
@@ -1058,20 +1218,114 @@ export default function Schedules({ user }) {
           </div>
         </div>
 
-        <div className="schedules-table-tabs" role="tablist" aria-label="Schedule table filters">
-          {scheduleTableTabs.map((tab) => (
+        <div className="schedules-table-filters">
+          <div
+            className="schedules-table-tabs"
+            ref={scheduleTabMenuRef}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) {
+                setIsScheduleTabMenuOpen(false);
+              }
+            }}
+          >
             <button
-              key={tab.value}
               type="button"
-              role="tab"
-              className={`schedules-table-tab${activeScheduleTab === tab.value ? ' is-active' : ''}`}
-              aria-selected={activeScheduleTab === tab.value}
-              onClick={() => setActiveScheduleTab(tab.value)}
+              className={`schedules-table-tab-trigger${isScheduleTabMenuOpen ? ' is-open' : ''}`}
+              aria-haspopup="listbox"
+              aria-expanded={isScheduleTabMenuOpen}
+              aria-controls="schedule-filter-menu"
+              aria-label={`Schedule filter: ${activeScheduleTabConfig.label}`}
+              onClick={() => {
+                setIsScheduleTabMenuOpen((open) => !open);
+                setIsStatusFilterMenuOpen(false);
+              }}
             >
-              {tab.label}
-              <span>{scheduleTabCounts[tab.value]}</span>
+              <span className="schedules-table-tab-trigger-label">{activeScheduleTabConfig.label}</span>
+              <span className="schedules-table-tab-count">{scheduleTabCounts[activeScheduleTabConfig.value]}</span>
+              <ChevronDown className="schedules-table-tab-chevron" size={14} aria-hidden="true" />
             </button>
-          ))}
+
+            {isScheduleTabMenuOpen ? (
+              <div
+                id="schedule-filter-menu"
+                className="schedules-table-tab-menu"
+                role="listbox"
+                aria-label="Schedule table filters"
+              >
+                {scheduleTableTabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    role="option"
+                    className={`schedules-table-tab-option${activeScheduleTab === tab.value ? ' is-active' : ''}`}
+                    aria-selected={activeScheduleTab === tab.value}
+                    onClick={() => {
+                      setActiveScheduleTab(tab.value);
+                      setIsScheduleTabMenuOpen(false);
+                    }}
+                  >
+                    <Check className="schedules-table-tab-check" size={15} aria-hidden="true" />
+                    <span className="schedules-table-tab-option-label">{tab.label}</span>
+                    <span className="schedules-table-tab-count">{scheduleTabCounts[tab.value]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div
+            className="schedules-table-tabs schedules-status-filter"
+            ref={statusFilterMenuRef}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) {
+                setIsStatusFilterMenuOpen(false);
+              }
+            }}
+          >
+            <button
+              type="button"
+              className={`schedules-table-tab-trigger${isStatusFilterMenuOpen ? ' is-open' : ''}`}
+              aria-haspopup="listbox"
+              aria-expanded={isStatusFilterMenuOpen}
+              aria-controls="schedule-status-filter-menu"
+              aria-label={`Status filter: ${activeStatusFilterConfig.label}`}
+              onClick={() => {
+                setIsStatusFilterMenuOpen((open) => !open);
+                setIsScheduleTabMenuOpen(false);
+              }}
+            >
+              <span className="schedules-table-tab-trigger-label">{activeStatusFilterConfig.label}</span>
+              <span className="schedules-table-tab-count">{statusFilterCounts[activeStatusFilterConfig.value]}</span>
+              <ChevronDown className="schedules-table-tab-chevron" size={14} aria-hidden="true" />
+            </button>
+
+            {isStatusFilterMenuOpen ? (
+              <div
+                id="schedule-status-filter-menu"
+                className="schedules-table-tab-menu"
+                role="listbox"
+                aria-label="Schedule status filters"
+              >
+                {scheduleStatusFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    className={`schedules-table-tab-option${activeStatusFilter === option.value ? ' is-active' : ''}`}
+                    aria-selected={activeStatusFilter === option.value}
+                    onClick={() => {
+                      setActiveStatusFilter(option.value);
+                      setIsStatusFilterMenuOpen(false);
+                    }}
+                  >
+                    <Check className="schedules-table-tab-check" size={15} aria-hidden="true" />
+                    <span className="schedules-table-tab-option-label">{option.label}</span>
+                    <span className="schedules-table-tab-count">{statusFilterCounts[option.value]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="dashboard-recent-table-wrap schedules-table-wrap">
@@ -1103,10 +1357,14 @@ export default function Schedules({ user }) {
               {!isLoading && !errorMessage && filteredSchedules.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {activeScheduleTab === 'all' && 'No schedules found.'}
-                    {activeScheduleTab === 'today' && 'No schedules found for today.'}
-                    {activeScheduleTab === 'recent' && 'No recently added schedules found.'}
-                    {activeScheduleTab === 'past' && 'No past schedules found.'}
+                    {activeStatusFilter !== 'all'
+                      ? `No ${activeStatusFilterConfig.label.toLowerCase()} schedules found.`
+                      : null}
+                    {activeStatusFilter === 'all' && activeScheduleTab === 'all' && 'No schedules found.'}
+                    {activeStatusFilter === 'all' && activeScheduleTab === 'today' && 'No schedules found for today.'}
+                    {activeStatusFilter === 'all' && activeScheduleTab === 'incoming' && 'No incoming schedules found.'}
+                    {activeStatusFilter === 'all' && activeScheduleTab === 'recent' && 'No recently added schedules found.'}
+                    {activeStatusFilter === 'all' && activeScheduleTab === 'past' && 'No past schedules found.'}
                   </td>
                 </tr>
               )}
@@ -1540,110 +1798,210 @@ export default function Schedules({ user }) {
       )}
 
       {editingSchedule && (
-        <div className="schedules-modal-overlay" onClick={closeAllModals}>
-          <div className="schedules-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="schedules-modal-header">
+        <div
+          className="pending-registration-review-backdrop schedules-view-backdrop"
+          role="presentation"
+          onClick={closeAllModals}
+        >
+          <form
+            className="pending-registration-review schedules-edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schedule-edit-title"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={handleSubmit}
+          >
+            <header>
               <div>
-                <strong>Edit Schedule</strong>
+                <h2 id="schedule-edit-title">Edit Schedule</h2>
                 <p>Update schedule #{editingSchedule.id}</p>
               </div>
-              <button type="button" className="schedules-modal-close" onClick={closeAllModals}>
-                <X size={18} />
+              <button type="button" aria-label="Close edit schedule" onClick={closeAllModals} disabled={isSubmitting}>
+                <X size={16} aria-hidden="true" />
               </button>
+            </header>
+
+            <div className="pending-registration-review-body">
+              <section className="pending-registration-review-card">
+                <h3>User</h3>
+                <dl>
+                  <div>
+                    <dt>Name</dt>
+                    <dd>{activeSelectedUser ? getUserDisplayName(activeSelectedUser) : editingSchedule.ownerName || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>{activeSelectedUser?.identifierLabel || 'Identifier'}</dt>
+                    <dd>
+                      {activeSelectedUser?.identifier || editingSchedule.ownerIdentifier || '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="pending-registration-review-card">
+                <h3>Schedule</h3>
+                <dl>
+                  <div className="is-wide schedules-edit-field">
+                    <dt>Schedule date</dt>
+                    <dd>
+                      <input
+                        type="date"
+                        value={formState.scheduleDate}
+                        onChange={(e) => updateField('scheduleDate', e.target.value)}
+                        required
+                      />
+                    </dd>
+                  </div>
+                  <div className="schedules-edit-field">
+                    <dt>Time start</dt>
+                    <dd>
+                      <input
+                        type="time"
+                        value={formState.timeStart}
+                        onChange={(e) => updateField('timeStart', e.target.value)}
+                        required
+                      />
+                    </dd>
+                  </div>
+                  <div className="schedules-edit-field">
+                    <dt>Time end</dt>
+                    <dd>
+                      <input
+                        type="time"
+                        value={formState.timeEnd}
+                        onChange={(e) => updateField('timeEnd', e.target.value)}
+                        required
+                      />
+                    </dd>
+                  </div>
+                  <div className="is-wide schedules-edit-field">
+                    <dt>Status</dt>
+                    <dd>
+                      <select
+                        value={formState.status}
+                        onChange={(e) => updateField('status', e.target.value)}
+                        required
+                      >
+                        {scheduleStatusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+
+              {formError ? <p className="pending-registration-error" role="alert">{formError}</p> : null}
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="schedules-form-grid">
-                {activeSelectedUser && (
-                  <div className="schedules-user-details">
-                    <span><strong>Name:</strong> {getUserDisplayName(activeSelectedUser)}</span>
-                    <span><strong>{activeSelectedUser.identifierLabel}:</strong> {activeSelectedUser.identifier}</span>
-                  </div>
-                )}
-
-                <div className="schedules-field">
-                  <label>Schedule Date</label>
-                  <input type="date" value={formState.scheduleDate} onChange={(e) => updateField('scheduleDate', e.target.value)} />
-                </div>
-
-                <div className="schedules-form-row">
-                  <div className="schedules-field">
-                    <label>Time Start</label>
-                    <input type="time" value={formState.timeStart} onChange={(e) => updateField('timeStart', e.target.value)} />
-                  </div>
-                  <div className="schedules-field">
-                    <label>Time End</label>
-                    <input type="time" value={formState.timeEnd} onChange={(e) => updateField('timeEnd', e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="schedules-field">
-                  <label>Status</label>
-                  <select value={formState.status} onChange={(e) => updateField('status', e.target.value)}>
-                    {scheduleStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {formError && <p className="schedules-form-error">{formError}</p>}
-
-              <div className="schedules-form-actions">
-                <button type="button" className="schedules-secondary-button" onClick={closeAllModals}>Cancel</button>
-                <button type="submit" className="schedules-primary-button" disabled={isSubmitting}>
-                  {isSubmitting ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
+            <footer>
+              <button
+                type="button"
+                className="pending-registration-reject"
+                onClick={closeAllModals}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="pending-registration-approve" disabled={isSubmitting}>
+                {isSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </footer>
+          </form>
         </div>
       )}
 
       {viewSchedule && (
-        <div className="schedules-modal-overlay" onClick={closeAllModals}>
-          <div className="schedules-modal schedules-view-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="schedules-modal-header">
+        <div
+          className="pending-registration-review-backdrop schedules-view-backdrop"
+          role="presentation"
+          onClick={closeAllModals}
+        >
+          <section
+            className="pending-registration-review schedules-view-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schedule-view-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
               <div>
-                <strong>Schedule Details</strong>
+                <h2 id="schedule-view-title">Schedule Details</h2>
                 <p>Schedule #{viewSchedule.id}</p>
               </div>
-              <button type="button" className="schedules-modal-close" onClick={closeAllModals}>
-                <X size={18} />
+              <button type="button" aria-label="Close schedule details" onClick={closeAllModals}>
+                <X size={16} aria-hidden="true" />
               </button>
+            </header>
+
+            <div className="pending-registration-review-body">
+              <section className="pending-registration-review-card">
+                <h3>User</h3>
+                <dl>
+                  <div>
+                    <dt>Name</dt>
+                    <dd>{viewSchedule.ownerName || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Identifier</dt>
+                    <dd>{viewSchedule.ownerIdentifier || '—'}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="pending-registration-review-card">
+                <h3>Schedule</h3>
+                <dl>
+                  <div>
+                    <dt>Type</dt>
+                    <dd>{formatScheduleTypeLabel(viewSchedule.scheduleType)}</dd>
+                  </div>
+                  <div>
+                    <dt>Grace period</dt>
+                    <dd>
+                      {Number.isFinite(Number(viewSchedule.gracePeriodMinutes))
+                        ? `${viewSchedule.gracePeriodMinutes} min`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Schedule date</dt>
+                    <dd>{getScheduleWindowParts(viewSchedule).dateLabel || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Schedule time</dt>
+                    <dd>{getScheduleWindowParts(viewSchedule).timeLabel || '—'}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="pending-registration-review-card">
+                <h3>Status</h3>
+                <dl>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>
+                      <span className={`dashboard-log-status dashboard-log-status-${viewSchedule.status}`}>
+                        {formatScheduleStatusLabel(viewSchedule.status)}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Created at</dt>
+                    <dd>{viewSchedule.createdAt || '—'}</dd>
+                  </div>
+                </dl>
+              </section>
             </div>
-            <div className="schedules-view-grid">
-              <div>
-                <span className="schedules-view-label">User</span>
-                <span>{viewSchedule.ownerName}</span>
-              </div>
-              <div>
-                <span className="schedules-view-label">Identifier</span>
-                <span>{viewSchedule.ownerIdentifier}</span>
-              </div>
-              <div>
-                <span className="schedules-view-label">Type</span>
-                <span>{viewSchedule.scheduleType}</span>
-              </div>
-              <div>
-                <span className="schedules-view-label">Schedule Window</span>
-                <span>{getScheduleWindowLabel(viewSchedule)}</span>
-              </div>
-              <div>
-                <span className="schedules-view-label">Status</span>
-                <span className={`dashboard-log-status dashboard-log-status-${viewSchedule.status}`}>
-                  {viewSchedule.status}
-                </span>
-              </div>
-              <div>
-                <span className="schedules-view-label">Created At</span>
-                <span>{viewSchedule.createdAt}</span>
-              </div>
-            </div>
-            <div className="schedules-form-actions">
-              <button type="button" className="schedules-secondary-button" onClick={closeAllModals}>Close</button>
-            </div>
-          </div>
+
+            <footer>
+              <button type="button" className="pending-registration-reject" onClick={closeAllModals}>
+                Close
+              </button>
+            </footer>
+          </section>
         </div>
       )}
 

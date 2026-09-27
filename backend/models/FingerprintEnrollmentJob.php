@@ -70,6 +70,27 @@ class FingerprintEnrollmentJob
         return (bool) $stmt->fetch();
     }
 
+    public function ensureEnrollmentDevice(int $deviceId): void
+    {
+        if ($deviceId <= 0 || $this->deviceExists($deviceId)) {
+            return;
+        }
+
+        $sql = "INSERT INTO fingerprint_devices
+                    (device_id, device_name, device_code, device_type, location, description, status)
+                VALUES
+                    (:device_id, 'Enrollment Station', :device_code, 'enrollment', 'Enrollment Station', 'Default fingerprint enrollment sensor', 'active')
+                ON DUPLICATE KEY UPDATE
+                    device_type = 'enrollment',
+                    status = 'active'";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute([
+            'device_id' => $deviceId,
+            'device_code' => 'enrollment-station-' . $deviceId,
+        ]);
+    }
+
     public function getNextAvailableSlot()
     {
         $sql = "SELECT IFNULL(MAX(slot_value), 0) + 1 AS next_slot
@@ -562,6 +583,28 @@ class FingerprintEnrollmentJob
         $stmt = $this->conn->prepare($sql);
 
         return $stmt->execute([$jobId]) && $stmt->rowCount() > 0;
+    }
+
+    public function cancelIdleWaitingJobs(int $timeoutMinutes = 30): int
+    {
+        $timeoutMinutes = max(1, min($timeoutMinutes, 24 * 60));
+        $message = 'Enrollment was cancelled because it did not move within 30 minutes.';
+
+        $sql = "UPDATE fingerprint_enrollment_jobs
+                SET
+                    status = 'cancelled',
+                    progress = 0,
+                    current_step = 'Enrollment cancelled',
+                    error_message = :message,
+                    finished_at = NOW()
+                WHERE status = 'waiting'
+                  AND finished_at IS NULL
+                  AND COALESCE(updated_at, created_at) < DATE_SUB(NOW(), INTERVAL {$timeoutMinutes} MINUTE)";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute(['message' => $message]);
+
+        return $stmt->rowCount();
     }
 
     public function cancelWaitingJob(int $jobId, string $message): bool

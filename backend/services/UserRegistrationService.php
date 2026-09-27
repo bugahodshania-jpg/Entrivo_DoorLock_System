@@ -59,6 +59,14 @@ class UserRegistrationService
             throw new InvalidArgumentException('Role must be student, faculty, staff, admin, or superadmin.');
         }
 
+        if (in_array($role, ['admin', 'super_admin'], true)) {
+            if ($role === 'super_admin') {
+                $this->assertCanCreateSuperAdmin();
+            } else {
+                $this->assertCanCreateActiveAdmin();
+            }
+        }
+
         $username = $this->requiredText($input, 'username', 'Username');
         $password = (string)($input['password'] ?? '');
         $email = $this->normalizeEmail($this->requiredText($input, 'email', 'Email'));
@@ -128,6 +136,24 @@ class UserRegistrationService
             $fingerprint = $role === 'student' ? null : $this->createPendingFingerprint($userId);
 
             $this->pdo->commit();
+
+            if (in_array($role, ['admin', 'super_admin'], true)) {
+                try {
+                    require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
+                    (new UserPrivilegeService($this->pdo))->seedDefaultsIfMissing($userId, $role);
+                } catch (Throwable) {
+                    // Privileges can be seeded later on login.
+                }
+            }
+
+            if ($role === 'super_admin') {
+                try {
+                    require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
+                    (new SuperAdminDashboardSession($this->pdo))->placeOnStandbyIfSessionHeldByOther($userId);
+                } catch (Throwable) {
+                    // Session standby sync is best-effort.
+                }
+            }
 
             return [
                 'user_id' => $userId,
@@ -626,6 +652,54 @@ class UserRegistrationService
             'superadmin', 'super_admin' => 'super_admin',
             default => $normalized,
         };
+    }
+
+    private function assertCanCreateActiveAdmin(): void
+    {
+        $activeAdminCount = (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM users WHERE role IN ('admin', 'super_admin') AND is_active = 1"
+        )->fetchColumn();
+
+        if ($activeAdminCount >= 2) {
+            throw new InvalidArgumentException(
+                'Only 2 active admin accounts are allowed. Block an existing admin before creating another.'
+            );
+        }
+    }
+
+    private function assertCanCreateSuperAdmin(): void
+    {
+        $superAdmins = $this->pdo->query(
+            "SELECT id, is_active FROM users WHERE role = 'super_admin'"
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $standbyMap = [];
+
+        try {
+            require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
+            $standbyMap = (new SuperAdminDashboardSession($this->pdo))->standbyUserIdMap();
+        } catch (Throwable) {
+            $standbyMap = [];
+        }
+
+        $occupiedSlots = 0;
+
+        foreach ($superAdmins as $row) {
+            $userId = (int) ($row['id'] ?? 0);
+            $isActive = (bool) ($row['is_active'] ?? false);
+            $isStandby = !empty($standbyMap[$userId]);
+
+            // Blocked accounts free a slot; active and session-standby still occupy one.
+            if ($isActive || $isStandby) {
+                $occupiedSlots += 1;
+            }
+        }
+
+        if ($occupiedSlots >= 2) {
+            throw new InvalidArgumentException(
+                'Only 2 active super admin accounts are allowed. Block an existing super admin before creating another.'
+            );
+        }
     }
 
     private function normalizeSex(mixed $sex): ?string

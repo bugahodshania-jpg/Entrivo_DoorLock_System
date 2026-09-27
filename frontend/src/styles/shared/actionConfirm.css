@@ -1,0 +1,141 @@
+.action-confirm-backdrop {
+  align-items: center;
+  background: rgba(4, 20, 13, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 10050;
+}
+
+.action-confirm-modal,
+.action-confirm-modal form {
+  background: #ffffff;
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  box-shadow: 0 16px 40px rgba(16, 37, 29, 0.12);
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  width: min(440px, 100%);
+}
+
+.action-confirm-modal form {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  width: auto;
+}
+
+.action-confirm-modal h2 {
+  color: #10251d;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.action-confirm-modal p {
+  color: #4d5f57;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.action-confirm-modal label {
+  color: #10251d;
+  display: grid;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.action-confirm-modal input {
+  border: 1px solid #d7e2dc;
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: #10251d;
+  font: inherit;
+  height: 40px;
+  padding: 0 40px 0 12px;
+  width: 100%;
+}
+
+.action-confirm-modal input:focus {
+  border-color: #0c4b2d;
+  outline: 2px solid rgba(12, 75, 45, 0.16);
+  outline-offset: 1px;
+}
+
+.action-confirm-secret {
+  position: relative;
+}
+
+.action-confirm-secret > button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #4d5f57;
+  cursor: pointer;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 40px;
+}
+
+.action-confirm-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.action-confirm-actions button {
+  align-items: center;
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  height: 40px;
+  justify-content: center;
+  min-width: 104px;
+  padding: 0 16px;
+}
+
+.action-confirm-actions button:hover {
+  background: #083d24;
+  border-color: #083d24;
+}
+
+.action-confirm-actions button.action-confirm-danger {
+  background: #9d3030;
+  border-color: #9d3030;
+}
+
+.action-confirm-actions button.action-confirm-danger:hover {
+  background: #7d2424;
+  border-color: #7d2424;
+}
+
+.action-confirm-secondary,
+.action-confirm-secondary:hover {
+  background: #ffffff !important;
+  border: 1px solid #d7e2dc !important;
+  color: #10251d !important;
+}
+
+.action-confirm-error {
+  color: #d12424 !important;
+  font-size: 13px !important;
+}

@@ -305,8 +305,6 @@ export default function Home() {
 
       <section className="home-band" id="workflow" data-reveal>
         <div className="home-band-visual">
-          <PixelWave />
-
           <div className="home-section-heading">
             <p className="home-eyebrow">How it works</p>
             <h2>Built to keep access simple for people and secure for administrators.</h2>
@@ -349,7 +347,8 @@ export default function Home() {
       </section>
 
       <section className="home-cta" data-reveal>
-        <div>
+        <PixelWave variant="cta" className="home-cta-pixel-wave" />
+        <div className="home-cta-copy">
           <p className="home-eyebrow">Get started</p>
           <h2>Access your dashboard or request a new account.</h2>
         </div>

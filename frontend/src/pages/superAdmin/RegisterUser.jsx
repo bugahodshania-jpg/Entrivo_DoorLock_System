@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import { useActionConfirm } from '../../components/ActionConfirm';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/registerUser.css';
@@ -330,6 +331,7 @@ function buildPayload(form) {
 }
 
 export default function RegisterUser() {
+  const confirmAction = useActionConfirm();
   const params = new URLSearchParams(window.location.search);
   const initialRole = normalizeInitialRole(params.get('role'));
   const uploadInputRef = useRef(null);
@@ -349,6 +351,7 @@ export default function RegisterUser() {
   const [savedUser, setSavedUser] = useState(null);
   const [touchedFields, setTouchedFields] = useState({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [superAdminSlotsFull, setSuperAdminSlotsFull] = useState(false);
 
   const roleLabel = useMemo(() => formatRole(form.role), [form.role]);
   const isStudentRole = form.role === 'student';
@@ -522,6 +525,34 @@ export default function RegisterUser() {
   }, [isCameraOpen]);
 
   useEffect(() => {
+    let isActive = true;
+
+    async function loadSuperAdminCapacity() {
+      try {
+        const response = await axiosClient.get('/api/user.php');
+        const admins = response.data?.users?.admins || [];
+        const superAdminCount = admins.filter(
+          (user) => user.role === 'super_admin' && user.status !== 'blocked',
+        ).length;
+
+        if (isActive) {
+          setSuperAdminSlotsFull(superAdminCount >= 2);
+        }
+      } catch {
+        if (isActive) {
+          setSuperAdminSlotsFull(false);
+        }
+      }
+    }
+
+    loadSuperAdminCapacity();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       window.sessionStorage.setItem(
         registrationDraftKey,
@@ -579,6 +610,15 @@ export default function RegisterUser() {
     if (Object.keys(currentErrors).length > 0) {
       setErrorMessage('Please correct the highlighted fields before saving.');
       scrollToFormError();
+      setIsSaving(false);
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Add user',
+      message: 'Are you sure you want to add this user?',
+    });
+    if (!confirmed) {
       setIsSaving(false);
       return;
     }
@@ -974,8 +1014,15 @@ export default function RegisterUser() {
                       onBlur={() => markFieldTouched('role')}
                     >
                       {roleOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          disabled={option.value === 'super_admin' && superAdminSlotsFull}
+                        >
                           {option.label}
+                          {option.value === 'super_admin' && superAdminSlotsFull
+                            ? ' (limit reached)'
+                            : ''}
                         </option>
                       ))}
                     </select>

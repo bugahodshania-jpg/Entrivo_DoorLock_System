@@ -20,10 +20,14 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/LoginSecurityService.php';
+require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
+require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
 
 try {
     $pdo = entrivo_pdo();
     $security = new LoginSecurityService($pdo);
+    $superAdminSession = new SuperAdminDashboardSession($pdo);
+    $privilegeService = new UserPrivilegeService($pdo);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $userId = filter_input(INPUT_GET, 'user_id', FILTER_VALIDATE_INT);
@@ -53,9 +57,26 @@ try {
             exit;
         }
 
+        if (($user['role'] ?? '') === 'super_admin') {
+            try {
+                $superAdminSession->heartbeat((int) $user['id']);
+            } catch (InvalidArgumentException) {
+                try {
+                    $superAdminSession->claim((int) $user['id'], (string) $user['username']);
+                } catch (InvalidArgumentException $sessionError) {
+                    http_response_code(409);
+                    echo json_encode([
+                        'message' => $sessionError->getMessage(),
+                        'code' => 'super_admin_session_taken',
+                    ]);
+                    exit;
+                }
+            }
+        }
+
         echo json_encode([
             'message' => 'User profile loaded.',
-            'user' => $user,
+            'user' => attachUserPrivileges($privilegeService, $user),
         ]);
         exit;
     }
@@ -68,9 +89,50 @@ try {
 
         if ($userId > 0 && $username !== '') {
             $security->recordAttempt($userId, $username, 'logout', null);
+            $superAdminSession->release($userId);
         }
 
         echo json_encode(['message' => 'Logged out.']);
+        exit;
+    }
+
+    if (($input['action'] ?? '') === 'super_admin_heartbeat') {
+        $userId = (int) ($input['user_id'] ?? 0);
+
+        if ($userId < 1) {
+            http_response_code(422);
+            echo json_encode(['message' => 'A valid user id is required.']);
+            exit;
+        }
+
+        $roleCheck = $pdo->prepare(
+            'SELECT role, is_active, username FROM users WHERE id = :id LIMIT 1'
+        );
+        $roleCheck->execute(['id' => $userId]);
+        $roleRow = $roleCheck->fetch(PDO::FETCH_ASSOC);
+
+        if (!$roleRow || !(bool) $roleRow['is_active'] || ($roleRow['role'] ?? '') !== 'super_admin') {
+            http_response_code(403);
+            echo json_encode([
+                'message' => 'Only an active super admin can hold the dashboard session.',
+                'code' => 'super_admin_session_taken',
+            ]);
+            exit;
+        }
+
+        try {
+            $payload = $superAdminSession->heartbeat($userId);
+            echo json_encode([
+                'message' => 'Dashboard session refreshed.',
+                'session' => $payload,
+            ]);
+        } catch (InvalidArgumentException $sessionError) {
+            http_response_code(409);
+            echo json_encode([
+                'message' => $sessionError->getMessage(),
+                'code' => 'super_admin_session_taken',
+            ]);
+        }
         exit;
     }
 
@@ -256,9 +318,21 @@ try {
             $security->recordAttempt($userId, $username, 'failed', 'inactive');
             $pdo->commit();
 
+            $inactiveMessage = 'This account has been blocked. Contact an administrator for help.';
+
+            if (($user['role'] ?? '') === 'super_admin') {
+                try {
+                    if ($superAdminSession->isStandbyUser($userId)) {
+                        $inactiveMessage = 'Another Super Admin is currently active. Only one Super Admin can be active at a time. Please try again later.';
+                    }
+                } catch (Throwable) {
+                    // Keep the default blocked message.
+                }
+            }
+
             http_response_code(403);
             echo json_encode([
-                'message' => 'This account is disabled.',
+                'message' => $inactiveMessage,
                 'field' => 'username',
                 'locked' => false,
                 'retry_after' => 0,
@@ -309,18 +383,58 @@ try {
         throw $inner;
     }
 
+    if (($user['role'] ?? '') === 'super_admin') {
+        try {
+            $superAdminSession->claim($userId, (string) $user['username']);
+        } catch (InvalidArgumentException $sessionError) {
+            http_response_code(409);
+            echo json_encode([
+                'message' => $sessionError->getMessage(),
+                'field' => 'username',
+                'locked' => false,
+                'retry_after' => 0,
+                'show_forgot_password' => false,
+                'code' => 'super_admin_session_taken',
+            ]);
+            exit;
+        }
+    }
+
     unset($user['password_hash']);
 
     echo json_encode([
         'message' => 'Login successful.',
-        'user' => $user,
+        'user' => attachUserPrivileges($privilegeService, $user),
         'locked' => false,
         'retry_after' => 0,
         'show_forgot_password' => false,
+    ]);
+} catch (InvalidArgumentException $error) {
+    http_response_code(422);
+    echo json_encode([
+        'message' => $error->getMessage(),
     ]);
 } catch (Throwable $error) {
     http_response_code(500);
     echo json_encode([
         'message' => 'Unable to connect to the authentication service.',
     ]);
+}
+
+function attachUserPrivileges(UserPrivilegeService $privilegeService, array $user): array
+{
+    $role = (string) ($user['role'] ?? '');
+
+    if (!in_array($role, ['admin', 'super_admin'], true)) {
+        $user['privileges'] = [];
+        return $user;
+    }
+
+    try {
+        $user['privileges'] = $privilegeService->seedDefaultsIfMissing((int) $user['id'], $role);
+    } catch (Throwable) {
+        $user['privileges'] = UserPrivilegeService::defaultsForRole($role);
+    }
+
+    return $user;
 }

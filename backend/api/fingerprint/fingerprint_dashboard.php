@@ -21,8 +21,31 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require_once dirname(__DIR__, 2) . '/config/connection.php';
+require_once dirname(__DIR__, 2) . '/services/SuperAdminDashboardSession.php';
 
-function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
+function getFingerprintStandbyMap(PDO $pdo): array
+{
+    try {
+        return (new SuperAdminDashboardSession($pdo))->standbyUserIdMap();
+    } catch (Throwable) {
+        return [];
+    }
+}
+
+function resolveFingerprintUserStatus(bool $isActive, string $role, int $userId, array $standbyMap = []): string
+{
+    if ($isActive) {
+        return 'active';
+    }
+
+    if ($role === 'super_admin' && !empty($standbyMap[$userId])) {
+        return 'inactive';
+    }
+
+    return 'blocked';
+}
+
+function fetchFingerprintsByRole(PDO $pdo, string $roleKey, array $standbyMap = []): array
 {
     $profileTable = match ($roleKey) {
         'faculty' => 'faculty_info',
@@ -34,12 +57,21 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
         ? "users.role IN ('admin', 'super_admin')"
         : 'users.role = :role';
     $columns = $pdo->query('SHOW COLUMNS FROM fingerprints')->fetchAll(PDO::FETCH_COLUMN);
-    $registeredAtExpression = in_array('registered_at', $columns, true)
-        ? "DATE_FORMAT(fingerprints.registered_at, '%b %e, %Y %h:%i %p')"
-        : "DATE_FORMAT(fingerprints.enrolled_at, '%b %e, %Y %h:%i %p')";
-    $orderTimestampColumn = in_array('registered_at', $columns, true)
-        ? 'fingerprints.registered_at'
-        : 'fingerprints.enrolled_at';
+    $hasEnrolledAt = in_array('enrolled_at', $columns, true);
+    $hasRegisteredAt = in_array('registered_at', $columns, true);
+    $hasDoorSyncedAt = in_array('door_synced_at', $columns, true);
+    $enrolledAtSource = $hasEnrolledAt
+        ? 'fingerprints.enrolled_at'
+        : ($hasRegisteredAt ? 'fingerprints.registered_at' : 'NULL');
+    $enrolledAtExpression = $enrolledAtSource === 'NULL'
+        ? 'NULL'
+        : "DATE_FORMAT({$enrolledAtSource}, '%b %e, %Y %h:%i %p')";
+    $syncedAtExpression = $hasDoorSyncedAt
+        ? "DATE_FORMAT(fingerprints.door_synced_at, '%b %e, %Y %h:%i %p')"
+        : 'NULL';
+    $orderTimestampColumn = $enrolledAtSource === 'NULL'
+        ? 'fingerprints.fingerprint_id'
+        : $enrolledAtSource;
 
     $statement = $pdo->prepare(
         "SELECT
@@ -50,12 +82,13 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
             fingerprints.enrollment_slot,
             fingerprints.shared_door_slot,
             fingerprints.door_sync_status,
+            {$syncedAtExpression} AS door_synced_at,
             CASE
                 WHEN fingerprints.template_data IS NULL OR OCTET_LENGTH(fingerprints.template_data) = 0 THEN 0
                 ELSE 1
             END AS has_template_data,
             COALESCE(OCTET_LENGTH(fingerprints.template_data), 0) AS template_bytes,
-            {$registeredAtExpression} AS registered_at,
+            {$enrolledAtExpression} AS enrolled_at,
             users.id AS user_id,
             users.username,
             users.email,
@@ -84,7 +117,7 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
     $statement->execute();
 
     return array_map(
-        static function ($row) {
+        static function ($row) use ($standbyMap) {
             $nameParts = [
                 $row['first_name'],
                 $row['middle_name'],
@@ -92,28 +125,37 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
                 $row['extension_name'],
             ];
             $fullName = trim(implode(' ', array_filter($nameParts)));
+            $userId = (int) $row['user_id'];
+            $role = (string) $row['role'];
 
             return [
                 'id' => (int) $row['fingerprint_id'],
-                'userId' => (int) $row['user_id'],
+                'userId' => $userId,
                 'name' => $fullName ?: $row['username'],
                 'username' => $row['username'],
                 'email' => $row['email'],
-                'role' => $row['role'],
+                'role' => $role,
                 'identifier' => $row['profile_identifier'] ?: 'Not assigned',
                 'userPhoto' => $row['users_photo'] ?? null,
                 'officeDepartment' => $row['office_department'],
                 'workPosition' => $row['work_position'],
                 'fingerName' => $row['finger_name'] ?: 'Pending Enrollment',
-                'registeredAt' => $row['registered_at'],
+                'enrolledAt' => $row['enrolled_at'],
+                'registeredAt' => $row['enrolled_at'],
                 'status' => $row['fingerprint_status'],
                 'enrollmentDeviceId' => isset($row['enrollment_device_id']) ? (int) $row['enrollment_device_id'] : null,
                 'enrollmentSlot' => isset($row['enrollment_slot']) ? (int) $row['enrollment_slot'] : null,
                 'sharedDoorSlot' => isset($row['shared_door_slot']) ? (int) $row['shared_door_slot'] : null,
                 'doorSyncStatus' => $row['door_sync_status'],
+                'syncedAt' => $row['door_synced_at'],
                 'hasTemplateData' => (bool) ($row['has_template_data'] ?? false),
                 'templateBytes' => (int) ($row['template_bytes'] ?? 0),
-                'userStatus' => (bool) $row['is_active'] ? 'active' : 'inactive',
+                'userStatus' => resolveFingerprintUserStatus(
+                    (bool) $row['is_active'],
+                    $role,
+                    $userId,
+                    $standbyMap
+                ),
                 'joinedAt' => $row['joined_at'],
             ];
         },
@@ -123,12 +165,13 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey): array
 
 try {
     $pdo = entrivo_pdo();
-echo json_encode([
+    $standbyMap = getFingerprintStandbyMap($pdo);
+    echo json_encode([
         'message' => 'Fingerprints loaded.',
         'fingerprints' => [
-            'faculty' => fetchFingerprintsByRole($pdo, 'faculty'),
-            'staff' => fetchFingerprintsByRole($pdo, 'staff'),
-            'admins' => fetchFingerprintsByRole($pdo, 'admins'),
+            'faculty' => fetchFingerprintsByRole($pdo, 'faculty', $standbyMap),
+            'staff' => fetchFingerprintsByRole($pdo, 'staff', $standbyMap),
+            'admins' => fetchFingerprintsByRole($pdo, 'admins', $standbyMap),
         ],
     ]);
 } catch (Throwable $error) {

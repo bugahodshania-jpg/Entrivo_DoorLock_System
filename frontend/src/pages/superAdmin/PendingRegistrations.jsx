@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Clock, Eye, MoreVertical, Search, Trash2, X } from 'lucide-react';
+import { Check, Clock, Expand, Eye, MoreVertical, Search, Trash2, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import { useActionConfirm } from '../../components/ActionConfirm';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 
 export default function PendingRegistrations() {
+  const confirmAction = useActionConfirm();
   const [registrations, setRegistrations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
+  const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [approvingId, setApprovingId] = useState(null);
   const [menuState, setMenuState] = useState(null);
   const [review, setReview] = useState(null);
   const [reviewError, setReviewError] = useState('');
   const [isReviewLoading, setIsReviewLoading] = useState(false);
+  const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
   const columns = ['User', 'School ID', 'Program', 'Year / Section', 'RFID UID', 'Submitted', 'Follow up by', 'Action'];
 
   useEffect(() => {
@@ -74,11 +77,14 @@ export default function PendingRegistrations() {
   }, [normalizedSearchQuery, registrations]);
 
   async function updateRegistration(registration, action) {
-    const confirmed = window.confirm(
-      action === 'approve'
-        ? `Approve ${registration.name} and activate this account?`
-        : `Reject ${registration.name}? This account will stay inactive.`,
-    );
+    const confirmed = await confirmAction({
+      title: action === 'approve' ? 'Approve registration' : 'Reject registration',
+      danger: action === 'reject',
+      message:
+        action === 'approve'
+          ? `Are you sure you want to approve ${registration.name} and activate this account?`
+          : `Are you sure you want to reject ${registration.name}? This account will stay inactive.`,
+    });
 
     if (!confirmed) {
       return;
@@ -86,7 +92,7 @@ export default function PendingRegistrations() {
 
     setMenuState(null);
     setApprovingId(registration.id);
-    setStatusMessage('');
+    setToast(null);
     setErrorMessage('');
 
     try {
@@ -95,7 +101,12 @@ export default function PendingRegistrations() {
         action,
       });
       setRegistrations(response.data.registrations || []);
-      setStatusMessage(response.data.message || 'Student registration updated.');
+      const message = response.data.message || 'Student registration updated.';
+      const toastId = Date.now();
+      setToast({ id: toastId, message });
+      window.setTimeout(() => {
+        setToast((current) => (current?.id === toastId ? null : current));
+      }, 20000);
       if (review?.id === registration.id) {
         setReview(null);
       }
@@ -176,24 +187,50 @@ export default function PendingRegistrations() {
     };
   }, [menuState]);
 
-  const reviewFields = review
+  const reviewGroups = review
     ? [
-        ['Username', review.username],
-        ['Email', review.email],
-        ['School ID', review.schoolId],
-        ['College', review.college],
-        ['Program', review.program],
-        ['Year level', review.yearLevel],
-        ['Section', review.section],
-        ['Sex', review.sex],
-        ['Birthdate', review.birthdate],
-        ['Age', review.age],
-        ['Contact number', review.contactNumber],
-        ['Address', review.address],
-        ['RFID UID', review.rfidUid],
-        ['Submitted', review.submittedAt],
-        ['Follow up by', review.approvalDueAt],
-      ].filter(([, value]) => value)
+        {
+          title: 'Personal Information',
+          fields: [
+            ['Full name', review.name, true],
+            ['Sex', review.sex],
+            ['Birthdate', review.birthdate],
+            ['Age', review.age],
+            ['Contact number', review.contactNumber],
+            ['Address', review.address, true],
+          ],
+        },
+        {
+          title: 'Account Information',
+          fields: [
+            ['Username', review.username],
+            ['Email', review.email],
+            ['School ID', review.schoolId],
+            ['RFID UID', review.rfidUid],
+          ],
+        },
+        {
+          title: 'School Information',
+          fields: [
+            ['College', review.college],
+            ['Year level', review.yearLevel],
+            ['Program', review.program],
+            ['Section', review.section],
+          ],
+        },
+        {
+          title: 'Submission',
+          fields: [
+            ['Submitted', review.submittedAt],
+            ['Follow up by', review.approvalDueAt],
+          ],
+        },
+      ]
+        .map((group) => ({
+          ...group,
+          fields: group.fields.filter(([, value]) => value),
+        }))
+        .filter((group) => group.fields.length > 0)
     : [];
 
   return (
@@ -229,7 +266,6 @@ export default function PendingRegistrations() {
           </label>
         </div>
 
-        {statusMessage ? <p className="pending-registration-status" role="status">{statusMessage}</p> : null}
         {errorMessage && !isLoading ? <p className="pending-registration-error" role="alert">{errorMessage}</p> : null}
 
         <div className="dashboard-recent-table-wrap pending-registrations-table-wrap">
@@ -338,7 +374,7 @@ export default function PendingRegistrations() {
             >
               <header>
                 <div>
-                  <h2 id="pending-registration-review-title">{review.name}</h2>
+                  <h2 id="pending-registration-review-title">Review Registration</h2>
                   <p>Review this student registration before approving or rejecting it.</p>
                 </div>
                 <button type="button" aria-label="Close review" onClick={() => setReview(null)}>
@@ -349,19 +385,51 @@ export default function PendingRegistrations() {
               {reviewError ? <p className="pending-registration-error" role="alert">{reviewError}</p> : null}
               {!isReviewLoading && !reviewError ? (
                 <div className="pending-registration-review-body">
-                  {review.schoolIdPhoto ? (
-                    <img src={review.schoolIdPhoto} alt={`${review.name} school ID`} />
-                  ) : (
-                    <p className="pending-registration-review-photo-empty">No school ID photo</p>
-                  )}
-                  <dl>
-                    {reviewFields.map(([label, value]) => (
-                      <div key={label} className={label === 'Program' || label === 'Address' ? 'is-wide' : undefined}>
-                        <dt>{label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <div className="pending-registration-review-identity">
+                    <div className="pending-registration-review-photo">
+                      {review.schoolIdPhoto ? (
+                        <>
+                          <img src={review.schoolIdPhoto} alt={`${review.name} school ID`} />
+                          <button
+                            type="button"
+                            className="pending-registration-photo-expand"
+                            aria-label="Expand school ID photo"
+                            onClick={() => setIsPhotoExpanded(true)}
+                          >
+                            <Expand size={14} aria-hidden="true" />
+                          </button>
+                        </>
+                      ) : (
+                        <p className="pending-registration-review-photo-empty">No school ID photo</p>
+                      )}
+                    </div>
+                    {reviewGroups[0] ? (
+                      <section className="pending-registration-review-card">
+                        <h3>{reviewGroups[0].title}</h3>
+                        <dl>
+                          {reviewGroups[0].fields.map(([label, value, isWide]) => (
+                            <div key={label} className={isWide ? 'is-wide' : undefined}>
+                              <dt>{label}</dt>
+                              <dd>{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    ) : null}
+                  </div>
+                  {reviewGroups.slice(1).map((group) => (
+                    <section className="pending-registration-review-card" key={group.title}>
+                      <h3>{group.title}</h3>
+                      <dl>
+                        {group.fields.map(([label, value, isWide]) => (
+                          <div key={label} className={isWide ? 'is-wide' : undefined}>
+                            <dt>{label}</dt>
+                            <dd>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+                  ))}
                 </div>
               ) : null}
               <footer>
@@ -383,6 +451,39 @@ export default function PendingRegistrations() {
                 </button>
               </footer>
             </section>
+          </div>,
+          document.body,
+        )
+      : null}
+    {toast ? (
+      <div className="fingerprint-toast-stack" aria-live="polite" aria-atomic="true">
+        <div className="fingerprint-toast fingerprint-toast-success" role="status">
+          <div className="fingerprint-toast-copy">
+            <strong>Registration Notice</strong>
+            <p>{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            className="fingerprint-toast-close"
+            aria-label="Dismiss notice"
+            onClick={() => setToast(null)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    ) : null}
+    {isPhotoExpanded && review?.schoolIdPhoto
+      ? createPortal(
+          <div
+            className="pending-registration-photo-lightbox"
+            role="presentation"
+            onClick={() => setIsPhotoExpanded(false)}
+          >
+            <button type="button" aria-label="Close expanded photo" onClick={() => setIsPhotoExpanded(false)}>
+              <X size={16} aria-hidden="true" />
+            </button>
+            <img src={review.schoolIdPhoto} alt={`${review.name} school ID`} onClick={(event) => event.stopPropagation()} />
           </div>,
           document.body,
         )

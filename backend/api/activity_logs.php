@@ -55,7 +55,7 @@ function activityDetails(string $status, ?string $reason, string $username): arr
         'wrong_password' => 'The password was incorrect.',
         'pending_approval' => 'The account is still waiting for approval.',
         'rejected' => 'The registration was not approved.',
-        'inactive' => 'This account is disabled.',
+        'inactive' => 'This account has been blocked.',
         default => 'The sign-in was not accepted.',
     };
 

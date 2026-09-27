@@ -1,6 +1,52 @@
 .fingerprint-page {
   color: #13251f;
+  display: grid;
+  gap: 16px;
   width: 100%;
+}
+
+.fingerprint-jobs-table-card {
+  margin-top: 0;
+}
+
+.fingerprint-jobs-pagination {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 4px 2px;
+}
+
+.fingerprint-jobs-pagination p,
+.fingerprint-jobs-pagination span {
+  color: #60716a;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.fingerprint-jobs-pagination-controls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.fingerprint-jobs-pagination-controls button {
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 5px;
+  color: #18372b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 32px;
+  padding: 0 12px;
+}
+
+.fingerprint-jobs-pagination-controls button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .fingerprint-summary-grid {
@@ -21,8 +67,8 @@
 
 .fingerprint-job-summary {
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
   margin: 16px 0 18px;
 }
 
@@ -85,8 +131,23 @@
   max-width: 42ch;
 }
 
-.fingerprint-card .manage-users-tabs {
-  padding: 4px 6px;
+.fingerprint-table-filters {
+  margin: 10px 0 6px;
+}
+
+.fingerprint-table-filters > .manage-users-role-tabs:not(.manage-users-status-filter) .manage-users-role-tab-trigger,
+.fingerprint-table-filters > .manage-users-role-tabs:not(.manage-users-status-filter) .manage-users-role-tab-menu {
+  width: 168px;
+}
+
+.fingerprint-table-filters .manage-users-role-tab-trigger,
+.fingerprint-table-filters .manage-users-role-tab-option {
+  font-size: 11px;
+}
+
+.fingerprint-table-filters .manage-users-role-tab-trigger-label,
+.fingerprint-table-filters .manage-users-role-tab-option-label {
+  font-size: 11px;
 }
 
 .fingerprint-header-actions {
@@ -138,17 +199,6 @@
 
 .fingerprint-back-button:hover {
   color: #0a3d25;
-}
-
-.fingerprint-card .manage-users-tabs button {
-  flex: 0 0 auto;
-  font-size: 12px;
-  min-height: 28px;
-  padding: 4px 10px;
-}
-
-.fingerprint-card .manage-users-tabs small {
-  padding: 2px 6px;
 }
 
 .fingerprint-search {
@@ -219,7 +269,7 @@
 .fingerprint-table-wrap {
   max-width: 100%;
   overflow-x: hidden;
-  padding-top: 12px;
+  padding-top: 2px;
 }
 
 .fingerprint-table {
@@ -231,35 +281,76 @@
 .fingerprint-table th:nth-child(1),
 .fingerprint-table td:nth-child(1) {
   padding-left: 16px;
-  width: 26%;
+  width: 18%;
 }
 
 .fingerprint-table th:nth-child(2),
 .fingerprint-table td:nth-child(2) {
-  width: 16%;
+  width: 10%;
 }
 
 .fingerprint-table th:nth-child(3),
 .fingerprint-table td:nth-child(3) {
-  width: 18%;
+  width: 10%;
 }
 
 .fingerprint-table th:nth-child(4),
 .fingerprint-table td:nth-child(4) {
-  text-align: center;
-  width: 15%;
+  width: 16%;
 }
 
 .fingerprint-table th:nth-child(5),
 .fingerprint-table td:nth-child(5) {
   text-align: center;
-  width: 8%;
+  width: 10%;
 }
 
 .fingerprint-table th:nth-child(6),
 .fingerprint-table td:nth-child(6) {
+  text-align: left;
+  width: 11%;
+}
+
+.fingerprint-table th:nth-child(7),
+.fingerprint-table td:nth-child(7) {
   text-align: center;
-  width: 18%;
+  width: 10%;
+}
+
+.fingerprint-table th:nth-child(8),
+.fingerprint-table td:nth-child(8) {
+  text-align: center;
+  width: 15%;
+}
+
+.fingerprint-enrollment-enrolled {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.fingerprint-enrollment-not_enrolled {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.fingerprint-sync-synced {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.fingerprint-sync-not_synced {
+  background: #f2f4f3;
+  color: #68766f;
+}
+
+.fingerprint-sync-partial {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.fingerprint-sync-failed {
+  background: #fef2f2;
+  color: #b42318;
 }
 
 .fingerprint-action-group {
@@ -703,6 +794,112 @@
   margin-top: 14px;
 }
 
+.fingerprint-live-spotlight .fingerprint-device-status-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.fingerprint-live-spotlight .fingerprint-device-status-head strong {
+  color: #13251f;
+  display: block;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.fingerprint-device-status-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fingerprint-device-status-meta span {
+  background: #ffffff;
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  color: #4d5f57;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  margin: 0;
+  padding: 6px 8px;
+}
+
+.fingerprint-live-spotlight .fingerprint-device-status-pill {
+  margin-top: 0;
+}
+
+.fingerprint-device-status-progress {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 14px;
+}
+
+.fingerprint-device-status-progress .fingerprint-live-progress {
+  margin-top: 0;
+}
+
+.fingerprint-device-status-progress > strong {
+  color: #10251d;
+  font-size: 13px;
+  min-width: 36px;
+  text-align: right;
+}
+
+.fingerprint-live-spotlight .fingerprint-enrollment-guide {
+  border-radius: 5px;
+  box-shadow: none;
+  margin-top: 14px;
+  padding: 14px 16px;
+}
+
+.fingerprint-live-spotlight .fingerprint-enrollment-guide strong {
+  font-size: 18px;
+}
+
+.fingerprint-live-spotlight .fingerprint-step-log {
+  border-radius: 5px;
+  margin-top: 12px;
+}
+
+.fingerprint-live-spotlight .fingerprint-step-log-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.fingerprint-live-spotlight .fingerprint-step-log-item {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.fingerprint-live-spotlight .fingerprint-live-copy-grid {
+  background: #ffffff;
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  gap: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.fingerprint-live-spotlight .fingerprint-live-copy-grid > div {
+  padding: 12px 14px;
+}
+
+.fingerprint-live-spotlight .fingerprint-live-copy-grid > div + div {
+  border-left: 1px solid #e3ebe6;
+}
+
+.fingerprint-live-spotlight .fingerprint-live-actions {
+  border-top: 1px solid #e3ebe6;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
 .fingerprint-live-heading span {
   color: #10251d;
   display: block;
@@ -878,6 +1075,7 @@
   display: grid;
   gap: 10px;
   margin-top: 14px;
+  width: 100%;
 }
 
 .fingerprint-live-list-item {
@@ -885,10 +1083,12 @@
   background: #ffffff;
   border: 1px solid #e2ebe6;
   border-radius: 8px;
+  box-sizing: border-box;
   display: flex;
   gap: 10px;
   justify-content: space-between;
   padding: 12px;
+  width: 100%;
 }
 
 .fingerprint-live-list-item small {
@@ -3341,6 +3541,11 @@
   .fingerprint-live-panel,
   .fingerprint-live-copy-grid {
     grid-template-columns: 1fr;
+  }
+
+  .fingerprint-live-spotlight .fingerprint-live-copy-grid > div + div {
+    border-left: 0;
+    border-top: 1px solid #e3ebe6;
   }
 
   .fingerprint-step-log {
