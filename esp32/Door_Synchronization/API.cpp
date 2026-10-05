@@ -135,6 +135,7 @@ namespace
         }
 
         job.fingerprintId = jobNode["fingerprint_id"] | 0;
+        job.userId = jobNode["user_id"] | 0;
         job.deviceId = jobNode["device_id"] | DOOR_DEVICE_ID;
         job.targetSlot = jobNode["target_slot"] | 0;
         job.templateBytes = jobNode["template_bytes"] | 0;
@@ -142,6 +143,26 @@ namespace
         job.templateDataBase64 = String((const char *)(jobNode["template_data_base64"] | ""));
         job.fingerName = String((const char *)(jobNode["finger_name"] | "Fingerprint"));
         job.userName = String((const char *)(jobNode["user_name"] | "Unknown user"));
+        job.reservedSlots = "";
+
+        if (jobNode["reserved_slots"].is<JsonArray>())
+        {
+            for (JsonVariant reservedSlot : jobNode["reserved_slots"].as<JsonArray>())
+            {
+                const int slotNumber = reservedSlot.as<int>();
+                if (slotNumber <= 0)
+                {
+                    continue;
+                }
+
+                if (job.reservedSlots.length() > 0)
+                {
+                    job.reservedSlots += ",";
+                }
+
+                job.reservedSlots += String(slotNumber);
+            }
+        }
 
         g_activeTemplateQueueId = job.queueId;
         return job.queueId > 0;
@@ -262,31 +283,21 @@ void checkPendingTemplateSync()
         return;
     }
 
-    if (job.targetSlot <= 0)
-    {
-        reportTemplateSyncFailed(job, "The backend did not provide a valid target slot.");
-        printControllerStatus(
-            "Template sync job #" + String(job.queueId) + " failed because the target slot is invalid.",
-            true
-        );
-        g_activeTemplateQueueId = 0;
-        return;
-    }
-
     printControllerStatus(
         "Template sync job #" + String(job.queueId) +
         " claimed for " + job.userName +
         " / " + job.fingerName +
-        ". Writing slot " + String(job.targetSlot) + ".",
+        ". Linking the template to this user.",
         true
     );
 
     String errorMessage;
-    const bool synced = runTemplateSyncJob(job, errorMessage);
+    uint16_t storedSlot = 0;
+    const bool synced = runTemplateSyncJob(job, storedSlot, errorMessage);
 
     if (synced)
     {
-        if (!reportTemplateSyncCompleted(job))
+        if (!reportTemplateSyncCompleted(job, storedSlot))
         {
             printControllerStatus(
                 "Template sync job #" + String(job.queueId) + " finished on ESP32, but backend completion failed.",
@@ -371,10 +382,11 @@ void checkPendingScheduleSync()
     g_activeScheduleSnapshotId = 0;
 }
 
-bool reportTemplateSyncCompleted(const TemplateSyncJob &job)
+bool reportTemplateSyncCompleted(const TemplateSyncJob &job, uint16_t storedSlot)
 {
     DynamicJsonDocument payload(256);
     payload["queue_id"] = job.queueId;
+    payload["stored_slot"] = storedSlot;
 
     String responseBody;
     int responseCode = 0;

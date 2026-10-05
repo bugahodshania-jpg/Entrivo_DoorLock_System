@@ -217,6 +217,7 @@ $userCounts = $pdo->query(
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
+         WHERE DATE(access_log.access_timestamp) = CURDATE()
          ORDER BY access_log.access_timestamp DESC
          LIMIT 5"
     );

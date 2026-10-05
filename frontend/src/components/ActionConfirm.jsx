@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import axiosClient from '../api/axiosClient';
 import '../styles/shared/actionConfirm.css';
 
 const ActionConfirmContext = createContext(null);
@@ -47,22 +48,23 @@ export function ActionConfirmProvider({ user, children }) {
       return;
     }
 
+    if (!user?.id) {
+      setError('Sign in again before continuing.');
+      return;
+    }
+
     setBusy(true);
     setError('');
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/verify_action_password.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user?.id, password }),
+      await axiosClient.post('/api/verify_action_password.php', {
+        user_id: user.id,
+        password,
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError(data.message || 'The security password is incorrect.');
-        return;
-      }
       finish(true);
-    } catch {
-      setError('The security password could not be checked.');
+    } catch (verifyError) {
+      setError(
+        verifyError?.response?.data?.message || 'The security password could not be checked.',
+      );
     } finally {
       setBusy(false);
     }

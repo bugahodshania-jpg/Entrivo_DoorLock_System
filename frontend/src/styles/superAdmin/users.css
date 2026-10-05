@@ -358,7 +358,8 @@
 
 .manage-users-table th:nth-child(1),
 .manage-users-table td:nth-child(1) {
-  width: 18%;
+  padding-left: 16px;
+  width: 26%;
 }
 
 .manage-users-table th:nth-child(2),
@@ -370,7 +371,7 @@
 .manage-users-table td:nth-child(3) {
   max-width: 0;
   padding-right: 24px;
-  width: 15%;
+  width: 14%;
 }
 
 .manage-users-table td:nth-child(3) strong,
@@ -384,28 +385,28 @@
 .manage-users-table th:nth-child(4),
 .manage-users-table td:nth-child(4) {
   padding-left: 8px;
-  width: 12%;
+  width: 11%;
 }
 
 .manage-users-table th:nth-child(5),
 .manage-users-table td:nth-child(5) {
-  width: 10%;
+  width: 9%;
 }
 
 .manage-users-table th:nth-child(6),
 .manage-users-table td:nth-child(6) {
-  width: 11%;
+  width: 10%;
 }
 
 .manage-users-table th:nth-child(7),
 .manage-users-table td:nth-child(7) {
-  width: 14%;
+  width: 11%;
 }
 
 .manage-users-table th:nth-child(8),
 .manage-users-table td:nth-child(8) {
   text-align: center;
-  width: 8%;
+  width: 7%;
 }
 
 .manage-users-table td {
@@ -446,6 +447,11 @@
 }
 
 .manage-users-status-pending {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.manage-users-status-pending_login {
   background: #fff7ed;
   color: #c2410c;
 }
@@ -813,6 +819,52 @@
   pointer-events: none;
 }
 
+.manage-users-pagination {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 4px 6px;
+}
+
+.manage-users-pagination p,
+.manage-users-pagination span {
+  color: #60716a;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.manage-users-pagination-controls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.manage-users-pagination-controls button {
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 6px;
+  color: #18372b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.manage-users-pagination-controls button:hover:not(:disabled) {
+  background: #eef6f1;
+  border-color: #bfd2c7;
+}
+
+.manage-users-pagination-controls button:disabled {
+  color: #98a7a0;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
 @media (max-width: 760px) {
   .manage-users-summary-grid {
     grid-template-columns: 1fr;
@@ -841,6 +893,11 @@
     max-width: none;
     min-width: 0;
     width: 100%;
+  }
+
+  .manage-users-pagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .manage-users-search input {

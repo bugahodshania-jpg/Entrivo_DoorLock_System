@@ -262,6 +262,57 @@ bool initFingerprint()
     return true;
 }
 
+uint16_t sensorSlotCapacity()
+{
+    if (finger.capacity > 0)
+    {
+        return finger.capacity;
+    }
+
+    return MAX_ALLOWED_SLOTS;
+}
+
+SensorSlotState probeSensorSlot(uint16_t slot, String &errorMessage)
+{
+    if (slot == 0)
+    {
+        errorMessage = "Fingerprint slot 0 cannot be checked.";
+        return SENSOR_SLOT_UNREADABLE;
+    }
+
+    const uint8_t status = finger.loadModel(slot);
+    if (status == FINGERPRINT_OK)
+    {
+        return SENSOR_SLOT_OCCUPIED;
+    }
+
+    if (status == FINGERPRINT_PACKETRECIEVEERR)
+    {
+        errorMessage = "Communication error while checking a Sensor B fingerprint slot.";
+        return SENSOR_SLOT_UNREADABLE;
+    }
+
+    return SENSOR_SLOT_EMPTY;
+}
+
+bool deleteTemplateFromSlot(uint16_t slot, String &errorMessage)
+{
+    if (slot == 0)
+    {
+        errorMessage = "Fingerprint slot 0 cannot be deleted.";
+        return false;
+    }
+
+    const uint8_t status = finger.deleteModel(slot);
+    if (status == FINGERPRINT_OK || status == FINGERPRINT_DELETEFAIL)
+    {
+        return true;
+    }
+
+    errorMessage = getSensorErrorMessage(status);
+    return false;
+}
+
 bool storeTemplateInSlot(uint16_t slot, const uint8_t *templateBinary, size_t templateLength, String &errorMessage)
 {
     if (slot == 0)

@@ -33,9 +33,27 @@ require_once dirname(__DIR__, 2) . '/services/FingerprintEnrollmentService.php';
 require_once dirname(__DIR__, 2) . '/models/FingerprintEnrollmentJob.php';
 require_once dirname(__DIR__, 2) . '/models/Fingerprint.php';
 
+require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+
 try {
+    $activityLog = new ActivityLogService(entrivo_pdo());
+    $jobId = (int) ($input['job_id'] ?? 0);
+    $jobBefore = $jobId > 0 ? (new FingerprintEnrollmentJob())->getJobById($jobId) : null;
+    $isUpdate = is_array($jobBefore) ? $activityLog->fingerprintJobIsUpdate($jobBefore) : null;
+
     $controller = new FingerprintEnrollmentController();
     $result = $controller->completeEnrollment($input);
+    $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+    $job = is_array($result['body']['job'] ?? null) ? $result['body']['job'] : [];
+
+    if ($job !== [] || !empty($result['body']['success'])) {
+        $job['is_update'] = $isUpdate;
+        $activityLog->recordFingerprintResult(
+            $job,
+            !empty($result['body']['success']) ? 'success' : 'failed',
+            $actorId
+        );
+    }
 
     http_response_code((int) ($result['status'] ?? 200));
     echo json_encode($result['body'] ?? ['message' => 'OK']);

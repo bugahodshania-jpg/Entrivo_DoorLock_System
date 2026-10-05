@@ -33,6 +33,30 @@ require_once dirname(__DIR__, 2) . '/models/Fingerprint.php';
 try {
     $controller = new FingerprintSyncController();
     $result = $controller->queueTemplateSync($input);
+    $body = $result['body'] ?? [];
+
+    require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+    $pdo = entrivo_pdo();
+    $job = is_array($body['job'] ?? null) ? $body['job'] : [];
+
+    if (!$job) {
+        $fingerprintId = (int) ($input['fingerprint_id'] ?? 0);
+        $fingerprint = $fingerprintId > 0 ? (new Fingerprint())->getById($fingerprintId) : null;
+        $job = [
+            'user_id' => $fingerprint['user_id'] ?? null,
+            'finger_name' => $fingerprint['finger_name'] ?? '',
+        ];
+    }
+
+    $job['error_message'] = empty($body['success']) ? (string) ($body['message'] ?? '') : '';
+    $isAlreadyPending = !empty($body['success']) && stripos((string) ($body['message'] ?? ''), 'already pending') !== false;
+
+    (new ActivityLogService($pdo))->recordFingerprintSync(
+        $isAlreadyPending ? 'pending' : 'queued',
+        $job,
+        filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null,
+        !empty($body['success']) ? 'Success' : 'Failed'
+    );
 
     http_response_code((int) ($result['status'] ?? 200));
     echo json_encode($result['body'] ?? ['message' => 'OK']);

@@ -13,9 +13,23 @@ struct LocalAccessPolicy
     uint16_t allowedSlots[MAX_ALLOWED_SLOTS] = {0};
 };
 
+struct DoorSlotUser
+{
+    uint16_t slot = 0;
+    int fingerprintId = 0;
+    int userId = 0;
+    String userName;
+    String fingerName;
+};
+
 void initLocalState();
 bool saveTemplateHash(uint16_t slot, const String &templateHash);
 String getTemplateHash(uint16_t slot);
+void clearTemplateHash(uint16_t slot);
+bool saveDoorSlotUser(const DoorSlotUser &user);
+bool loadDoorSlotUser(uint16_t slot, DoorSlotUser &user);
+void clearDoorSlotUser(uint16_t slot);
+uint16_t getFingerprintDoorSlot(int fingerprintId);
 bool saveAccessPolicySnapshot(const String &revision, JsonArrayConst allowedSlots, String &errorMessage);
 bool loadAccessPolicySnapshot(LocalAccessPolicy &policy, String &errorMessage);
 bool isSlotAllowedOffline(uint16_t slot, String &reason);

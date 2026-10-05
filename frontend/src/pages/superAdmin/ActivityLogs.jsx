@@ -1,30 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Download, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Download, RefreshCw, Search, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import ExportFormatModal from '../../components/ExportFormatModal';
 import { getManilaDateStamp } from '../../utils/dateTime';
+import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/activityLogs.css';
 
-function escapeCsvValue(value) {
-  const text = value == null ? '' : String(value);
-  const escaped = text.replace(/"/g, '""');
-
-  if (/[",\n\r]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-
-  return escaped;
-}
-
-function toCsv(rows) {
-  return rows.map((row) => row.map(escapeCsvValue).join(',')).join('\r\n');
-}
-
 const activityFilterOptions = [
-  { value: 'all', label: 'All activities' },
+  { value: 'all', label: 'All categories' },
   { value: 'login', label: 'Login' },
   { value: 'logout', label: 'Logout' },
+  { value: 'access', label: 'Access' },
+  { value: 'password', label: 'Password' },
+  { value: 'recovery', label: 'Recovery' },
+  { value: 'account', label: 'Account' },
+  { value: 'security', label: 'Security' },
+  { value: 'user', label: 'User' },
+  { value: 'registration', label: 'Registration' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'override', label: 'Override' },
+  { value: 'job', label: 'Job' },
+  { value: 'enroll', label: 'Enroll' },
+  { value: 'update', label: 'Update' },
+  { value: 'delete', label: 'Delete' },
+  { value: 'sync', label: 'Sync' },
+  { value: 'rfid', label: 'RFID' },
 ];
 
 const statusFilterOptions = [
@@ -46,6 +48,7 @@ export default function ActivityLogs() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 10;
 
@@ -118,11 +121,11 @@ export default function ActivityLogs() {
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const visibleLogs = useMemo(() => {
     return logs.filter((log) => {
-      if (activityFilter !== 'all' && log.activity.toLowerCase() !== activityFilter) {
+      if (activityFilter !== 'all' && String(log.activity || '').toLowerCase() !== activityFilter) {
         return false;
       }
 
-      if (statusFilter !== 'all' && log.status.toLowerCase() !== statusFilter) {
+      if (statusFilter !== 'all' && String(log.status || '').toLowerCase() !== statusFilter) {
         return false;
       }
 
@@ -163,11 +166,19 @@ export default function ActivityLogs() {
         ? logs
         : logs.filter((log) => log.status.toLowerCase() === statusFilter);
 
-    return {
-      all: statusLogs.length,
-      login: statusLogs.filter((log) => log.activity.toLowerCase() === 'login').length,
-      logout: statusLogs.filter((log) => log.activity.toLowerCase() === 'logout').length,
-    };
+    const counts = { all: statusLogs.length };
+
+    activityFilterOptions.forEach((option) => {
+      if (option.value === 'all') {
+        return;
+      }
+
+      counts[option.value] = statusLogs.filter(
+        (log) => String(log.activity || '').toLowerCase() === option.value,
+      ).length;
+    });
+
+    return counts;
   }, [logs, statusFilter]);
 
   const activeActivityFilterConfig =
@@ -194,10 +205,19 @@ export default function ActivityLogs() {
 
   const columns = ['User ID', 'User', 'Activity', 'Description', 'Status', 'Device', 'Timestamp'];
 
-  function handleExport() {
-    const csvRows = [
-      ['User ID', 'Name', 'Username', 'Role', 'Activity', 'Description', 'Status', 'Device', 'Device detail', 'Date', 'Time'],
-      ...visibleLogs.map((log) => [
+  const exportFilters = [
+    activityFilter !== 'all' ? `Category: ${activeActivityFilterConfig.label}` : '',
+    statusFilter !== 'all' ? `Status: ${activeStatusFilterConfig.label}` : '',
+    dateFrom ? `From ${dateFrom}` : '',
+    dateTo ? `To ${dateTo}` : '',
+    searchQuery.trim() ? `Search: "${searchQuery.trim()}"` : '',
+  ];
+
+  function handleExport(format) {
+    setIsExportModalOpen(false);
+    exportTable(format, {
+      headers: ['User ID', 'Name', 'Username', 'Role', 'Activity', 'Description', 'Status', 'Device', 'Device detail', 'Date', 'Time'],
+      rows: visibleLogs.map((log) => [
         log.userId,
         log.name,
         log.username,
@@ -210,17 +230,15 @@ export default function ActivityLogs() {
         log.date,
         log.time,
       ]),
-    ];
-    const csv = toCsv(csvRows);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `activity_logs_${getManilaDateStamp()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+      fileBaseName: `activity_logs_${getManilaDateStamp()}`,
+      pdf: {
+        title: 'Activity Logs',
+        note: buildExportNote(visibleLogs.length, 'record', exportFilters),
+        widths: [55, 90, 70, 55, 55, 170, 45, 50, 75, 60, 50],
+        emphasizeColumn: 1,
+        emptyMessage: 'No activity logs match the selected filters.',
+      },
+    });
   }
 
   return (
@@ -229,12 +247,15 @@ export default function ActivityLogs() {
         <div className="dashboard-panel-header activity-logs-header">
           <div>
             <span>Activity Logs</span>
-            <p>Recent activity performed by Super Admins, Admins, and Users. The latest 300 records are shown.</p>
+            <p>
+              Sign-in, door access, password and account recovery, user changes, schedules,
+              credentials, and the other transactions recorded in the system.
+            </p>
           </div>
           <button
             type="button"
             className="activity-logs-export"
-            onClick={handleExport}
+            onClick={() => setIsExportModalOpen(true)}
             disabled={isLoading || Boolean(errorMessage) || visibleLogs.length === 0}
           >
             <Download size={15} aria-hidden="true" />
@@ -396,6 +417,23 @@ export default function ActivityLogs() {
                 </button>
               ) : null}
             </div>
+            <button
+              type="button"
+              className="activity-logs-reset"
+              aria-label="Reset filters"
+              title="Reset filters"
+              onClick={() => {
+                setActivityFilter('all');
+                setStatusFilter('all');
+                setDateFrom('');
+                setDateTo('');
+                setSearchQuery('');
+                setIsActivityFilterMenuOpen(false);
+                setIsStatusFilterMenuOpen(false);
+              }}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
           </div>
 
           <label className="activity-logs-search">
@@ -456,7 +494,9 @@ export default function ActivityLogs() {
                     </td>
                     <td>
                       <span
-                        className={`dashboard-log-status activity-logs-status-${log.activity.toLowerCase()}`}
+                        className={`dashboard-log-status activity-logs-status-${String(log.activity || '')
+                          .toLowerCase()
+                          .replace(/\s+/g, '-')}`}
                       >
                         {log.activity}
                       </span>
@@ -464,7 +504,9 @@ export default function ActivityLogs() {
                     <td className="activity-logs-description">{log.description}</td>
                     <td>
                       <span
-                        className={`dashboard-log-status activity-logs-status-${log.status.toLowerCase()}`}
+                        className={`dashboard-log-status activity-logs-status-${String(log.status || '')
+                          .toLowerCase()
+                          .replace(/\s+/g, '-')}`}
                       >
                         {log.status}
                       </span>
@@ -511,6 +553,15 @@ export default function ActivityLogs() {
           </div>
         )}
       </section>
+      <ExportFormatModal
+        open={isExportModalOpen}
+        title="Export Activity Logs"
+        subtitle={`${visibleLogs.length} log${visibleLogs.length === 1 ? '' : 's'} in the current view`}
+        prompt="Only the activity logs matching the current filters will be exported. Choose the file format."
+        pdfHint="Printable activity log table"
+        onSelect={handleExport}
+        onClose={() => setIsExportModalOpen(false)}
+      />
     </main>
   );
 }

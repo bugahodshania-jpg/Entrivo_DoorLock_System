@@ -69,8 +69,8 @@ CREATE TABLE `admin_info` (
   `date_of_birth` date DEFAULT NULL,
   `age` int DEFAULT NULL,
   `contact_number` varchar(15) DEFAULT NULL,
-  `office_department` varchar(150) NOT NULL,
-  `work_position` varchar(150) NOT NULL,
+  `office_department` varchar(150) DEFAULT NULL,
+  `work_position` varchar(150) DEFAULT NULL,
   `province` varchar(100) DEFAULT NULL,
   `city_municipality` varchar(100) DEFAULT NULL,
   `barangay` varchar(100) DEFAULT NULL,
@@ -98,8 +98,8 @@ CREATE TABLE `faculty_info` (
   `date_of_birth` date DEFAULT NULL,
   `age` int DEFAULT NULL,
   `contact_number` varchar(15) DEFAULT NULL,
-  `office_department` varchar(150) NOT NULL,
-  `work_position` varchar(150) NOT NULL,
+  `office_department` varchar(150) DEFAULT NULL,
+  `work_position` varchar(150) DEFAULT NULL,
   `province` varchar(100) DEFAULT NULL,
   `city_municipality` varchar(100) DEFAULT NULL,
   `barangay` varchar(100) DEFAULT NULL,
@@ -235,6 +235,7 @@ CREATE TABLE `schedules` (
   `schedule_id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
   `schedule_type` enum('single','recurring') NOT NULL DEFAULT 'single',
+  `schedule_kind` enum('regular','override') NOT NULL DEFAULT 'regular' COMMENT 'regular = admin-created schedule; override = approved override request',
   `schedule_date` date DEFAULT NULL,
   `time_start` time NOT NULL,
   `time_end` time NOT NULL,
@@ -281,8 +282,8 @@ CREATE TABLE `staff_info` (
   `date_of_birth` date DEFAULT NULL,
   `age` int DEFAULT NULL,
   `contact_number` varchar(15) DEFAULT NULL,
-  `office_department` varchar(150) NOT NULL,
-  `work_position` varchar(150) NOT NULL,
+  `office_department` varchar(150) DEFAULT NULL,
+  `work_position` varchar(150) DEFAULT NULL,
   `province` varchar(100) DEFAULT NULL,
   `city_municipality` varchar(100) DEFAULT NULL,
   `barangay` varchar(100) DEFAULT NULL,
@@ -310,9 +311,9 @@ CREATE TABLE `student_info` (
   `date_of_birth` date DEFAULT NULL,
   `age` int DEFAULT NULL,
   `contact_number` varchar(15) DEFAULT NULL,
-  `college` varchar(150) NOT NULL,
-  `program_department` varchar(150) NOT NULL,
-  `year_level` enum('First Year','Second Year','Third Year','Fourth Year') NOT NULL,
+  `college` varchar(150) DEFAULT NULL,
+  `program_department` varchar(150) DEFAULT NULL,
+  `year_level` enum('First Year','Second Year','Third Year','Fourth Year') DEFAULT NULL,
   `section` varchar(50) DEFAULT NULL,
   `province` varchar(100) DEFAULT NULL,
   `city_municipality` varchar(100) DEFAULT NULL,
@@ -337,12 +338,32 @@ CREATE TABLE `users` (
   `email` varchar(100) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
   `password_updated_at` timestamp NULL DEFAULT NULL,
+  `must_change_password` tinyint(1) NOT NULL DEFAULT '0',
+  `onboarding_step` enum('password','profile','security','done') NOT NULL DEFAULT 'done',
   `role` enum('student','faculty','staff','admin','super_admin') NOT NULL,
   `is_active` tinyint(1) DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),
   UNIQUE KEY `email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Table structure for table `first_login_challenges`
+--
+DROP TABLE IF EXISTS `first_login_challenges`;
+CREATE TABLE `first_login_challenges` (
+  `id` char(32) NOT NULL,
+  `user_id` int NOT NULL,
+  `otp_hash` varchar(255) NOT NULL,
+  `otp_expires_at` datetime NOT NULL,
+  `otp_verified_at` datetime DEFAULT NULL,
+  `password_replaced_at` datetime DEFAULT NULL,
+  `attempt_count` int NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `first_login_challenges_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 SET FOREIGN_KEY_CHECKS=1;

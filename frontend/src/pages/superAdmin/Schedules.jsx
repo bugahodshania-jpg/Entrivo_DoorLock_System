@@ -1,26 +1,65 @@
-import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, Trash2, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
+import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
+import WeeklyScheduleGrid from '../../components/WeeklyScheduleGrid';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import { formatDateInManila, getManilaDateStamp, getManilaDateTimeStamp, parseManilaDateTime } from '../../utils/dateTime';
+import { buildTablePdf, downloadFile } from '../../utils/exportFiles';
+import {
+  buildCalendarPdf,
+  buildScheduleCsv,
+  buildWeeklyPdf,
+  compareSchedulesChronologically,
+  formatMinutesLabel,
+  formatScheduleKindLabel,
+  formatScheduleStatusLabel,
+  getScheduleKind,
+  getScheduleTimeLabel,
+  getWeekStartStamp,
+  parseDateStamp,
+  parseTimeToMinutes,
+  shiftDateStamp,
+  toDateStamp,
+  weekdayOptions,
+} from '../../utils/scheduleCalendar';
 import { getDefaultGracePeriodMinutes } from '../../utils/systemSettings';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
 
-const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const scheduleStatusOptions = [
+/** Statuses used by regular (non-override) schedules. */
+const regularScheduleStatusOptions = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+/** Statuses used when editing an override schedule. */
+const overrideScheduleStatusOptions = [
   { value: 'overridden', label: 'Overridden' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+const scheduleStatusFilterOptions = [
+  { value: 'all', label: 'All statuses' },
+  ...regularScheduleStatusOptions,
+  { value: 'overridden', label: 'Overridden' },
+];
+
+const scheduleKindFilterOptions = [
+  { value: 'all', label: 'All types' },
+  { value: 'regular', label: 'Regular' },
+  { value: 'override', label: 'Override' },
+];
+
 const initialFormState = {
   userId: '',
   scheduleType: 'single',
+  scheduleKind: 'regular',
   scheduleDate: '',
   startDate: '',
   endDate: '',
@@ -38,11 +77,6 @@ const scheduleTableTabs = [
   { value: 'all', label: 'All schedules' },
   { value: 'recent', label: 'Recently added' },
   { value: 'past', label: 'Past schedules' },
-];
-
-const scheduleStatusFilterOptions = [
-  { value: 'all', label: 'All statuses' },
-  ...scheduleStatusOptions,
 ];
 
 function normalizeLookupValue(value) {
@@ -117,14 +151,6 @@ function isRecentlyAddedSchedule(schedule, now = Date.now()) {
   return age >= 0 && age <= 24 * 60 * 60 * 1000;
 }
 
-function getScheduleTimeLabel(schedule) {
-  if (schedule.timeStartLabel && schedule.timeEndLabel) {
-    return `${schedule.timeStartLabel} - ${schedule.timeEndLabel}`;
-  }
-
-  return schedule.window || '';
-}
-
 function getCalendarCellClass(cell) {
   if (!cell) {
     return 'schedules-calendar-cell schedules-calendar-empty';
@@ -141,14 +167,10 @@ function getCalendarCellClass(cell) {
   return `schedules-calendar-cell${cell.isToday ? ' is-today' : ''}${tone}`;
 }
 
-function formatScheduleStatusLabel(status) {
-  const value = String(status || '').trim();
-
-  if (!value) {
-    return 'Unknown';
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function getStatusOptionsForSchedule(schedule) {
+  return getScheduleKind(schedule) === 'override'
+    ? overrideScheduleStatusOptions
+    : regularScheduleStatusOptions;
 }
 
 function formatScheduleTypeLabel(type) {
@@ -173,129 +195,16 @@ function CalendarEvent({ schedule }) {
   );
 }
 
-function escapePdfText(value) {
-  return String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-}
-
-function wrapPdfText(value, fontSize, maxWidth) {
-  const words = String(value ?? '').split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = '';
-
-  words.forEach((word) => {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length * fontSize * 0.5 <= maxWidth) {
-      current = next;
-      return;
-    }
-
-    if (current) {
-      lines.push(current);
-    }
-    current = word;
-  });
-
-  if (current) {
-    lines.push(current);
-  }
-
-  return lines.length > 0 ? lines : [''];
-}
-
-function buildCalendarPdf({ title, note, dayHeaders, cells }) {
-  const pageWidth = 841.89;
-  const pageHeight = 595.28;
-  const margin = 28;
-  const commands = [];
-  const fillRect = (x, y, width, height, [red, green, blue]) => {
-    commands.push(`${red} ${green} ${blue} rg`, `${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re`, 'f');
-  };
-  const strokeRect = (x, y, width, height) => {
-    commands.push('0.90 0.93 0.91 RG', '0.6 w', `${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re`, 'S');
-  };
-  const drawText = (text, x, y, font, size, [red, green, blue]) => {
-    commands.push('BT', `/${font} ${size} Tf`, `${red} ${green} ${blue} rg`, `1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm`, `(${escapePdfText(text)}) Tj`, 'ET');
-  };
-
-  drawText(title, margin, pageHeight - 36, 'F2', 16, ['0.07', '0.15', '0.12']);
-  drawText(note, margin, pageHeight - 52, 'F1', 9, ['0.36', '0.40', '0.45']);
-
-  const gridTop = pageHeight - 68;
-  const gridBottom = 24;
-  const gridWidth = pageWidth - margin * 2;
-  const columnWidth = gridWidth / 7;
-  const headerHeight = 18;
-  const weekCount = Math.ceil(cells.length / 7);
-  const rowHeight = (gridTop - gridBottom - headerHeight) / weekCount;
-  const tones = {
-    today: ['0.72', '0.85', '0.78'],
-    past: ['0.95', '0.96', '0.95'],
-    upcoming: ['1.00', '0.94', '0.82'],
-  };
-
-  dayHeaders.forEach((label, index) => {
-    const x = margin + index * columnWidth;
-    const y = gridTop - headerHeight;
-    fillRect(x, y, columnWidth, headerHeight, ['1', '1', '1']);
-    strokeRect(x, y, columnWidth, headerHeight);
-    drawText(label, x + columnWidth / 2 - label.length * 2.2, y + 6, 'F2', 9, ['0.48', '0.53', '0.51']);
-  });
-
-  cells.forEach((cell, index) => {
-    const column = index % 7;
-    const row = Math.floor(index / 7);
-    const x = margin + column * columnWidth;
-    const y = gridTop - headerHeight - (row + 1) * rowHeight;
-    fillRect(x, y, columnWidth, rowHeight, tones[cell?.tone] || ['1', '1', '1']);
-    strokeRect(x, y, columnWidth, rowHeight);
-
-    if (!cell) {
-      return;
-    }
-
-    let textY = y + rowHeight - 14;
-    drawText(String(cell.day), x + 6, textY, 'F2', 11, ['0.07', '0.15', '0.12']);
-    textY -= 12;
-
-    cell.events.forEach((eventLines) => {
-      eventLines.forEach((line, lineIndex) => {
-        wrapPdfText(line.text, line.size, columnWidth - 12).forEach((part) => {
-          if (textY < y + 4) {
-            return;
-          }
-          drawText(part, x + 6, textY, lineIndex === 0 ? 'F2' : 'F1', line.size, line.color);
-          textY -= line.size + 1;
-        });
-      });
-      textY -= 3;
-    });
-  });
-
-  const stream = commands.join('\n');
-  const objects = [
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 841.89 595.28] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>\nendobj\n',
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
-    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n',
-    `6 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`,
-  ];
-  let body = '%PDF-1.4\n';
-  const offsets = [0];
-
-  objects.forEach((object) => {
-    offsets.push(body.length);
-    body += object;
-  });
-
-  const xrefStart = body.length;
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    body += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  });
-  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return body;
-}
+const TABLE_PDF_COLUMNS = [
+  { label: 'ID', width: 36 },
+  { label: 'User', width: 150 },
+  { label: 'Identifier', width: 95 },
+  { label: 'Schedule Date', width: 150 },
+  { label: 'Time', width: 115 },
+  { label: 'Type', width: 60 },
+  { label: 'Status', width: 75 },
+  { label: 'Created', width: 104 },
+];
 
 function getScheduleWindowLabel(schedule) {
   const dateLabel = formatScheduleDate(schedule.scheduleDate || schedule.startDate);
@@ -344,7 +253,7 @@ function getCreatedAtParts(schedule) {
 
 export default function Schedules({ user }) {
   const confirmAction = useActionConfirm();
-  const rowsPerPage = 10;
+  const rowsPerPage = 7;
   const [schedules, setSchedules] = useState([]);
   const [usersByRole, setUsersByRole] = useState({
     faculty: [],
@@ -374,8 +283,11 @@ export default function Schedules({ user }) {
   const [isScheduleTabMenuOpen, setIsScheduleTabMenuOpen] = useState(false);
   const [activeStatusFilter, setActiveStatusFilter] = useState('all');
   const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
+  const [activeKindFilter, setActiveKindFilter] = useState('all');
+  const [isKindFilterMenuOpen, setIsKindFilterMenuOpen] = useState(false);
   const scheduleTabMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
+  const kindFilterMenuRef = useRef(null);
 
   useEffect(() => {
     let isActive = true;
@@ -526,7 +438,7 @@ export default function Schedules({ user }) {
     return fullName || actor.name || actor.username || actor.email || 'System';
   }
 
-  const columns = ['Sched ID', 'User', 'Schedule Window', 'Status', 'Created', 'Actions'];
+  const columns = ['Sched ID', 'User', 'Schedule Window', 'Type', 'Status', 'Created', 'Actions'];
   const todayStamp = useMemo(() => getManilaDateStamp(), []);
   const nowStamp = useMemo(() => getManilaDateTimeStamp(), [schedules]);
   const schedulesForActiveTab = useMemo(() => {
@@ -574,12 +486,18 @@ export default function Schedules({ user }) {
     return schedules;
   }, [activeScheduleTab, nowStamp, schedules, todayStamp]);
   const filteredSchedules = useMemo(() => {
-    if (activeStatusFilter === 'all') {
-      return schedulesForActiveTab;
-    }
+    return schedulesForActiveTab.filter((schedule) => {
+      if (activeKindFilter !== 'all' && getScheduleKind(schedule) !== activeKindFilter) {
+        return false;
+      }
 
-    return schedulesForActiveTab.filter((schedule) => schedule.status === activeStatusFilter);
-  }, [activeStatusFilter, schedulesForActiveTab]);
+      if (activeStatusFilter !== 'all' && schedule.status !== activeStatusFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [activeKindFilter, activeStatusFilter, schedulesForActiveTab]);
   const scheduleTabCounts = useMemo(() => {
     return {
       all: schedules.length,
@@ -593,21 +511,40 @@ export default function Schedules({ user }) {
     };
   }, [nowStamp, schedules, todayStamp]);
   const statusFilterCounts = useMemo(() => {
+    const kindScoped = schedulesForActiveTab.filter((schedule) => {
+      if (activeKindFilter === 'all') {
+        return true;
+      }
+
+      return getScheduleKind(schedule) === activeKindFilter;
+    });
+
     return {
-      all: schedulesForActiveTab.length,
+      all: kindScoped.length,
       ...Object.fromEntries(
-        scheduleStatusOptions.map((option) => [
+        [...regularScheduleStatusOptions, { value: 'overridden', label: 'Overridden' }].map((option) => [
           option.value,
-          schedulesForActiveTab.filter((schedule) => schedule.status === option.value).length,
+          kindScoped.filter((schedule) => schedule.status === option.value).length,
         ]),
       ),
     };
-  }, [schedulesForActiveTab]);
+  }, [activeKindFilter, schedulesForActiveTab]);
+  const kindFilterCounts = useMemo(
+    () => ({
+      all: schedulesForActiveTab.length,
+      regular: schedulesForActiveTab.filter((schedule) => getScheduleKind(schedule) === 'regular').length,
+      override: schedulesForActiveTab.filter((schedule) => getScheduleKind(schedule) === 'override').length,
+    }),
+    [schedulesForActiveTab],
+  );
   const activeScheduleTabConfig =
     scheduleTableTabs.find((tab) => tab.value === activeScheduleTab) || scheduleTableTabs[0];
   const activeStatusFilterConfig =
     scheduleStatusFilterOptions.find((option) => option.value === activeStatusFilter) ||
     scheduleStatusFilterOptions[0];
+  const activeKindFilterConfig =
+    scheduleKindFilterOptions.find((option) => option.value === activeKindFilter) ||
+    scheduleKindFilterOptions[0];
   const totalPages = Math.max(1, Math.ceil(filteredSchedules.length / rowsPerPage));
   const paginatedSchedules = useMemo(() => {
     const startIndex = (currentPage - 1) * rowsPerPage;
@@ -622,10 +559,10 @@ export default function Schedules({ user }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeScheduleTab, activeStatusFilter]);
+  }, [activeScheduleTab, activeStatusFilter, activeKindFilter]);
 
   useEffect(() => {
-    if (!isScheduleTabMenuOpen && !isStatusFilterMenuOpen) {
+    if (!isScheduleTabMenuOpen && !isStatusFilterMenuOpen && !isKindFilterMenuOpen) {
       return undefined;
     }
 
@@ -637,12 +574,17 @@ export default function Schedules({ user }) {
       if (isStatusFilterMenuOpen && !statusFilterMenuRef.current?.contains(event.target)) {
         setIsStatusFilterMenuOpen(false);
       }
+
+      if (isKindFilterMenuOpen && !kindFilterMenuRef.current?.contains(event.target)) {
+        setIsKindFilterMenuOpen(false);
+      }
     }
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
         setIsScheduleTabMenuOpen(false);
         setIsStatusFilterMenuOpen(false);
+        setIsKindFilterMenuOpen(false);
       }
     }
 
@@ -653,7 +595,7 @@ export default function Schedules({ user }) {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isScheduleTabMenuOpen, isStatusFilterMenuOpen]);
+  }, [isScheduleTabMenuOpen, isStatusFilterMenuOpen, isKindFilterMenuOpen]);
 
   useEffect(() => {
     if (!isModalOpen && !editingSchedule && !viewSchedule && !deleteSchedule && !historySchedule && !conflictInfo) {
@@ -759,6 +701,10 @@ export default function Schedules({ user }) {
   }
 
   function handleDelete(schedule) {
+    if (user?.role === 'admin') {
+      return;
+    }
+
     setDeleteSchedule(schedule);
   }
 
@@ -779,7 +725,7 @@ export default function Schedules({ user }) {
   }
 
   async function confirmDelete() {
-    if (!deleteSchedule) {
+    if (!deleteSchedule || user?.role === 'admin') {
       return;
     }
 
@@ -794,7 +740,9 @@ export default function Schedules({ user }) {
     }
 
     try {
-      await axiosClient.delete('/api/schedules.php?id=' + deleteSchedule.id);
+      await axiosClient.delete(
+        `/api/schedules.php?id=${deleteSchedule.id}&actor_id=${encodeURIComponent(user?.id || '')}`,
+      );
       setSchedules((previous) => previous.filter((s) => s.id !== deleteSchedule.id));
       setDeleteSchedule(null);
     } catch {
@@ -976,6 +924,7 @@ export default function Schedules({ user }) {
       const payload = {
         userId: scheduleUserId,
         scheduleType: formState.scheduleType,
+        scheduleKind: formState.scheduleKind,
         scheduleDate: isRecurring ? null : formState.scheduleDate,
         startDate: isRecurring ? formState.startDate : null,
         endDate: isRecurring ? formState.endDate : null,
@@ -1034,6 +983,10 @@ export default function Schedules({ user }) {
   const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
   const [focusedCalendarDate, setFocusedCalendarDate] = useState('');
   const [openMoreDate, setOpenMoreDate] = useState('');
+  const [calendarView, setCalendarView] = useState('month');
+  const [weekStartDate, setWeekStartDate] = useState('');
+  const [exportTarget, setExportTarget] = useState(null);
+  const isWeekView = isCalendarExpanded && calendarView === 'week';
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -1119,48 +1072,217 @@ export default function Schedules({ user }) {
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const dayHeaders = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  function downloadCSV() {
-    const headers = ['Schedule ID', 'User', 'Identifier', 'Type', 'Schedule Window', 'Status', 'Created'];
-    const rows = schedules.map((s) => [
-      s.id,
-      s.ownerName,
-      s.ownerIdentifier,
-      s.scheduleType,
-      getScheduleWindowLabel(s),
-      s.status,
-      s.createdAt,
-    ]);
+  const weekDays = useMemo(() => {
+    if (!weekStartDate) {
+      return [];
+    }
 
-    const csvContent = [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'schedules.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    return dayHeaders.map((label, index) => {
+      const dateStr = shiftDateStamp(weekStartDate, index);
+
+      return {
+        dateStr,
+        weekdayLabel: label.toUpperCase(),
+        dayNumber: Number(dateStr.slice(8, 10)),
+        isToday: dateStr === todayStr,
+        entries: schedulesByDate.get(dateStr) || [],
+      };
+    });
+  }, [weekStartDate, schedulesByDate, todayStr]);
+
+  const weekRangeLabel = useMemo(() => {
+    if (weekDays.length === 0) {
+      return '';
+    }
+
+    const first = parseDateStamp(weekDays[0].dateStr);
+    const last = parseDateStamp(weekDays[weekDays.length - 1].dateStr);
+    const shortMonth = (date) => monthNames[date.getMonth()].slice(0, 3);
+    const firstLabel = `${shortMonth(first)} ${first.getDate()}${first.getFullYear() !== last.getFullYear() ? `, ${first.getFullYear()}` : ''}`;
+
+    return `${firstLabel} - ${shortMonth(last)} ${last.getDate()}, ${last.getFullYear()}`;
+  }, [weekDays]);
+
+  function openWeeklyView() {
+    const now = new Date();
+    const isViewingCurrentMonth = calYear === now.getFullYear() && calMonth === now.getMonth();
+    const anchorDate = isViewingCurrentMonth ? todayStr : toDateStamp(new Date(calYear, calMonth, 1));
+
+    setWeekStartDate(getWeekStartStamp(anchorDate));
+    setFocusedCalendarDate('');
+    setOpenMoreDate('');
+    setCalendarView('week');
   }
 
-  function exportPendingCalendar() {
+  function openMonthlyView() {
+    if (weekStartDate) {
+      const middleOfWeek = parseDateStamp(shiftDateStamp(weekStartDate, 3));
+      const now = new Date();
+      setCalOffset((middleOfWeek.getFullYear() - now.getFullYear()) * 12 + (middleOfWeek.getMonth() - now.getMonth()));
+    }
+
+    setCalendarView('month');
+  }
+
+  const tableFilterSummary = [
+    activeScheduleTabConfig.label,
+    activeKindFilterConfig.label,
+    activeStatusFilterConfig.label,
+  ].join(' · ');
+
+  function getTableExportFileName(extension) {
+    const parts = ['schedules', activeScheduleTab];
+
+    if (activeKindFilter !== 'all') {
+      parts.push(activeKindFilter);
+    }
+
+    if (activeStatusFilter !== 'all') {
+      parts.push(activeStatusFilter);
+    }
+
+    parts.push(todayStr);
+    return `${parts.join('-')}.${extension}`;
+  }
+
+  function exportTableCsv() {
+    const headers = ['Schedule ID', 'User', 'Identifier', 'Schedule Type', 'Kind', 'Schedule Date', 'Start Time', 'End Time', 'Status', 'Created'];
+    const rows = filteredSchedules.map((schedule) => {
+      const start = parseTimeToMinutes(schedule.timeStart);
+      const end = parseTimeToMinutes(schedule.timeEnd);
+
+      return [
+        schedule.id,
+        schedule.ownerName,
+        schedule.ownerIdentifier,
+        formatScheduleTypeLabel(schedule.scheduleType),
+        formatScheduleKindLabel(getScheduleKind(schedule)),
+        getPrimaryScheduleDate(schedule),
+        schedule.timeStartLabel || (start !== null ? formatMinutesLabel(start) : ''),
+        schedule.timeEndLabel || (end !== null ? formatMinutesLabel(end) : ''),
+        formatScheduleStatusLabel(schedule.status),
+        schedule.createdAt,
+      ];
+    });
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    downloadFile(csvContent, 'text/csv;charset=utf-8;', getTableExportFileName('csv'));
+  }
+
+  function exportTablePdf() {
+    const rows = filteredSchedules.map((schedule) => {
+      const windowParts = getScheduleWindowParts(schedule);
+      const createdParts = getCreatedAtParts(schedule);
+
+      return [
+        String(schedule.id),
+        schedule.ownerName,
+        schedule.ownerIdentifier,
+        windowParts.dateLabel,
+        windowParts.timeLabel,
+        formatScheduleKindLabel(getScheduleKind(schedule)),
+        formatScheduleStatusLabel(schedule.status),
+        [createdParts.dateLabel, createdParts.timeLabel].filter(Boolean).join(' '),
+      ];
+    });
+    const pdf = buildTablePdf({
+      title: 'Schedules',
+      note: `Filters: ${tableFilterSummary} | ${rows.length} schedule${rows.length === 1 ? '' : 's'}`,
+      columns: TABLE_PDF_COLUMNS,
+      rows,
+      emphasizeColumn: 1,
+      emptyMessage: 'No schedules match the selected filters.',
+    });
+
+    downloadFile(pdf, 'application/pdf', getTableExportFileName('pdf'));
+  }
+
+  function getExportableSchedules(isInRange) {
+    return schedules
+      .filter(
+        (schedule) =>
+          schedule.scheduleDate &&
+          (schedule.status === 'approved' || schedule.status === 'overridden') &&
+          isInRange(schedule.scheduleDate),
+      )
+      .sort(compareSchedulesChronologically);
+  }
+
+  function isInDisplayedMonth(dateStr) {
+    const [year, month] = dateStr.split('-').map(Number);
+    return year === calYear && month === calMonth + 1;
+  }
+
+  function isInDisplayedWeek(dateStr) {
+    return weekDays.length > 0 && dateStr >= weekDays[0].dateStr && dateStr <= weekDays[weekDays.length - 1].dateStr;
+  }
+
+  function getWeekFileStamp() {
+    return weekDays.length > 0 ? `${weekDays[0].dateStr}-to-${weekDays[weekDays.length - 1].dateStr}` : 'week';
+  }
+
+  function exportMonthlyCsv() {
+    downloadFile(
+      buildScheduleCsv(getExportableSchedules(isInDisplayedMonth)),
+      'text/csv;charset=utf-8;',
+      `monthly-schedule-${monthNames[calMonth]}-${calYear}.csv`,
+    );
+  }
+
+  function exportWeeklyCsv() {
+    downloadFile(
+      buildScheduleCsv(getExportableSchedules(isInDisplayedWeek)),
+      'text/csv;charset=utf-8;',
+      `weekly-schedule-${getWeekFileStamp()}.csv`,
+    );
+  }
+
+  function exportWeeklyPdf() {
+    const weekSchedules = getExportableSchedules(isInDisplayedWeek);
+    const pdf = buildWeeklyPdf({
+      title: `Weekly Schedule: ${weekRangeLabel}`,
+      note: 'Approved and overridden schedules.',
+      days: weekDays.map((day) => ({
+        ...day,
+        entries: weekSchedules.filter((schedule) => schedule.scheduleDate === day.dateStr),
+      })),
+    });
+
+    downloadFile(pdf, 'application/pdf', `weekly-schedule-${getWeekFileStamp()}.pdf`);
+  }
+
+  function handleExportFormat(format) {
+    if (exportTarget === 'table') {
+      if (format === 'csv') {
+        exportTableCsv();
+      } else {
+        exportTablePdf();
+      }
+    } else if (isWeekView) {
+      if (format === 'csv') {
+        exportWeeklyCsv();
+      } else {
+        exportWeeklyPdf();
+      }
+    } else if (format === 'csv') {
+      exportMonthlyCsv();
+    } else {
+      exportMonthlyPdf();
+    }
+
+    setExportTarget(null);
+  }
+
+  function exportMonthlyPdf() {
     const title = `${monthNames[calMonth]} ${calYear}`;
-    const pendingByDate = new Map();
+    const schedulesByDate = new Map();
 
-    schedules.forEach((schedule) => {
-      if (!schedule.scheduleDate || schedule.status !== 'pending') {
-        return;
-      }
-
-      const [year, month] = schedule.scheduleDate.split('-').map(Number);
-
-      if (year !== calYear || month !== calMonth + 1) {
-        return;
-      }
-
-      const entries = pendingByDate.get(schedule.scheduleDate) || [];
+    getExportableSchedules(isInDisplayedMonth).forEach((schedule) => {
+      const entries = schedulesByDate.get(schedule.scheduleDate) || [];
       entries.push(schedule);
-      pendingByDate.set(schedule.scheduleDate, entries);
+      schedulesByDate.set(schedule.scheduleDate, entries);
     });
 
     const cells = calendarGrid.map((cell) => {
@@ -1168,7 +1290,7 @@ export default function Schedules({ user }) {
         return null;
       }
 
-      const entries = pendingByDate.get(cell.dateStr) || [];
+      const entries = schedulesByDate.get(cell.dateStr) || [];
 
       return {
         day: cell.day,
@@ -1182,19 +1304,12 @@ export default function Schedules({ user }) {
     });
     const pdf = buildCalendarPdf({
       title,
-      note: 'Pending schedules. Overridden schedules are not included.',
+      note: 'Approved and overridden schedules.',
       dayHeaders,
       cells,
     });
-    const blob = new Blob([pdf], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `pending-schedules-${monthNames[calMonth]}-${calYear}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    downloadFile(pdf, 'application/pdf', `monthly-schedule-${monthNames[calMonth]}-${calYear}.pdf`);
   }
 
   return (
@@ -1207,9 +1322,9 @@ export default function Schedules({ user }) {
             <p>Manage access schedules created for users.</p>
           </div>
           <div className="schedules-header-actions">
-            <button type="button" className="schedules-csv-button" onClick={downloadCSV}>
+            <button type="button" className="schedules-csv-button" onClick={() => setExportTarget('table')}>
               <Download size={14} />
-              Download CSV
+              Download
             </button>
             <button type="button" className="dashboard-schedule-button schedules-add-button" onClick={() => openModal()}>
               <CalendarPlus size={16} aria-hidden="true" />
@@ -1238,6 +1353,7 @@ export default function Schedules({ user }) {
               onClick={() => {
                 setIsScheduleTabMenuOpen((open) => !open);
                 setIsStatusFilterMenuOpen(false);
+                setIsKindFilterMenuOpen(false);
               }}
             >
               <span className="schedules-table-tab-trigger-label">{activeScheduleTabConfig.label}</span>
@@ -1275,6 +1391,61 @@ export default function Schedules({ user }) {
 
           <div
             className="schedules-table-tabs schedules-status-filter"
+            ref={kindFilterMenuRef}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) {
+                setIsKindFilterMenuOpen(false);
+              }
+            }}
+          >
+            <button
+              type="button"
+              className={`schedules-table-tab-trigger${isKindFilterMenuOpen ? ' is-open' : ''}`}
+              aria-haspopup="listbox"
+              aria-expanded={isKindFilterMenuOpen}
+              aria-controls="schedule-kind-filter-menu"
+              aria-label={`Type filter: ${activeKindFilterConfig.label}`}
+              onClick={() => {
+                setIsKindFilterMenuOpen((open) => !open);
+                setIsScheduleTabMenuOpen(false);
+                setIsStatusFilterMenuOpen(false);
+              }}
+            >
+              <span className="schedules-table-tab-trigger-label">{activeKindFilterConfig.label}</span>
+              <span className="schedules-table-tab-count">{kindFilterCounts[activeKindFilterConfig.value]}</span>
+              <ChevronDown className="schedules-table-tab-chevron" size={14} aria-hidden="true" />
+            </button>
+
+            {isKindFilterMenuOpen ? (
+              <div
+                id="schedule-kind-filter-menu"
+                className="schedules-table-tab-menu"
+                role="listbox"
+                aria-label="Schedule type filters"
+              >
+                {scheduleKindFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    className={`schedules-table-tab-option${activeKindFilter === option.value ? ' is-active' : ''}`}
+                    aria-selected={activeKindFilter === option.value}
+                    onClick={() => {
+                      setActiveKindFilter(option.value);
+                      setIsKindFilterMenuOpen(false);
+                    }}
+                  >
+                    <Check className="schedules-table-tab-check" size={15} aria-hidden="true" />
+                    <span className="schedules-table-tab-option-label">{option.label}</span>
+                    <span className="schedules-table-tab-count">{kindFilterCounts[option.value]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div
+            className="schedules-table-tabs schedules-status-filter"
             ref={statusFilterMenuRef}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -1292,6 +1463,7 @@ export default function Schedules({ user }) {
               onClick={() => {
                 setIsStatusFilterMenuOpen((open) => !open);
                 setIsScheduleTabMenuOpen(false);
+                setIsKindFilterMenuOpen(false);
               }}
             >
               <span className="schedules-table-tab-trigger-label">{activeStatusFilterConfig.label}</span>
@@ -1389,8 +1561,15 @@ export default function Schedules({ user }) {
                       </div>
                     </td>
                     <td>
+                      <span
+                        className={`dashboard-log-status dashboard-log-status-kind-${getScheduleKind(schedule)}`}
+                      >
+                        {formatScheduleKindLabel(getScheduleKind(schedule))}
+                      </span>
+                    </td>
+                    <td>
                       <span className={`dashboard-log-status dashboard-log-status-${schedule.status}`}>
-                        {schedule.status}
+                        {formatScheduleStatusLabel(schedule.status)}
                       </span>
                     </td>
                     <td>
@@ -1406,7 +1585,7 @@ export default function Schedules({ user }) {
                           { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
                           { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
                           { label: 'History', icon: History, onClick: () => handleHistory(schedule) },
-                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
+                          { label: 'Delete', icon: Trash2, danger: true, hidden: user?.role === 'admin', onClick: () => handleDelete(schedule) },
                         ]}
                       />
                     </td>
@@ -1448,11 +1627,20 @@ export default function Schedules({ user }) {
 
       <aside className="schedules-calendar-card">
         <div className="schedules-calendar">
-          {isCalendarExpanded && !focusedCell && (
+          {isCalendarExpanded && (!focusedCell || isWeekView) && (
             <div className="schedules-calendar-export-row">
-              <button type="button" className="schedules-calendar-export" onClick={exportPendingCalendar}>
+              <button type="button" className="schedules-calendar-export" onClick={() => setExportTarget('calendar')}>
                 <Download size={14} />
                 Export schedule
+              </button>
+              <button
+                type="button"
+                className="schedules-calendar-export schedules-calendar-view-toggle"
+                aria-pressed={isWeekView}
+                onClick={isWeekView ? openMonthlyView : openWeeklyView}
+              >
+                {isWeekView ? <CalendarDays size={14} /> : <CalendarRange size={14} />}
+                {isWeekView ? 'Monthly Calendar' : 'Weekly Schedule'}
               </button>
               <button
                 type="button"
@@ -1460,6 +1648,7 @@ export default function Schedules({ user }) {
                 aria-label="Minimize calendar"
                 onClick={() => {
                   setIsCalendarExpanded(false);
+                  setCalendarView('month');
                   setFocusedCalendarDate('');
                   setOpenMoreDate('');
                 }}
@@ -1468,8 +1657,8 @@ export default function Schedules({ user }) {
               </button>
             </div>
           )}
-          {isCalendarExpanded && focusedCell ? (
-            <div className="schedules-calendar-day-add-row">
+          {isCalendarExpanded && focusedCell && !isWeekView ? (
+            <div className="schedules-calendar-export-row">
               <button
                 type="button"
                 className="schedules-calendar-export"
@@ -1478,10 +1667,41 @@ export default function Schedules({ user }) {
                 <CalendarPlus size={14} />
                 Add Schedule
               </button>
+              <button
+                type="button"
+                className="schedules-calendar-export schedules-calendar-minimize"
+                aria-label="Back to month view"
+                onClick={() => {
+                  setFocusedCalendarDate('');
+                  setOpenMoreDate('');
+                }}
+              >
+                <Minimize2 size={14} />
+              </button>
             </div>
           ) : null}
           <div className="schedules-calendar-header">
-            {isCalendarExpanded && focusedCell ? (
+            {isWeekView ? (
+              <>
+                <button
+                  type="button"
+                  className="schedules-calendar-nav"
+                  aria-label="Previous week"
+                  onClick={() => setWeekStartDate((current) => shiftDateStamp(current, -7))}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span>{weekRangeLabel}</span>
+                <button
+                  type="button"
+                  className="schedules-calendar-nav"
+                  aria-label="Next week"
+                  onClick={() => setWeekStartDate((current) => shiftDateStamp(current, 7))}
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </>
+            ) : isCalendarExpanded && focusedCell ? (
               <>
                 <button
                   type="button"
@@ -1527,26 +1747,18 @@ export default function Schedules({ user }) {
               </>
             )}
           </div>
-          {isCalendarExpanded && focusedCell ? (
+          {isWeekView ? (
+            <WeeklyScheduleGrid days={weekDays} onSelectSchedule={handleView} />
+          ) : isCalendarExpanded && focusedCell ? (
             <div className={`${getCalendarCellClass(focusedCell)} schedules-calendar-day-box`}>
               <div className="schedules-calendar-day-heading">
                 <span className="schedules-calendar-day-number">{focusedCell.day}</span>
-                <span className="schedules-calendar-day-heading-side">
-                  {focusedCell.isToday && (
-                    <span className="schedules-calendar-today-mark">
-                      <span className="schedules-calendar-today-dot" aria-hidden="true" />
-                      Today
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className="schedules-calendar-day-close"
-                    aria-label="Back to month"
-                    onClick={() => setFocusedCalendarDate('')}
-                  >
-                    <Minimize2 size={16} />
-                  </button>
-                </span>
+                {focusedCell.isToday ? (
+                  <span className="schedules-calendar-today-mark">
+                    <span className="schedules-calendar-today-dot" aria-hidden="true" />
+                    Today
+                  </span>
+                ) : null}
               </div>
               {focusedCell.entries.length > 0 && (
                 <div className="schedules-calendar-day-table">
@@ -1558,7 +1770,7 @@ export default function Schedules({ user }) {
                         items={[
                           { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
                           { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
-                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
+                          { label: 'Delete', icon: Trash2, danger: true, hidden: user?.role === 'admin', onClick: () => handleDelete(schedule) },
                         ]}
                       />
                     </div>
@@ -1633,21 +1845,32 @@ export default function Schedules({ user }) {
           </div>
           )}
           <div className="schedules-calendar-legend">
-            <span><span className="schedules-legend-dot schedules-legend-past"></span> Past</span>
-            <span><span className="schedules-legend-dot schedules-legend-green"></span> Today</span>
-            <span><span className="schedules-legend-dot schedules-legend-upcoming"></span> Upcoming</span>
+            {isWeekView ? (
+              <>
+                <span><span className="schedules-legend-dot schedules-legend-week-regular"></span> Regular</span>
+                <span><span className="schedules-legend-dot schedules-legend-week-override"></span> Override</span>
+                <span><span className="schedules-legend-dot schedules-legend-week-cancelled"></span> Cancelled</span>
+              </>
+            ) : (
+              <>
+                <span><span className="schedules-legend-dot schedules-legend-past"></span> Past</span>
+                <span><span className="schedules-legend-dot schedules-legend-green"></span> Today</span>
+                <span><span className="schedules-legend-dot schedules-legend-upcoming"></span> Upcoming</span>
+              </>
+            )}
             <button
               type="button"
               className="schedules-calendar-expand"
               aria-pressed={isCalendarExpanded}
               aria-label={isCalendarExpanded && focusedCalendarDate ? 'Back to month' : isCalendarExpanded ? 'Shrink calendar' : 'Expand calendar'}
               onClick={() => {
-                if (isCalendarExpanded && focusedCalendarDate) {
+                if (isCalendarExpanded && focusedCalendarDate && !isWeekView) {
                   setFocusedCalendarDate('');
                   return;
                 }
 
                 setIsCalendarExpanded((expanded) => !expanded);
+                setCalendarView('month');
                 setFocusedCalendarDate('');
                 setOpenMoreDate('');
               }}
@@ -1715,9 +1938,19 @@ export default function Schedules({ user }) {
                     </select>
                   </div>
                   <div className="schedules-field">
+                    <label>Type</label>
+                    <select
+                      value={formState.scheduleKind}
+                      onChange={(e) => updateField('scheduleKind', e.target.value)}
+                    >
+                      <option value="regular">Regular</option>
+                      <option value="override">Override</option>
+                    </select>
+                  </div>
+                  <div className="schedules-field">
                     <label>Status</label>
                     <select value={formState.status} onChange={(e) => updateField('status', e.target.value)}>
-                      {scheduleStatusOptions.map((option) => (
+                      {regularScheduleStatusOptions.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
@@ -1882,7 +2115,7 @@ export default function Schedules({ user }) {
                         onChange={(e) => updateField('status', e.target.value)}
                         required
                       >
-                        {scheduleStatusOptions.map((option) => (
+                        {getStatusOptionsForSchedule(editingSchedule).map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>
@@ -1981,6 +2214,16 @@ export default function Schedules({ user }) {
                 <h3>Status</h3>
                 <dl>
                   <div>
+                    <dt>Type</dt>
+                    <dd>
+                      <span
+                        className={`dashboard-log-status dashboard-log-status-kind-${getScheduleKind(viewSchedule)}`}
+                      >
+                        {formatScheduleKindLabel(getScheduleKind(viewSchedule))}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
                     <dt>Status</dt>
                     <dd>
                       <span className={`dashboard-log-status dashboard-log-status-${viewSchedule.status}`}>
@@ -2059,6 +2302,32 @@ export default function Schedules({ user }) {
           </div>
         </div>
       )}
+
+      <ExportFormatModal
+        open={Boolean(exportTarget)}
+        title={exportTarget === 'table' ? 'Export Schedules' : 'Export Schedule'}
+        subtitle={
+          exportTarget === 'table'
+            ? `${tableFilterSummary} (${filteredSchedules.length} schedule${filteredSchedules.length === 1 ? '' : 's'})`
+            : isWeekView
+              ? `Weekly schedule for ${weekRangeLabel}`
+              : `Monthly calendar for ${monthNames[calMonth]} ${calYear}`
+        }
+        prompt={
+          exportTarget === 'table'
+            ? 'Only the schedules matching the current table filters will be exported. Choose the file format.'
+            : 'Choose the file format to export.'
+        }
+        pdfHint={
+          exportTarget === 'table'
+            ? 'Printable schedules table'
+            : isWeekView
+              ? 'Printable weekly time grid'
+              : 'Printable monthly calendar'
+        }
+        onSelect={handleExportFormat}
+        onClose={() => setExportTarget(null)}
+      />
 
       {deleteSchedule && (
         <div className="schedules-modal-overlay" onClick={closeAllModals}>

@@ -9,6 +9,16 @@
   margin-top: 0;
 }
 
+.fingerprint-jobs-divider {
+  border: 0;
+  border-top: 1px solid #e2ebe6;
+  margin: 18px 0 6px;
+}
+
+.fingerprint-jobs-divider + .fingerprint-jobs-wrap {
+  margin-top: 0;
+}
+
 .fingerprint-jobs-pagination {
   align-items: center;
   display: flex;
@@ -187,7 +197,10 @@
 }
 
 .fingerprint-back-button {
+  align-items: center;
   background: transparent;
+  display: inline-flex;
+  gap: 6px;
   border: 0;
   color: #0c4b2d;
   cursor: pointer;
@@ -268,12 +281,13 @@
 
 .fingerprint-table-wrap {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding-top: 2px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .fingerprint-table {
-  min-width: 0;
+  min-width: 1100px;
   table-layout: fixed;
   width: 100%;
 }
@@ -281,46 +295,46 @@
 .fingerprint-table th:nth-child(1),
 .fingerprint-table td:nth-child(1) {
   padding-left: 16px;
-  width: 18%;
+  width: auto;
 }
 
 .fingerprint-table th:nth-child(2),
 .fingerprint-table td:nth-child(2) {
-  width: 10%;
+  width: 12%;
 }
 
 .fingerprint-table th:nth-child(3),
 .fingerprint-table td:nth-child(3) {
-  width: 10%;
+  width: 100px;
 }
 
 .fingerprint-table th:nth-child(4),
 .fingerprint-table td:nth-child(4) {
-  width: 16%;
+  width: 200px;
 }
 
 .fingerprint-table th:nth-child(5),
 .fingerprint-table td:nth-child(5) {
   text-align: center;
-  width: 10%;
+  width: 12%;
 }
 
 .fingerprint-table th:nth-child(6),
 .fingerprint-table td:nth-child(6) {
   text-align: left;
-  width: 11%;
+  width: 108px;
 }
 
 .fingerprint-table th:nth-child(7),
 .fingerprint-table td:nth-child(7) {
   text-align: center;
-  width: 10%;
+  width: 11%;
 }
 
 .fingerprint-table th:nth-child(8),
 .fingerprint-table td:nth-child(8) {
   text-align: center;
-  width: 15%;
+  width: 6%;
 }
 
 .fingerprint-enrollment-enrolled {
@@ -607,23 +621,24 @@
 
 .fingerprint-jobs-table th:nth-child(1),
 .fingerprint-jobs-table td:nth-child(1) {
-  width: 19%;
+  padding-left: 16px;
+  width: 18%;
 }
 
 .fingerprint-jobs-table th:nth-child(2),
 .fingerprint-jobs-table td:nth-child(2) {
-  width: 17%;
+  width: 16%;
 }
 
 .fingerprint-jobs-table th:nth-child(3),
 .fingerprint-jobs-table td:nth-child(3) {
-  width: 14%;
+  width: 13%;
 }
 
 .fingerprint-jobs-table th:nth-child(4),
 .fingerprint-jobs-table td:nth-child(4) {
   text-align: left;
-  width: 25%;
+  width: 22%;
 }
 
 .fingerprint-jobs-table th:nth-child(5),
@@ -635,7 +650,13 @@
 .fingerprint-jobs-table th:nth-child(6),
 .fingerprint-jobs-table td:nth-child(6) {
   text-align: center;
-  width: 15%;
+  width: 13%;
+}
+
+.fingerprint-jobs-table:not(.fingerprint-sync-table) th:nth-child(7),
+.fingerprint-jobs-table:not(.fingerprint-sync-table) td:nth-child(7) {
+  text-align: center;
+  width: 8%;
 }
 
 .fingerprint-jobs-table td {
@@ -1076,6 +1097,34 @@
   gap: 10px;
   margin-top: 14px;
   width: 100%;
+}
+
+.fingerprint-live-list-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.fingerprint-view-all-button {
+  background: transparent;
+  border: 0;
+  color: #0c4b2d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.fingerprint-view-all-button:hover {
+  color: #0a3d25;
+  text-decoration: underline;
+}
+
+.fingerprint-view-all-button:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #9cc7ae;
+  outline-offset: 2px;
 }
 
 .fingerprint-live-list-item {
@@ -2423,41 +2472,51 @@
   margin-top: 16px;
 }
 
-.fingerprint-enrollment-profile-card {
-  align-items: center;
-  background:
-    radial-gradient(circle at top right, rgba(54, 179, 126, 0.08), transparent 38%),
-    linear-gradient(180deg, #fbfdfc 0%, #f5f9f7 100%);
-  border: 1px solid #e2ebe6;
-  border-radius: 4px;
-  display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(118px, 148px) minmax(0, 1fr);
-  margin-top: 16px;
-  overflow: hidden;
-  padding: 16px;
-  position: relative;
+.fingerprint-enrollment-modal {
+  max-height: calc(100vh - 36px);
+  max-width: 520px;
+  overflow: auto;
+  padding: 20px 22px 18px;
 }
 
-.fingerprint-enrollment-profile-media {
+.fingerprint-enrollment-modal .fingerprint-modal-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.fingerprint-enrollment-modal .fingerprint-modal-header p {
+  max-width: 48ch;
+}
+
+.fingerprint-enrollment-profile-card {
+  background: #f7faf8;
+  border: 1px solid #e4eee8;
+  border-radius: 8px;
+  margin-top: 16px;
+  padding: 12px 14px;
+}
+
+.fingerprint-enrollment-identity {
+  align-items: center;
   display: flex;
-  justify-content: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .fingerprint-enrollment-avatar-shell {
   align-items: center;
-  background: linear-gradient(180deg, #eaf2ee 0%, #dde9e3 100%);
-  border: 1px solid #dbe7e1;
+  background: #e7f3ec;
   border-radius: 999px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
   color: #0d6b43;
   display: flex;
-  font-size: 28px;
-  font-weight: 900;
-  height: 124px;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 700;
+  height: 48px;
   justify-content: center;
   overflow: hidden;
-  width: 124px;
+  width: 48px;
 }
 
 .fingerprint-enrollment-avatar-shell img {
@@ -2469,52 +2528,47 @@
 
 .fingerprint-enrollment-profile-copy {
   min-width: 0;
-  position: relative;
-  z-index: 1;
 }
 
-.fingerprint-enrollment-profile-heading {
-  align-items: flex-start;
-  border-bottom: 1px solid #dbe7e1;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  padding-bottom: 12px;
-}
-
-.fingerprint-enrollment-profile-heading h4 {
-  color: #08291c;
-  font-size: 18px;
-  font-weight: 900;
+.fingerprint-enrollment-profile-copy h4 {
+  color: #10251d;
+  font-size: 15px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0;
 }
 
-.fingerprint-enrollment-pill-row {
+.fingerprint-enrollment-profile-copy p {
+  align-items: center;
+  color: #5f726a;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  font-size: 13px;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.fingerprint-enrollment-profile-dot {
+  background: #c5d4cc;
+  border-radius: 999px;
+  display: inline-block;
+  height: 3px;
+  width: 3px;
 }
 
 .fingerprint-enrollment-pill {
   align-items: center;
-  background: #ecf5ef;
-  border: 1px solid #d7e8de;
+  background: #ffffff;
+  border: 1px solid #d7e4dc;
   border-radius: 999px;
-  color: #0f6a42;
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 800;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 10px;
-}
-
-.fingerprint-enrollment-pill-status {
-  background: #eef3f0;
-  border-color: #dde8e2;
   color: #355246;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: auto;
+  min-height: 24px;
+  padding: 0 8px;
 }
 
 .fingerprint-enrollment-pill-status-active {
@@ -2529,52 +2583,17 @@
   color: #9f3e3e;
 }
 
-.fingerprint-enrollment-watermark {
-  color: rgba(13, 107, 67, 0.08);
-  flex: 0 0 auto;
-  height: 52px;
-  width: 52px;
-}
-
-.fingerprint-enrollment-detail-list {
-  display: grid;
-  gap: 9px;
-  margin-top: 12px;
-}
-
-.fingerprint-enrollment-detail-row {
-  align-items: center;
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.fingerprint-enrollment-detail-row span {
-  align-items: center;
-  color: #5f7268;
-  display: inline-flex;
-  font-size: 13px;
-  gap: 10px;
-}
-
-.fingerprint-enrollment-detail-row strong {
-  color: #13251f;
-  font-size: 14px;
-  font-weight: 800;
-  text-align: right;
-}
-
 .fingerprint-enrollment-form-section {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .fingerprint-enrollment-select-card {
-  background: #fbfdfc;
-  border: 1px solid #dfe8e3;
+  background: transparent;
+  border: 0;
   box-sizing: border-box;
-  border-radius: 4px;
-  padding: 9px 12px 10px;
+  padding: 0;
   width: 100%;
 }
 
@@ -2597,6 +2616,16 @@
   text-transform: uppercase;
 }
 
+.fingerprint-enrollment-modal .fingerprint-modal-field > span {
+  color: #24352e;
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+  text-transform: none;
+}
+
 .fingerprint-enrollment-select-shell {
   position: relative;
   width: 100%;
@@ -2607,7 +2636,7 @@
   appearance: none;
   background: #ffffff;
   border: 1px solid #d7e3dc;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #13251f;
   cursor: pointer;
   display: grid;
@@ -2639,17 +2668,14 @@
 .fingerprint-enrollment-option-list {
   background: #ffffff;
   border: 1px solid #d7e3dc;
-  border-radius: 4px;
-  box-shadow: 0 18px 34px rgba(10, 25, 18, 0.14);
+  border-radius: 6px;
+  box-shadow: none;
   display: grid;
-  left: 0;
-  bottom: calc(100% + 8px);
-  max-height: 280px;
+  margin-top: 6px;
+  max-height: 220px;
   overflow-y: auto;
-  padding: 8px;
-  position: absolute;
-  top: auto;
-  z-index: 12;
+  padding: 4px;
+  position: static;
   width: 100%;
 }
 .fingerprint-enrollment-option {
@@ -2663,7 +2689,7 @@
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 9px 12px;
   text-align: left;
   width: 100%;
 }
@@ -2719,34 +2745,10 @@
 }
 
 .fingerprint-enrollment-safety-note {
-  align-items: flex-start;
-  background: #f3f7f5;
-  border: 1px solid #e1e9e5;
-  border-radius: 4px;
-  color: #466156;
-  display: flex;
-  gap: 12px;
-  padding: 11px 14px;
-}
-
-.fingerprint-enrollment-safety-note svg {
-  color: #3b82f6;
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.fingerprint-enrollment-safety-note strong {
-  color: #1d3128;
-  display: block;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.fingerprint-enrollment-safety-note p {
-  color: #5e7068;
-  font-size: 13px;
-  line-height: 1.45;
-  margin: 4px 0 0;
+  color: #6a7c73;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
 }
 
 .fingerprint-modal-actions {
@@ -2761,17 +2763,19 @@
 }
 
 .fingerprint-enrollment-submit {
-  background: linear-gradient(90deg, #0b5a37 0%, #0d6b43 55%, #0a5735 100%);
-  border: 0;
-  border-radius: 4px;
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 2px;
   color: #ffffff;
-  min-height: 42px;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 40px;
   width: 100%;
 }
 
 .fingerprint-enrollment-submit:hover {
-  background: linear-gradient(90deg, #094e2f 0%, #0b603c 55%, #08482c 100%);
-  border-color: transparent;
+  background: #103e2b;
+  border-color: #103e2b;
 }
 
 .fingerprint-table td {
@@ -3320,6 +3324,21 @@
     width: 100%;
   }
 
+  .fingerprint-table-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fingerprint-table-filters > .manage-users-role-tabs,
+  .fingerprint-table-filters .manage-users-role-tab-trigger,
+  .fingerprint-table-filters .manage-users-role-tab-menu,
+  .fingerprint-table-filters > .manage-users-role-tabs:not(.manage-users-status-filter) .manage-users-role-tab-trigger,
+  .fingerprint-table-filters > .manage-users-role-tabs:not(.manage-users-status-filter) .manage-users-role-tab-menu {
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
   .fingerprint-summary-grid {
     grid-template-columns: 1fr;
   }
@@ -3353,34 +3372,12 @@
     grid-template-columns: 1fr;
   }
 
-  .fingerprint-enrollment-profile-card {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    text-align: left;
-  }
-
-  .fingerprint-enrollment-profile-copy,
-  .fingerprint-enrollment-profile-heading {
-    width: 100%;
-  }
-
-  .fingerprint-enrollment-profile-heading {
+  .fingerprint-enrollment-identity {
     align-items: flex-start;
-    flex-direction: column;
   }
 
-  .fingerprint-enrollment-watermark {
-    align-self: flex-end;
-    margin-top: -22px;
-  }
-
-  .fingerprint-enrollment-detail-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
-  .fingerprint-enrollment-detail-row strong {
-    text-align: left;
+  .fingerprint-enrollment-pill {
+    margin-top: 2px;
   }
 
   .fingerprint-modal {
@@ -6167,4 +6164,751 @@
     align-items: flex-start;
     grid-template-columns: 1fr;
   }
+}
+
+.fingerprint-progress-modal {
+  background: #f6f8f7;
+  color: #13251f;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e4eee8;
+  box-shadow: none;
+  min-height: 0;
+  padding: 14px 20px;
+}
+
+.fingerprint-progress-title-wrap {
+  gap: 12px;
+}
+
+.fingerprint-progress-brand-mark {
+  border-right: 0;
+  flex-basis: 36px;
+  height: 36px;
+  padding-right: 0;
+}
+
+.fingerprint-progress-brand-mark img {
+  height: 32px;
+  width: 32px;
+}
+
+.fingerprint-progress-header-copy {
+  gap: 2px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-header h3 {
+  color: #10251d;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-header p {
+  color: #5f726a;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fingerprint-progress-header-actions {
+  gap: 10px;
+}
+
+.fingerprint-progress-device-pill {
+  background: #ffffff;
+  border: 1px solid #e4eee8;
+  border-radius: 999px;
+  box-shadow: none;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 6px 0 12px;
+}
+
+.fingerprint-progress-device-pill > span {
+  background: #0c7a43;
+  box-shadow: none;
+  height: 7px;
+  width: 7px;
+}
+
+.fingerprint-progress-device-pill strong {
+  color: #355246;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fingerprint-progress-device-pill em {
+  background: #eef4f1;
+  border-radius: 999px;
+  color: #355246;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.fingerprint-progress-device-pill em.is-completed {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.fingerprint-progress-device-pill em.is-cancelled,
+.fingerprint-progress-device-pill em.is-failed {
+  background: #fdecec;
+  color: #9f3e3e;
+}
+
+.fingerprint-progress-tone-danger .fingerprint-progress-device-pill > span {
+  background: #c45c5c;
+}
+
+.fingerprint-progress-modal .fingerprint-modal-close {
+  border-radius: 6px;
+  color: #355246;
+}
+
+.fingerprint-progress-modal .fingerprint-modal-close:hover {
+  background: #f4fbf7;
+  color: #0c7a43;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-body {
+  background: #f6f8f7;
+  gap: 12px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  padding: 12px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-user-panel,
+.fingerprint-progress-section-card,
+.fingerprint-progress-modal .fingerprint-progress-scan-card,
+.fingerprint-progress-footer-note {
+  border: 1px solid #e4eee8;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-user-panel {
+  border-right: 1px solid #e4eee8;
+  gap: 14px;
+  padding: 16px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-section-label,
+.fingerprint-progress-modal .fingerprint-progress-card-label,
+.fingerprint-progress-content-heading span {
+  color: #5f726a;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-profile {
+  align-items: center;
+  column-gap: 12px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  justify-items: start;
+  padding: 0;
+  row-gap: 1px;
+  text-align: left;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-profile-photo {
+  background: #e7f3ec;
+  border: 0;
+  border-radius: 999px;
+  grid-row: 1 / span 2;
+  height: 48px;
+  margin: 0;
+  width: 48px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-profile-photo span {
+  background: transparent;
+  color: #0c7a43;
+  font-size: 15px;
+  font-weight: 700;
+  height: auto;
+  width: auto;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-profile strong {
+  align-self: end;
+  color: #10251d;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-profile > span {
+  align-self: start;
+  color: #5f726a;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-info-list {
+  gap: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-info-list > div {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid #eef3f0;
+  box-shadow: none;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: 1fr;
+  min-height: 0;
+  padding: 9px 0 8px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-info-list svg {
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-info-list span {
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-info-list strong {
+  color: #13251f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-workspace {
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.fingerprint-progress-section-card,
+.fingerprint-progress-modal .fingerprint-progress-scan-grid {
+  grid-row: 1;
+  min-height: 0;
+}
+
+.fingerprint-progress-section-card {
+  padding: 16px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-stepper {
+  margin-top: 12px;
+  row-gap: 2px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step {
+  gap: 10px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-height: 44px;
+  padding: 0 0 6px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-icon {
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-copy {
+  grid-column: 2;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-marker {
+  border-color: #d7e3dc;
+  box-shadow: none;
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 600;
+  height: 28px;
+  width: 28px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step:not(:last-child)::after {
+  background: #e4eee8;
+  left: 13px;
+  top: 26px;
+  width: 1px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-complete .fingerprint-progress-step-marker {
+  background: #e7f6ed;
+  border-color: #cfe8da;
+  box-shadow: none;
+  color: #0c7a43;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-current .fingerprint-progress-step-marker {
+  background: #0c7a43;
+  border-color: #0c7a43;
+  box-shadow: none;
+  color: #ffffff;
+}
+
+.fingerprint-progress-tone-danger .fingerprint-progress-step-current .fingerprint-progress-step-marker {
+  background: #ffffff;
+  border-color: #e7b4b4;
+  color: #9f3e3e;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-current .fingerprint-progress-step-copy strong {
+  color: #10251d;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-step-copy span {
+  color: #6a7c73;
+  font-size: 12px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-grid {
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card {
+  align-items: flex-start;
+  border-color: #e4eee8;
+  gap: 4px;
+  justify-content: flex-start;
+  min-height: 100%;
+  padding: 20px 22px;
+  text-align: left;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card .fingerprint-progress-card-label {
+  color: #5f726a;
+  justify-content: flex-start;
+  left: auto;
+  padding: 0;
+  position: static;
+  top: auto;
+  width: auto;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print {
+  background: #f4fbf7;
+  border: 1px solid #e3ebe6;
+  box-shadow: none;
+  height: 72px;
+  margin: 16px 0 8px;
+  width: 72px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print::before,
+.fingerprint-progress-modal .fingerprint-progress-print::after {
+  content: none;
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-realistic-mark {
+  filter: none;
+  height: 64px;
+  width: 52px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-quality {
+  color: #10251d;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-quality svg {
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-danger .fingerprint-progress-quality {
+  background: transparent;
+  border: 0;
+  color: #9f3e3e;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-warning .fingerprint-progress-quality {
+  background: transparent;
+  border: 0;
+  color: #8a5b00;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-success .fingerprint-progress-quality {
+  background: transparent;
+  border: 0;
+  color: #0c7a43;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-card-note {
+  color: #5f726a;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 4px;
+  max-width: 46ch;
+  text-align: left;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-footer {
+  margin-top: 22px;
+  max-width: none;
+  width: 100%;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-footer .fingerprint-progress-guide-meta span,
+.fingerprint-progress-modal .fingerprint-progress-scan-footer .fingerprint-progress-guide-meta span:last-child {
+  color: #5f726a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-footer .fingerprint-live-progress {
+  background: #e7eeea;
+  border-radius: 999px;
+  height: 6px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.fingerprint-progress-modal .fingerprint-live-progress-bar {
+  background: #0c7a43;
+  border-radius: 999px;
+}
+
+.fingerprint-progress-tone-danger .fingerprint-live-progress-bar {
+  background: #c45c5c;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip {
+  background: transparent;
+  border: 0;
+  color: #6a7c73;
+  justify-content: flex-start;
+  margin-top: 14px;
+  padding: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip svg,
+.fingerprint-progress-modal .fingerprint-progress-inline-tip strong {
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip span {
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fingerprint-progress-tone-danger .fingerprint-progress-inline-tip,
+.fingerprint-progress-tone-success .fingerprint-progress-inline-tip,
+.fingerprint-progress-footer-note {
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions {
+  background: #ffffff;
+  border-top: 1px solid #e4eee8;
+  padding: 12px 16px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-secondary-action:not(.fingerprint-danger-action) {
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 2px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-secondary-action:not(.fingerprint-danger-action):hover {
+  background: #103e2b;
+  border-color: #103e2b;
+}
+
+@media (max-width: 1180px) {
+  .fingerprint-progress-modal .fingerprint-progress-modal-body,
+  .fingerprint-progress-modal .fingerprint-progress-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .fingerprint-progress-modal .fingerprint-progress-scan-grid {
+    grid-column: auto;
+    grid-row: auto;
+    order: 1;
+  }
+
+  .fingerprint-progress-section-card {
+    grid-column: auto;
+    grid-row: auto;
+    order: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .fingerprint-progress-modal .fingerprint-progress-modal-header {
+    padding: 14px;
+  }
+
+  .fingerprint-progress-modal .fingerprint-progress-modal-header h3 {
+    font-size: 17px;
+  }
+
+  .fingerprint-progress-device-pill strong {
+    display: none;
+  }
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print {
+  background: #f3faf6;
+  border: 1px solid #cfe3d8;
+  border-radius: 999px;
+  color: #0c7a43;
+  height: 84px;
+  width: 84px;
+}
+
+.fingerprint-progress-modal .fingerprint-realistic-mark {
+  color: inherit;
+  height: 56px;
+  width: 44px;
+}
+
+.fingerprint-progress-modal .fingerprint-realistic-mark path {
+  opacity: 1;
+  stroke-dasharray: none;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  stroke-width: 10;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-danger .fingerprint-progress-print {
+  background: #fdf5f5;
+  border-color: #efd0d0;
+  color: #b42323;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-warning .fingerprint-progress-print {
+  background: #fbf8f1;
+  border-color: #eadfbe;
+  color: #8a5b00;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-success .fingerprint-progress-print {
+  background: #f3faf6;
+  border-color: #cfe3d8;
+  color: #0c7a43;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions button,
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-secondary-action,
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-danger-action {
+  border-radius: 2px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-secondary-action:not(.fingerprint-danger-action) {
+  border: 1px solid #0c4b2d;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-modal-actions .fingerprint-danger-action {
+  background: #fffafa;
+  border: 1px solid #ead7d7;
+  color: #933232;
+}
+
+.fingerprint-enrollment-modal {
+  border: 1px solid #c5d4cc;
+  border-radius: 2px;
+}
+
+.fingerprint-enrollment-modal .fingerprint-enrollment-profile-card,
+.fingerprint-enrollment-modal .fingerprint-enrollment-select-wrap,
+.fingerprint-enrollment-modal .fingerprint-enrollment-option-list,
+.fingerprint-enrollment-modal .fingerprint-enrollment-submit {
+  border-radius: 2px;
+}
+
+.fingerprint-enrollment-modal .fingerprint-enrollment-select-wrap {
+  border: 1px solid #8ea498;
+}
+
+.fingerprint-enrollment-modal .fingerprint-enrollment-select-wrap.is-open,
+.fingerprint-enrollment-modal .fingerprint-enrollment-select-wrap:focus-within {
+  border-color: #0c7a43;
+  box-shadow: none;
+}
+
+.fingerprint-enrollment-modal .fingerprint-enrollment-option-list {
+  border: 1px solid #8ea498;
+}
+
+.fingerprint-enrollment-modal .fingerprint-enrollment-submit {
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  color: #ffffff;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-grid {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card {
+  align-items: stretch;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  height: auto;
+  justify-content: flex-start;
+  min-height: 100%;
+  padding: 16px 18px 14px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card .fingerprint-progress-card-label {
+  align-items: center;
+  color: #0c7a43;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.fingerprint-progress-status-panel {
+  align-items: center;
+  background: #f7faf8;
+  border: 1px solid #e4eee8;
+  border-radius: 8px;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.fingerprint-progress-status-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print {
+  background: #ffffff;
+  border: 0;
+  flex: 0 0 auto;
+  height: 68px;
+  margin: 0;
+  width: 68px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print::before {
+  background: conic-gradient(from -90deg, currentColor var(--print-progress, 0%), #e3ebe6 0);
+  border: 0;
+  border-radius: 999px;
+  bottom: -5px;
+  content: '';
+  display: block;
+  height: auto;
+  inset: -5px;
+  left: -5px;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  pointer-events: none;
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  width: auto;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print::after {
+  content: none;
+  display: none;
+}
+
+.fingerprint-progress-modal .fingerprint-realistic-mark {
+  height: 42px;
+  width: 34px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-print-image {
+  height: 44px;
+  max-height: 44px;
+  max-width: 44px;
+  object-fit: contain;
+  width: 44px;
+}
+
+.fingerprint-progress-modal .fingerprint-realistic-mark path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 9;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-quality {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-card-note {
+  margin: 0;
+  max-width: none;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-footer {
+  margin-top: 0;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-footer .fingerprint-progress-guide-meta span:first-child {
+  color: #1d3b2e;
+  font-weight: 600;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip {
+  align-items: center;
+  background: #f3faf6;
+  border: 1px solid #d7ebe3;
+  border-radius: 6px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+  margin-top: 12px;
+  padding: 8px 12px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip svg {
+  color: #0c7a43;
+  display: block;
+  flex: 0 0 auto;
+  height: 16px;
+  width: 16px;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-inline-tip span {
+  color: #3d5c4c;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-danger .fingerprint-progress-status-panel {
+  background: #fdf8f8;
+  border-color: #f0dede;
+}
+
+.fingerprint-progress-modal .fingerprint-progress-scan-card-warning .fingerprint-progress-status-panel {
+  background: #fbf8f1;
+  border-color: #eadfbe;
 }

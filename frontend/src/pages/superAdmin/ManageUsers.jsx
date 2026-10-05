@@ -22,27 +22,14 @@ import {
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
 import { getManilaDateStamp } from '../../utils/dateTime';
-import { ROLE_PRIVILEGE_DEFAULTS, userHasPrivilege } from '../../utils/privileges';
+import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import { ROLE_PRIVILEGE_DEFAULTS, canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
-
-function escapeCsvValue(value) {
-  const text = value == null ? '' : String(value);
-  const escaped = text.replace(/"/g, '""');
-
-  if (/[",\n\r]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-
-  return escaped;
-}
-
-function toCsv(rows) {
-  return rows.map((row) => row.map(escapeCsvValue).join(',')).join('\r\n');
-}
 
 function getPasswordRuleChecks(password) {
   return {
@@ -146,7 +133,7 @@ const userTabs = [
 
 const allUsersFilter = {
   key: 'all',
-  label: 'All Registered Accounts',
+  label: 'All Accounts',
   emptyLabel: 'users',
   identifierLabel: 'ID',
   columns: [
@@ -252,6 +239,10 @@ function formatStatusLabel(status) {
     return 'Active';
   }
 
+  if (status === 'pending_login') {
+    return 'Pending login';
+  }
+
   return status || 'Unknown';
 }
 
@@ -262,6 +253,7 @@ function isBlockedStatus(status) {
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
   { value: 'active', label: 'Active' },
+  { value: 'pending_login', label: 'Pending login' },
   { value: 'inactive', label: 'Inactive' },
   { value: 'blocked', label: 'Blocked' },
 ];
@@ -398,7 +390,13 @@ function buildEditForm(user) {
     username: cleanDisplayValue(user.username),
     email: cleanDisplayValue(user.email),
     identifier: cleanDisplayValue(user.identifier),
-    status: isBlockedStatus(user.status) ? 'blocked' : user.status === 'inactive' ? 'inactive' : 'active',
+    status: isBlockedStatus(user.status)
+      ? 'blocked'
+      : user.status === 'inactive'
+        ? 'inactive'
+        : user.status === 'pending_login'
+          ? 'pending_login'
+          : 'active',
     college: cleanDisplayValue(user.college),
     yearLevel: cleanDisplayValue(user.yearLevel),
     program: cleanDisplayValue(user.program || user.programDepartment),
@@ -432,6 +430,8 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [viewUser, setViewUser] = useState(null);
   const [isViewLoading, setIsViewLoading] = useState(false);
   const [viewError, setViewError] = useState('');
@@ -590,6 +590,23 @@ export default function ManageUsers({ user: currentUser } = {}) {
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
     });
   }, [activeTabConfig.key, statusFilteredUsers, normalizedSearchQuery]);
+  const rowsPerPage = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleUsers.length / rowsPerPage));
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return visibleUsers.slice(startIndex, startIndex + rowsPerPage);
+  }, [currentPage, rowsPerPage, visibleUsers]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, activeStatusFilter, normalizedSearchQuery]);
+
   const totalUsers = useMemo(
     () => Object.values(usersByRole).reduce((total, users) => total + users.length, 0),
     [usersByRole],
@@ -841,7 +858,10 @@ export default function ManageUsers({ user: currentUser } = {}) {
     setEditError('');
 
     try {
-      await axiosClient.put('/api/user.php', editForm);
+      await axiosClient.put('/api/user.php', {
+        ...editForm,
+        actor_id: currentUser?.id || undefined,
+      });
       await reloadUsers();
       closeUserEdit({ force: true });
     } catch (error) {
@@ -856,7 +876,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
       return;
     }
 
-    if (!userHasPrivilege(currentUser, 'delete_users')) {
+    if (!canDeleteRecords(currentUser) || !userHasPrivilege(currentUser, 'delete_users')) {
       setErrorMessage(
         'You do not have permission to delete users. Ask a Super Admin to grant Delete Users access.',
       );
@@ -972,7 +992,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
           current
             ? {
                 ...current,
-                status: nextBlocked ? 'blocked' : 'active',
+                status: nextBlocked ? 'blocked' : user.status === 'pending_login' ? 'pending_login' : 'active',
               }
             : current,
         );
@@ -983,7 +1003,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
           current
             ? {
                 ...current,
-                status: nextBlocked ? 'blocked' : 'active',
+                status: nextBlocked ? 'blocked' : user.status === 'pending_login' ? 'pending_login' : 'active',
               }
             : current,
         );
@@ -1342,11 +1362,14 @@ export default function ManageUsers({ user: currentUser } = {}) {
     }
   }
 
-  function handleDownloadCsv() {
-    const csvColumns = activeTabConfig.columns.filter((column) => column !== 'Action');
-    const csvRows = [
-      csvColumns,
-      ...visibleUsers.map((user) => {
+  function handleExport(format) {
+    setIsExportModalOpen(false);
+    const exportColumns = activeTabConfig.columns
+      .filter((column) => column !== 'Action')
+      .flatMap((column) => (column === 'User' ? ['Name', 'Email'] : [column]));
+    exportTable(format, {
+      headers: exportColumns,
+      rows: visibleUsers.map((user) => {
         const isStudent = user.role === 'student' || activeTabConfig.key === 'students';
         const accessSetup = formatAccessSetup(user, { isStudent });
         const idCell = user.identifier;
@@ -1363,7 +1386,8 @@ export default function ManageUsers({ user: currentUser } = {}) {
           : `${accessSetup.fingerprint} - ${accessSetup.rfid}`;
 
         return [
-          `${user.name}${user.email ? ` - ${user.email}` : ''}`,
+          user.name,
+          user.email || '',
           idCell,
           departmentCell,
           positionCell,
@@ -1372,17 +1396,20 @@ export default function ManageUsers({ user: currentUser } = {}) {
           accessSetupCell,
         ];
       }),
-    ];
-    const csv = toCsv(csvRows);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${activeTabConfig.key}_users_${getManilaDateStamp()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+      fileBaseName: `${activeTabConfig.key}_users_${getManilaDateStamp()}`,
+      pdf: {
+        title: /(Users|Accounts)$/.test(activeTabConfig.label)
+          ? activeTabConfig.label
+          : `${activeTabConfig.label} Users`,
+        note: buildExportNote(visibleUsers.length, 'user', [
+          activeStatusFilter !== 'all' ? `Status: ${activeStatusFilterConfig.label}` : '',
+          searchQuery.trim() ? `Search: "${searchQuery.trim()}"` : '',
+        ]),
+        widths: [110, 140, 75, 150, 100, 60, 55, 100],
+        emphasizeColumn: 0,
+        emptyMessage: `No ${activeTabConfig.emptyLabel} match the selected filters.`,
+      },
+    });
   }
 
   const registerButtonLabel = useMemo(() => {
@@ -1406,19 +1433,26 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const isUnblockAsAdminMode = privilegesMode === 'unblock_as_admin';
 
   function handleRegisterUser() {
+    if (currentUser?.role === 'admin' && !['students', 'admins'].includes(activeTabConfig.key)) {
+      return;
+    }
+
     if (activeTabConfig.key === 'all') {
-      window.location.assign('/super-admin/register-user');
+      window.location.assign(portalHref('/super-admin/register-user'));
       return;
     }
 
     if (activeTabConfig.key === 'super_admins') {
-      window.location.assign('/super-admin/register-user?role=super_admin');
+      window.location.assign(portalHref('/super-admin/register-user?role=super_admin'));
       return;
     }
 
     const role = encodeURIComponent(activeTabConfig.key);
-    window.location.assign(`/super-admin/register-user?role=${role}`);
+    window.location.assign(portalHref(`/super-admin/register-user?role=${role}`));
   }
+
+  const canRegisterCurrentTab =
+    currentUser?.role !== 'admin' || activeTabConfig.key === 'students' || activeTabConfig.key === 'admins';
 
   return (
     <>
@@ -1445,24 +1479,26 @@ export default function ManageUsers({ user: currentUser } = {}) {
             <p>Important account, profile, and access credential details.</p>
           </div>
           <div className="manage-users-header-actions" aria-label="Manage user actions">
-            <button
-              type="button"
-              className="manage-users-register-button"
-              onClick={handleRegisterUser}
-              disabled={isLoading || Boolean(errorMessage)}
-            >
-              <UserPlus size={16} aria-hidden="true" />
-              {registerButtonLabel}
-            </button>
+            {canRegisterCurrentTab ? (
+              <button
+                type="button"
+                className="manage-users-register-button"
+                onClick={handleRegisterUser}
+                disabled={isLoading || Boolean(errorMessage)}
+              >
+                <UserPlus size={16} aria-hidden="true" />
+                {registerButtonLabel}
+              </button>
+            ) : null}
             <div className="manage-users-search-stack">
               <button
                 type="button"
                 className="dashboard-text-link manage-users-download-button"
-                onClick={handleDownloadCsv}
+                onClick={() => setIsExportModalOpen(true)}
                 disabled={isLoading || Boolean(errorMessage) || visibleUsers.length === 0}
               >
                 <Download size={16} aria-hidden="true" />
-                Download CSV
+                Download
               </button>
               <label className="manage-users-search" aria-label="Search users">
                 <Search size={16} aria-hidden="true" />
@@ -1647,7 +1683,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
 
               {!isLoading &&
                 !errorMessage &&
-                visibleUsers.map((user) => {
+                paginatedUsers.map((user) => {
                   const isStudent = user.role === 'student' || activeTabConfig.key === 'students';
                   const accessSetup = formatAccessSetup(user, { isStudent });
 
@@ -1738,6 +1774,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                               onClick: () => handleDeleteUser(user),
                               disabled: isDeletingUserId === user.id,
                               hidden:
+                                !canDeleteRecords(currentUser) ||
                                 !userHasPrivilege(currentUser, 'delete_users') ||
                                 (Boolean(currentUser?.id) &&
                                   Number(currentUser.id) === Number(user.id)),
@@ -1751,8 +1788,45 @@ export default function ManageUsers({ user: currentUser } = {}) {
             </tbody>
           </table>
         </div>
+
+        {!isLoading && !errorMessage && visibleUsers.length > 0 && (
+          <div className="manage-users-pagination" aria-label="Accounts pagination">
+            <p>
+              Showing {(currentPage - 1) * rowsPerPage + 1}-
+              {Math.min(currentPage * rowsPerPage, visibleUsers.length)} of {visibleUsers.length}
+            </p>
+            <div className="manage-users-pagination-controls">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </main>
+    <ExportFormatModal
+      open={isExportModalOpen}
+      title={`Export ${activeTabConfig.label}`}
+      subtitle={`${visibleUsers.length} user${visibleUsers.length === 1 ? '' : 's'} in the current view`}
+      prompt="Only the users matching the current tab, status filter, and search will be exported. Choose the file format."
+      pdfHint="Printable user list table"
+      onSelect={handleExport}
+      onClose={() => setIsExportModalOpen(false)}
+    />
     {viewUser
       ? createPortal(
           <div className="pending-registration-review-backdrop" role="presentation" onClick={closeUserView}>

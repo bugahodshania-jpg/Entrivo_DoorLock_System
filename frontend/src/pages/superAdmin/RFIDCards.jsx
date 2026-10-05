@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   Expand,
   Eye,
@@ -13,8 +15,10 @@ import {
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
 import { getManilaDateStamp } from '../../utils/dateTime';
+import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -24,21 +28,6 @@ const rfidStatusOptions = [
   { value: 'inactive', label: 'Inactive' },
   { value: 'lost', label: 'Lost' },
 ];
-
-function escapeCsvValue(value) {
-  const text = value == null ? '' : String(value);
-  const escaped = text.replace(/"/g, '""');
-
-  if (/[",\n\r]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-
-  return escaped;
-}
-
-function toCsv(rows) {
-  return rows.map((row) => row.map(escapeCsvValue).join(',')).join('\r\n');
-}
 
 function formatStatusLabel(status) {
   if (status === 'blocked') {
@@ -88,6 +77,80 @@ function resolveUserPhotoSrc(photoValue) {
   }
 }
 
+function shortOptionLabel(value) {
+  const match = String(value || '').match(/^\(([^)]+)\)\s*(?:-\s*(.+))?/);
+  if (!match) {
+    return value;
+  }
+  return match[2] ? `${match[1]} - ${match[2]}` : match[1];
+}
+
+function RfidFilterMenu({ id, label, allLabel, value, options, isOpen, onToggle, onClose, onSelect, disabled }) {
+  const active = options.find((option) => option.value === value);
+  const total = options.reduce((sum, option) => sum + option.count, 0);
+  const menuOptions = [{ value: 'all', label: allLabel, count: total }, ...options];
+
+  return (
+    <div
+      className="manage-users-role-tabs manage-users-status-filter rfid-filter"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          onClose();
+        }
+      }}
+    >
+      <button
+        type="button"
+        className={`manage-users-role-tab-trigger${isOpen ? ' is-open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={id}
+        aria-label={`${label}: ${active ? active.label : allLabel}`}
+        title={active ? active.label : allLabel}
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        <span className="manage-users-role-tab-trigger-label">
+          {active ? shortOptionLabel(active.label) : allLabel}
+        </span>
+        <span className="manage-users-role-tab-count">{active ? active.count : total}</span>
+        <ChevronDown className="manage-users-role-tab-chevron" size={14} aria-hidden="true" />
+      </button>
+      {isOpen ? (
+        <div id={id} className="manage-users-role-tab-menu rfid-filter-menu" role="listbox" aria-label={label}>
+          {menuOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              className={`manage-users-role-tab-option${option.value === value ? ' is-active' : ''}`}
+              aria-selected={option.value === value}
+              onClick={() => onSelect(option.value)}
+            >
+              <Check className="manage-users-role-tab-check" size={15} aria-hidden="true" />
+              <span className="manage-users-role-tab-option-label">{option.label}</span>
+              <span className="manage-users-role-tab-count">{option.count}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function countBy(cards, field) {
+  const counts = new Map();
+  cards.forEach((card) => {
+    const key = String(card[field] || '').trim();
+    if (key) {
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  });
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, count]) => ({ value: key, label: key, count }));
+}
+
 function EditField({ label, wide = false, children }) {
   return (
     <div className={wide ? 'is-wide manage-users-edit-field' : 'manage-users-edit-field'}>
@@ -103,6 +166,11 @@ export default function RFIDCards() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [collegeFilter, setCollegeFilter] = useState('all');
+  const [programFilter, setProgramFilter] = useState('all');
+  const [openFilter, setOpenFilter] = useState('');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [viewCard, setViewCard] = useState(null);
   const [isViewPhotoExpanded, setIsViewPhotoExpanded] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -156,17 +224,50 @@ export default function RFIDCards() {
 
   const columns = ['User', 'Student ID', 'College', 'Year Level', 'RFID UID', 'RFID Status', 'Registered at', 'Action'];
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const collegeOptions = useMemo(() => countBy(rfidCards, 'college'), [rfidCards]);
+  const collegeScopedCards = useMemo(
+    () =>
+      collegeFilter === 'all'
+        ? rfidCards
+        : rfidCards.filter((card) => String(card.college || '').trim() === collegeFilter),
+    [rfidCards, collegeFilter],
+  );
+  const programOptions = useMemo(
+    () => countBy(collegeScopedCards, 'programDepartment'),
+    [collegeScopedCards],
+  );
   const visibleRfidCards = useMemo(() => {
-    if (!normalizedSearchQuery) {
-      return rfidCards;
-    }
+    return collegeScopedCards.filter((card) => {
+      if (programFilter !== 'all' && String(card.programDepartment || '').trim() !== programFilter) {
+        return false;
+      }
 
-    return rfidCards.filter((card) =>
-      [card.name, card.studentId, card.college, card.yearLevel, card.rfidUid, card.status]
+      if (!normalizedSearchQuery) {
+        return true;
+      }
+
+      return [card.name, card.studentId, card.college, card.programDepartment, card.yearLevel, card.rfidUid, card.status]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery)),
-    );
-  }, [rfidCards, normalizedSearchQuery]);
+        .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
+    });
+  }, [collegeScopedCards, programFilter, normalizedSearchQuery]);
+  const rowsPerPage = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleRfidCards.length / rowsPerPage));
+  const paginatedRfidCards = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return visibleRfidCards.slice(startIndex, startIndex + rowsPerPage);
+  }, [currentPage, rowsPerPage, visibleRfidCards]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [collegeFilter, programFilter, normalizedSearchQuery]);
+
   const totalStudents = useMemo(() => {
     return new Set(rfidCards.map((card) => card.userId)).size;
   }, [rfidCards]);
@@ -237,9 +338,10 @@ export default function RFIDCards() {
     return resolveUserPhotoSrc(viewCard.userPhoto);
   }, [viewCard]);
 
-  function handleDownloadCsv() {
-    const csvRows = [
-      [
+  function handleExport(format) {
+    setIsExportModalOpen(false);
+    exportTable(format, {
+      headers: [
         'User',
         'Email',
         'Student ID',
@@ -250,7 +352,7 @@ export default function RFIDCards() {
         'RFID Status',
         'Registered at',
       ],
-      ...rfidCards.map((card) => [
+      rows: visibleRfidCards.map((card) => [
         card.name,
         card.email,
         card.studentId,
@@ -261,17 +363,19 @@ export default function RFIDCards() {
         card.status,
         card.issuedAt,
       ]),
-    ];
-    const csv = toCsv(csvRows);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `student_rfid_cards_${getManilaDateStamp()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+      fileBaseName: `student_rfid_cards_${getManilaDateStamp()}`,
+      pdf: {
+        title: 'Student RFID Cards',
+        note: buildExportNote(visibleRfidCards.length, 'card', [
+          collegeFilter !== 'all' ? `College: ${collegeFilter}` : '',
+          programFilter !== 'all' ? `Program: ${programFilter}` : '',
+          searchQuery.trim() ? `Search: "${searchQuery.trim()}"` : '',
+        ]),
+        widths: [100, 130, 70, 100, 110, 50, 85, 55, 85],
+        emphasizeColumn: 0,
+        emptyMessage: 'No RFID cards match the current filters.',
+      },
+    });
   }
 
   function openCardView(card) {
@@ -374,7 +478,7 @@ export default function RFIDCards() {
           ))}
         </section>
 
-        <section className="dashboard-recent-card rfid-card">
+        <section className="dashboard-recent-card rfid-card rfid-cards-card">
           <div className="dashboard-panel-header">
             <div>
               <span>Student RFID Cards</span>
@@ -385,11 +489,11 @@ export default function RFIDCards() {
                 <button
                   type="button"
                   className="dashboard-text-link rfid-download-button"
-                  onClick={handleDownloadCsv}
-                  disabled={isLoading || Boolean(errorMessage) || rfidCards.length === 0}
+                  onClick={() => setIsExportModalOpen(true)}
+                  disabled={isLoading || Boolean(errorMessage) || visibleRfidCards.length === 0}
                 >
                   <Download size={16} aria-hidden="true" />
-                  Download CSV
+                  Download
                 </button>
                 <label className="rfid-search" aria-label="Search student RFID cards">
                   <Search size={16} aria-hidden="true" />
@@ -402,6 +506,40 @@ export default function RFIDCards() {
                 </label>
               </div>
             </div>
+          </div>
+
+          <div className="manage-users-role-filter rfid-filter-row">
+            <RfidFilterMenu
+              id="rfid-college-filter"
+              label="College filter"
+              allLabel="All colleges"
+              value={collegeFilter}
+              options={collegeOptions}
+              isOpen={openFilter === 'college'}
+              disabled={isLoading}
+              onToggle={() => setOpenFilter((current) => (current === 'college' ? '' : 'college'))}
+              onClose={() => setOpenFilter((current) => (current === 'college' ? '' : current))}
+              onSelect={(value) => {
+                setCollegeFilter(value);
+                setProgramFilter('all');
+                setOpenFilter('');
+              }}
+            />
+            <RfidFilterMenu
+              id="rfid-program-filter"
+              label="Program filter"
+              allLabel="All programs"
+              value={programFilter}
+              options={programOptions}
+              isOpen={openFilter === 'program'}
+              disabled={isLoading || programOptions.length === 0}
+              onToggle={() => setOpenFilter((current) => (current === 'program' ? '' : 'program'))}
+              onClose={() => setOpenFilter((current) => (current === 'program' ? '' : current))}
+              onSelect={(value) => {
+                setProgramFilter(value);
+                setOpenFilter('');
+              }}
+            />
           </div>
 
           <div className="dashboard-recent-table-wrap rfid-table-wrap">
@@ -433,8 +571,8 @@ export default function RFIDCards() {
                 {!isLoading && !errorMessage && visibleRfidCards.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
-                      {normalizedSearchQuery
-                        ? 'No student RFID cards match your search.'
+                      {normalizedSearchQuery || collegeFilter !== 'all' || programFilter !== 'all'
+                        ? 'No student RFID cards match these filters.'
                         : 'No RFID cards found.'}
                     </td>
                   </tr>
@@ -442,7 +580,7 @@ export default function RFIDCards() {
 
                 {!isLoading &&
                   !errorMessage &&
-                  visibleRfidCards.map((card) => (
+                  paginatedRfidCards.map((card) => (
                     <tr key={card.id}>
                       <td>
                         <strong>{card.name}</strong>
@@ -488,8 +626,46 @@ export default function RFIDCards() {
               </tbody>
             </table>
           </div>
+
+          {!isLoading && !errorMessage && visibleRfidCards.length > 0 && (
+            <div className="manage-users-pagination" aria-label="RFID cards pagination">
+              <p>
+                Showing {(currentPage - 1) * rowsPerPage + 1}-
+                {Math.min(currentPage * rowsPerPage, visibleRfidCards.length)} of {visibleRfidCards.length}
+              </p>
+              <div className="manage-users-pagination-controls">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </main>
+
+      <ExportFormatModal
+        open={isExportModalOpen}
+        title="Export Student RFID Cards"
+        subtitle={`${visibleRfidCards.length} card${visibleRfidCards.length === 1 ? '' : 's'} in the current view`}
+        prompt="Only the RFID cards matching the current college, program, and search will be exported. Choose the file format."
+        pdfHint="Printable RFID card table"
+        onSelect={handleExport}
+        onClose={() => setIsExportModalOpen(false)}
+      />
 
       {viewCard
         ? createPortal(

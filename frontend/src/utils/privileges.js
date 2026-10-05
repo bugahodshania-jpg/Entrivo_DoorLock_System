@@ -31,6 +31,10 @@ export const PRIVILEGE_META = {
     label: 'Schedules',
     path: '/super-admin/schedules',
   },
+  pending_overrides: {
+    label: 'Pending Overrides',
+    path: '/super-admin/pending-overrides',
+  },
   access_logs: {
     label: 'Access Logs',
     path: '/super-admin/access-logs',
@@ -62,11 +66,14 @@ export const ROLE_PRIVILEGE_DEFAULTS = {
     'manage_users',
     'pending_registrations',
     'fingerprint',
+    'fingerprint_update',
     'rfid_cards',
     'schedules',
+    'pending_overrides',
     'access_logs',
     'activity_logs',
     'reports',
+    'settings',
   ],
 };
 
@@ -91,18 +98,44 @@ export function userHasPrivilege(user, privilegeKey) {
   return privileges.includes(privilegeKey);
 }
 
+export function normalizePortalPath(pathname) {
+  return String(pathname || '').replace(/^\/admin(?=\/|$)/, '/super-admin');
+}
+
+export function currentPortalBase() {
+  const path = window.location.pathname;
+
+  if (path === '/admin' || path.startsWith('/admin/')) {
+    return '/admin';
+  }
+
+  return '/super-admin';
+}
+
+export function portalHref(path) {
+  const suffix = String(path || '').replace(/^\/(?:super-admin|admin)/, '');
+  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
+
+  return `${currentPortalBase()}${normalizedSuffix}`;
+}
+
+export function canDeleteRecords(user) {
+  return user?.role === 'super_admin';
+}
+
 export function privilegeForPath(pathname) {
-  const exact = Object.entries(PRIVILEGE_PATHS).find(([, path]) => path === pathname);
+  const path = normalizePortalPath(pathname);
+  const exact = Object.entries(PRIVILEGE_PATHS).find(([, privilegePath]) => privilegePath === path);
 
   if (exact) {
     return exact[0];
   }
 
-  if (pathname.startsWith('/super-admin/register-user')) {
+  if (path.startsWith('/super-admin/register-user')) {
     return 'manage_users';
   }
 
-  if (pathname === '/super-admin/profile') {
+  if (path === '/super-admin/profile') {
     return null;
   }
 
@@ -119,4 +152,14 @@ export function firstAllowedSuperAdminPath(user) {
   }
 
   return '/super-admin/dashboard';
+}
+
+export function firstAllowedPortalPath(user) {
+  const path = firstAllowedSuperAdminPath(user);
+
+  if (user?.role === 'admin') {
+    return path.replace(/^\/super-admin/, '/admin');
+  }
+
+  return path;
 }

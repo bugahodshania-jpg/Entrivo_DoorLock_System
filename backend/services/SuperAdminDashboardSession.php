@@ -63,7 +63,7 @@ class SuperAdminDashboardSession
                 $this->pdo->commit();
 
                 throw new InvalidArgumentException(
-                    'Your super admin dashboard session has expired. Please sign in again.'
+                    'Your session has expired. Please sign in again to continue.'
                 );
             }
 

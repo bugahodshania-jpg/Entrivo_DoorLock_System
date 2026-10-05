@@ -34,6 +34,17 @@ try {
     $controller = new FingerprintSyncController();
     $result = $controller->retrySyncJob($input);
 
+    if (!empty($result['body']['success']) && is_array($result['body']['job'] ?? null)) {
+        require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+        $job = $result['body']['job'];
+        $job['error_message'] = '';
+        (new ActivityLogService(entrivo_pdo()))->recordFingerprintSync(
+            'retried',
+            $job,
+            filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null
+        );
+    }
+
     http_response_code((int) ($result['status'] ?? 200));
     echo json_encode($result['body'] ?? ['message' => 'OK']);
 } catch (Throwable $error) {

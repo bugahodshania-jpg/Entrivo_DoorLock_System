@@ -43,6 +43,11 @@ class UserPrivilegeService
             'description' => 'Create and manage access schedules.',
             'path' => '/super-admin/schedules',
         ],
+        'pending_overrides' => [
+            'label' => 'Pending Overrides',
+            'description' => 'Review and approve temporary access override requests.',
+            'path' => '/super-admin/pending-overrides',
+        ],
         'access_logs' => [
             'label' => 'Access Logs',
             'description' => 'View door access logs.',
@@ -75,6 +80,7 @@ class UserPrivilegeService
             'fingerprint_update',
             'rfid_cards',
             'schedules',
+            'pending_overrides',
             'access_logs',
             'activity_logs',
             'reports',
@@ -85,11 +91,14 @@ class UserPrivilegeService
             'manage_users',
             'pending_registrations',
             'fingerprint',
+            'fingerprint_update',
             'rfid_cards',
             'schedules',
+            'pending_overrides',
             'access_logs',
             'activity_logs',
             'reports',
+            'settings',
         ],
     ];
 
@@ -222,7 +231,15 @@ class UserPrivilegeService
 
         if ((int) $statement->fetchColumn() > 0) {
             if ($role === 'super_admin') {
-                $this->grantMissingPrivileges($userId, ['delete_users', 'fingerprint_update']);
+                $this->grantMissingPrivileges($userId, [
+                    'delete_users',
+                    'fingerprint_update',
+                    'pending_overrides',
+                ]);
+            }
+
+            if ($role === 'admin') {
+                $this->grantMissingPrivileges($userId, self::ROLE_DEFAULTS['admin']);
             }
 
             return $this->getPrivileges($userId);
@@ -255,6 +272,28 @@ class UserPrivilegeService
         if (!$this->actorHasPrivilege($actorId, $privilegeKey)) {
             throw new InvalidArgumentException($message);
         }
+    }
+
+    public function assertActorCanDeleteRecords(int $actorId, string $message): void
+    {
+        if ($this->actorRole($actorId) !== 'super_admin') {
+            throw new InvalidArgumentException($message);
+        }
+    }
+
+    public function actorRole(int $actorId): ?string
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT role, is_active FROM users WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $actorId]);
+        $actor = $statement->fetch(PDO::FETCH_ASSOC);
+
+        if (!$actor || !(bool) $actor['is_active']) {
+            return null;
+        }
+
+        return (string) $actor['role'];
     }
 
     private function grantMissingPrivileges(int $userId, array $privilegeKeys): void

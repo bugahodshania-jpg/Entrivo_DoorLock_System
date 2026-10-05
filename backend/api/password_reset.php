@@ -20,6 +20,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/MailService.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+
+function recordRecoveryActivity(PDO $pdo, int $userId, string $activityType, string $description, string $status = 'Success'): void
+{
+    (new ActivityLogService($pdo))->record(
+        $userId,
+        $activityType,
+        $description,
+        $status,
+        $userId,
+        'recovery',
+        null
+    );
+}
 
 try {
     $pdo = entrivo_pdo();
@@ -76,6 +90,13 @@ function startReset(PDO $pdo, array $input): array
 
     $account = findAccount($pdo, $schoolId);
     if (!$account) {
+        recordRecoveryActivity(
+            $pdo,
+            0,
+            'Recovery',
+            'Account recovery failed. No account matched the supplied ID.',
+            'Failed'
+        );
         throw new InvalidArgumentException('No account was found for that School ID or Employee ID.');
     }
 
@@ -111,6 +132,13 @@ function startReset(PDO $pdo, array $input): array
 
     $mail = new MailService();
     $mail->send($account['email'], recoveryEmailSubject(), recoveryEmailBody($otp));
+
+    recordRecoveryActivity(
+        $pdo,
+        (int) $account['id'],
+        'Recovery',
+        'Account recovery started. A password reset code was emailed.'
+    );
 
     return [
         'challenge_id' => $challengeId,
@@ -160,6 +188,13 @@ function resendReset(PDO $pdo, array $input): array
     $mail = new MailService();
     $mail->send($user['email'], recoveryEmailSubject(), recoveryEmailBody($otp));
 
+    recordRecoveryActivity(
+        $pdo,
+        (int) $user['id'],
+        'Recovery',
+        'Account recovery code was sent again.'
+    );
+
     return [
         'challenge_id' => $challengeId,
         'masked_email' => maskEmail($user['email']),
@@ -180,10 +215,24 @@ function verifyOtp(PDO $pdo, array $input): array
     }
 
     if (strtotime((string) $challenge['otp_expires_at']) < time()) {
+        recordRecoveryActivity(
+            $pdo,
+            (int) $challenge['user_id'],
+            'Recovery',
+            'Account recovery failed. The email code had expired.',
+            'Failed'
+        );
         throw new InvalidArgumentException('That code has expired. Request a new one.');
     }
 
     if (!password_verify($otp, (string) $challenge['otp_hash'])) {
+        recordRecoveryActivity(
+            $pdo,
+            (int) $challenge['user_id'],
+            'Recovery',
+            'Account recovery failed. The email code did not match.',
+            'Failed'
+        );
         throw new InvalidArgumentException('That code does not match. Check the email and try again.');
     }
 
@@ -191,6 +240,13 @@ function verifyOtp(PDO $pdo, array $input): array
         'UPDATE password_reset_challenges SET otp_verified_at = NOW() WHERE id = :id'
     );
     $update->execute(['id' => $challenge['id']]);
+
+    recordRecoveryActivity(
+        $pdo,
+        (int) $challenge['user_id'],
+        'Recovery',
+        'Account recovery email code was verified.'
+    );
 
     return ['question_sets' => recoveryQuestionSets(accountQuestions($pdo, (int) $challenge['user_id']))];
 }
@@ -232,6 +288,13 @@ function verifyQuestions(PDO $pdo, array $input): array
             throw new InvalidArgumentException('Each security answer is required.');
         }
         if (!password_verify(strtolower($answer), $byQuestion[$question])) {
+            recordRecoveryActivity(
+                $pdo,
+                (int) $challenge['user_id'],
+                'Recovery',
+                'Account recovery failed. A security answer did not match.',
+                'Failed'
+            );
             throw new InvalidArgumentException('One or more security answers do not match.');
         }
         $seen[$question] = true;
@@ -241,6 +304,13 @@ function verifyQuestions(PDO $pdo, array $input): array
         'UPDATE password_reset_challenges SET questions_verified_at = NOW() WHERE id = :id'
     );
     $update->execute(['id' => $challenge['id']]);
+
+    recordRecoveryActivity(
+        $pdo,
+        (int) $challenge['user_id'],
+        'Recovery',
+        'Account recovery security answers were verified.'
+    );
 
     return ['verified' => true];
 }
@@ -278,6 +348,13 @@ function resetPassword(PDO $pdo, array $input): array
     $clear = $pdo->prepare('DELETE FROM password_reset_challenges WHERE user_id = :user_id');
     $clear->execute(['user_id' => $challenge['user_id']]);
     $pdo->commit();
+
+    recordRecoveryActivity(
+        $pdo,
+        (int) $challenge['user_id'],
+        'Recovery',
+        'Account recovery completed and the password was reset.'
+    );
 
     return ['reset' => true];
 }

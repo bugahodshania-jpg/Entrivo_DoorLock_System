@@ -21,6 +21,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'PUT'], true)) {
 }
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 function mapStudentRfidCard(array $row): array
 {
@@ -202,6 +203,18 @@ try {
         }
 
         $updatedCard = updateStudentRfidCard($pdo, $cardId, $input);
+        $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+
+        (new ActivityLogService($pdo))->record(
+            $actorId,
+            'Update',
+            'Updated RFID card for ' . ($updatedCard['name'] ?? 'a student')
+                . ' (UID: ' . ($updatedCard['rfidUid'] ?? 'n/a') . ').',
+            'Success',
+            isset($updatedCard['userId']) ? (int) $updatedCard['userId'] : null,
+            'rfid',
+            (string) $cardId
+        );
 
         echo json_encode([
             'message' => 'RFID card updated successfully.',

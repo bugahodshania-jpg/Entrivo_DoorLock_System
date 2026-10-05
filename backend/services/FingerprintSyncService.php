@@ -220,6 +220,7 @@ class FingerprintSyncService
                     $normalizedJob ?: [],
                     [
                     'target_slot' => isset($fingerprint['shared_door_slot']) ? (int) $fingerprint['shared_door_slot'] : null,
+                    'reserved_slots' => $this->fingerprintModel->listOtherSharedDoorSlots((int) $fingerprint['fingerprint_id']),
                     'template_bytes' => self::EXPECTED_TEMPLATE_BYTES,
                     'template_hash' => (string) $fingerprint['template_hash'],
                     'template_data_base64' => base64_encode((string) $validation['template_binary']),
@@ -252,6 +253,30 @@ class FingerprintSyncService
 
         if (!$job) {
             return $this->result(404, false, 'Sync job not found.');
+        }
+
+        if ($synced) {
+            $storedSlot = (int) ($input['stored_slot'] ?? 0);
+
+            if ($storedSlot > 0) {
+                $claim = $this->fingerprintModel->claimSharedDoorSlot((int) $job['fingerprint_id'], $storedSlot);
+
+                if (!$claim['success']) {
+                    $claimMessage = (string) $claim['message'];
+                    $this->queueModel->markJobFailed($queueId, $claimMessage);
+                    $this->fingerprintModel->markDoorSyncStatus((int) $job['fingerprint_id'], 'failed');
+
+                    return [
+                        'status' => 409,
+                        'body' => [
+                            'success' => false,
+                            'message' => $claimMessage,
+                            'job' => $this->normalizeJob($this->queueModel->getJobById($queueId) ?: $job),
+                            'fingerprint' => $this->normalizeFingerprint((int) $job['fingerprint_id']),
+                        ],
+                    ];
+                }
+            }
         }
 
         $updated = $synced

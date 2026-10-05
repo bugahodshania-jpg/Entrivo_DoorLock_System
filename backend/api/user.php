@@ -23,8 +23,27 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST', 'PUT', 'DELETE'], true
 require_once dirname(__DIR__) . '/services/UserRegistrationService.php';
 require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
 require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 require_once dirname(__DIR__) . '/config/connection.php';
+
+function activityUserLabel(?array $user): string
+{
+    if (!$user) {
+        return 'a user';
+    }
+
+    $name = trim(implode(' ', array_filter([
+        $user['firstName'] ?? $user['first_name'] ?? '',
+        $user['lastName'] ?? $user['last_name'] ?? '',
+    ])));
+
+    if ($name !== '') {
+        return $name;
+    }
+
+    return (string) ($user['username'] ?? 'a user');
+}
 
 function getSuperAdminStandbyMap(PDO $pdo): array
 {
@@ -67,7 +86,8 @@ function resolveAccountStatus(
     bool $isActive,
     string $role,
     int $userId,
-    array $standbyMap = []
+    array $standbyMap = [],
+    string $onboardingStep = 'done'
 ): string {
     return match ($approvalStatus) {
         'pending' => 'pending',
@@ -78,7 +98,7 @@ function resolveAccountStatus(
                     ? 'inactive'
                     : 'blocked'
             )
-            : 'active',
+            : ($onboardingStep !== '' && $onboardingStep !== 'done' ? 'pending_login' : 'active'),
     };
 }
 
@@ -103,6 +123,7 @@ function fetchUsersByRole(PDO $pdo, string $roleKey): array
             users.role,
             users.is_active,
             users.approval_status,
+            users.onboarding_step,
             DATE_FORMAT(users.created_at, '%b %e, %Y') AS joined_at,
             {$profileTable}.{$idColumn} AS profile_identifier,
             {$profileTable}.first_name,
@@ -138,6 +159,7 @@ function fetchUsersByRole(PDO $pdo, string $roleKey): array
             users.role,
             users.is_active,
             users.approval_status,
+            users.onboarding_step,
             users.created_at,
             {$profileTable}.{$idColumn},
             {$profileTable}.first_name,
@@ -194,7 +216,8 @@ function fetchUsersByRole(PDO $pdo, string $roleKey): array
                     (bool) $user['is_active'],
                     (string) $user['role'],
                     (int) $user['id'],
-                    $standbyMap
+                    $standbyMap,
+                    (string) ($user['onboarding_step'] ?? 'done')
                 ),
                 'joinedAt' => $user['joined_at'],
             ];
@@ -275,6 +298,7 @@ function fetchUserById(PDO $pdo, int $userId): ?array
             users.role,
             users.is_active,
             users.approval_status,
+            users.onboarding_step,
             DATE_FORMAT(users.created_at, '%b %e, %Y') AS joined_at,
             profile.{$profile['identifierColumn']} AS profile_identifier,
             profile.first_name,
@@ -360,7 +384,8 @@ function fetchUserById(PDO $pdo, int $userId): ?array
             (bool) $row['is_active'],
             (string) $row['role'],
             (int) $row['id'],
-            ($row['role'] ?? '') === 'super_admin' ? getSuperAdminStandbyMap($pdo) : []
+            ($row['role'] ?? '') === 'super_admin' ? getSuperAdminStandbyMap($pdo) : [],
+            (string) ($row['onboarding_step'] ?? 'done')
         ),
         'rfidUid' => $row['rfid_uid'] ?: 'Not assigned',
         'college' => $row['college'],
@@ -1102,6 +1127,17 @@ try {
         }
 
         $updatedUser = updateUserById($pdo, $userId, $input);
+        $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+
+        (new ActivityLogService($pdo))->record(
+            $actorId,
+            'Edit',
+            'Edited user profile for ' . activityUserLabel($updatedUser) . '.',
+            'Success',
+            $userId,
+            'user',
+            (string) $userId
+        );
 
         echo json_encode([
             'message' => 'User updated successfully.',
@@ -1140,8 +1176,23 @@ try {
             'delete_users',
             'You do not have permission to delete users. Ask a Super Admin to grant Delete Users access.'
         );
+        (new UserPrivilegeService($pdo))->assertActorCanDeleteRecords(
+            $actorId,
+            'Admin accounts cannot delete user records.'
+        );
 
+        $existingUser = fetchUserById($pdo, $userId);
         deleteUserById($pdo, $userId, $actorId);
+
+        (new ActivityLogService($pdo))->record(
+            $actorId,
+            'Delete',
+            'Deleted user account for ' . activityUserLabel($existingUser) . '.',
+            'Success',
+            $userId,
+            'user',
+            (string) $userId
+        );
 
         echo json_encode([
             'message' => 'User deleted successfully.',
@@ -1172,6 +1223,19 @@ try {
                 $userId,
                 (string) ($input['new_password'] ?? $input['password'] ?? ''),
                 (string) ($input['confirm_password'] ?? '')
+            );
+
+            $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+            $targetUser = fetchUserById($pdo, $userId);
+
+            (new ActivityLogService($pdo))->record(
+                $actorId,
+                'Update',
+                'Updated password for ' . activityUserLabel($targetUser) . '.',
+                'Success',
+                $userId,
+                'password',
+                (string) $userId
             );
 
             echo json_encode([
@@ -1212,6 +1276,16 @@ try {
                 is_array($privileges) ? $privileges : null
             );
 
+            (new ActivityLogService($pdo))->record(
+                $actorId,
+                $shouldBlock ? 'Block' : 'Unblock',
+                ($shouldBlock ? 'Blocked' : 'Unblocked') . ' user account for ' . activityUserLabel($updatedUser) . '.',
+                'Success',
+                $userId,
+                'user',
+                (string) $userId
+            );
+
             echo json_encode([
                 'message' => $shouldBlock
                     ? 'User blocked successfully.'
@@ -1223,14 +1297,70 @@ try {
             exit;
         }
 
+        $actorId = filter_var($input['actor_id'] ?? $input['created_by'] ?? null, FILTER_VALIDATE_INT) ?: null;
+        $requestedRole = strtolower(trim((string) ($input['role'] ?? '')));
+
+        if (in_array($requestedRole, ['faculty', 'staff', 'super_admin', 'superadmin'], true)) {
+            require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
+            (new UserPrivilegeService($pdo))->assertActorCanDeleteRecords(
+                (int) $actorId,
+                'Only a Super Admin can create faculty, staff, and super admin accounts.'
+            );
+        }
+
         $service = new UserRegistrationService($pdo);
         $savedUser = $service->registerUser($input);
 
+        $savedUserId = (int) ($savedUser['user_id'] ?? $savedUser['id'] ?? 0);
+
+        (new ActivityLogService($pdo))->record(
+            $actorId,
+            'Add',
+            'Added new ' . str_replace('_', ' ', (string) ($savedUser['role'] ?? 'user'))
+                . ' account for ' . activityUserLabel($savedUser) . '.',
+            'Success',
+            $savedUserId > 0 ? $savedUserId : null,
+            'user',
+            $savedUserId > 0 ? (string) $savedUserId : null
+        );
+
+        require_once dirname(__DIR__) . '/services/FirstLoginService.php';
+        $firstLogin = new FirstLoginService($pdo);
+        $savedUser['fingerprint_note'] = $firstLogin->fingerprintNote($savedUser['fingerprint'] ?? null);
+        $savedUser['credential_email_sent'] = false;
+
+        try {
+            $firstLogin->sendNewAccountEmail(
+                (string) ($savedUser['email'] ?? ''),
+                (string) ($savedUser['full_name'] ?? ''),
+                (string) ($savedUser['username'] ?? ''),
+                (string) ($savedUser['temporary_password'] ?? ''),
+                (string) $savedUser['fingerprint_note'],
+                $savedUserId,
+                $actorId ?: null
+            );
+            $savedUser['credential_email_sent'] = true;
+        } catch (Throwable) {
+            (new ActivityLogService($pdo))->record(
+                $actorId,
+                'Add',
+                'Account credential email could not be sent for ' . activityUserLabel($savedUser) . '.',
+                'Failed',
+                $savedUserId > 0 ? $savedUserId : null,
+                'user',
+                $savedUserId > 0 ? (string) $savedUserId : null
+            );
+        }
+
+        $message = 'Account created. The user finishes the remaining details on first login.';
+
+        if (!$savedUser['credential_email_sent']) {
+            $message .= ' The credential email could not be sent.';
+        }
+
         http_response_code(201);
         echo json_encode([
-            'message' => ($savedUser['role'] ?? null) === 'student'
-                ? 'Student saved successfully.'
-                : 'User saved successfully. Fingerprint enrollment is pending.',
+            'message' => $message,
             'user' => $savedUser,
         ]);
         exit;

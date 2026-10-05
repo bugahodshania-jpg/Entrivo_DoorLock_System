@@ -147,6 +147,24 @@
   background: #f3f7f5;
 }
 
+.access-logs-reset {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  color: #60716a;
+  cursor: pointer;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.access-logs-reset:hover {
+  background: #f3f7f5;
+  color: #0c4b2d;
+}
+
 .access-logs-search {
   align-items: center;
   display: inline-flex;
@@ -226,33 +244,39 @@
 
 .access-logs-page .access-logs-table th:nth-child(1),
 .access-logs-page .access-logs-table td:nth-child(1) {
-  width: 14%;
+  padding-left: 16px;
+  width: 13%;
 }
 
 .access-logs-page .access-logs-table th:nth-child(2),
 .access-logs-page .access-logs-table td:nth-child(2) {
-  width: 20%;
+  width: 19%;
 }
 
 .access-logs-page .access-logs-table th:nth-child(3),
 .access-logs-page .access-logs-table td:nth-child(3) {
-  width: 14%;
+  width: 13%;
 }
 
 .access-logs-page .access-logs-table th:nth-child(4),
 .access-logs-page .access-logs-table td:nth-child(4) {
-  width: 14%;
+  width: 11%;
 }
 
 .access-logs-page .access-logs-table th:nth-child(5),
 .access-logs-page .access-logs-table td:nth-child(5) {
-  width: 24%;
+  width: 10%;
 }
 
 .access-logs-page .access-logs-table th:nth-child(6),
 .access-logs-page .access-logs-table td:nth-child(6) {
+  width: 21%;
+}
+
+.access-logs-page .access-logs-table th:nth-child(7),
+.access-logs-page .access-logs-table td:nth-child(7) {
   text-align: center;
-  width: 14%;
+  width: 13%;
 }
 
 .access-logs-page .access-logs-table td:nth-child(1) strong,
@@ -264,7 +288,9 @@
 .access-logs-page .access-logs-table td:nth-child(4) strong,
 .access-logs-page .access-logs-table td:nth-child(4) span,
 .access-logs-page .access-logs-table td:nth-child(5) strong,
-.access-logs-page .access-logs-table td:nth-child(5) span {
+.access-logs-page .access-logs-table td:nth-child(5) span,
+.access-logs-page .access-logs-table td:nth-child(6) strong,
+.access-logs-page .access-logs-table td:nth-child(6) span {
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
@@ -331,6 +357,16 @@
   .access-logs-summary-grid {
     grid-template-columns: 1fr;
   }
+
+  .user-portal-page .access-logs-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .user-portal-page .access-logs-summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -344,5 +380,99 @@
   .access-logs-pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 1100px) {
+  .access-logs-page .dashboard-panel-header {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .access-logs-page .dashboard-panel-header > div {
+    min-width: 0;
+  }
+
+  .access-logs-page .access-logs-export {
+    align-self: flex-start;
+    margin-left: auto;
+  }
+
+  .access-logs-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .access-logs-toolbar-filters {
+    align-items: stretch;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .access-logs-toolbar-filters .manage-users-role-tabs,
+  .access-logs-toolbar-filters .manage-users-role-tab-trigger,
+  .access-logs-toolbar-filters .manage-users-role-tab-menu {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .access-logs-toolbar-filters .manage-users-role-tab-trigger-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .access-logs-search {
+    flex: 1 1 auto;
+    grid-column: 1 / -1;
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .access-logs-dates {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    grid-column: 1 / -1;
+    height: 30px;
+    justify-self: start;
+    max-width: 100%;
+    min-height: 30px;
+    width: max-content;
+  }
+
+  .access-logs-dates label {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .access-logs-dates input {
+    flex: 1 1 118px;
+    max-width: 118px;
+    min-width: 0;
+    width: auto;
+  }
+
+  .access-logs-dates-divider {
+    display: block;
+    flex: 0 0 auto;
+  }
+
+  .access-logs-reset {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .access-logs-toolbar-filters {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -57,6 +57,21 @@ try {
 
     $controller = new FingerprintEnrollmentController();
     $result = $controller->startEnrollment($input);
+    $body = $result['body'] ?? [];
+
+    require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+    (new ActivityLogService(entrivo_pdo()))->recordFingerprintJob(
+        'created',
+        [
+            'job_id' => $body['job_id'] ?? null,
+            'user_id' => $input['user_id'] ?? null,
+            'finger_name' => $input['finger_name'] ?? '',
+            'fingerprint_id' => $fingerprintId,
+            'error_message' => empty($body['success']) ? ($body['message'] ?? '') : '',
+        ],
+        $actorId,
+        !empty($body['success']) ? 'Success' : 'Failed'
+    );
 
     http_response_code((int) ($result['status'] ?? 200));
     echo json_encode($result['body'] ?? ['message' => 'OK']);

@@ -22,6 +22,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
 
 try {
@@ -192,6 +193,16 @@ try {
 
     $savedPrivileges = $privilegeService->setPrivileges($userId, $privileges);
     $updatedUser = fetchPrivilegeUser($pdo, $userId);
+
+    (new ActivityLogService($pdo))->record(
+        (int) $actorId,
+        'Update',
+        'Updated role and privileges for ' . trim((string) ($updatedUser['username'] ?? 'an administrator')) . '.',
+        'Success',
+        (int) $userId,
+        'privileges',
+        (string) $userId
+    );
 
     echo json_encode([
         'message' => 'Roles and privileges updated successfully.',

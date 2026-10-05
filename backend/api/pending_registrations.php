@@ -21,6 +21,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 }
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 function ensureRejectedStatus(PDO $pdo): void
 {
@@ -178,6 +179,7 @@ try {
         $input = json_decode(file_get_contents('php://input'), true);
         $userId = (int) ($input['user_id'] ?? 0);
         $action = $input['action'] ?? 'approve';
+        $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
         if ($userId <= 0) {
             http_response_code(422);
@@ -221,6 +223,16 @@ try {
             echo json_encode(['message' => 'That pending registration was not found.']);
             exit;
         }
+
+        (new ActivityLogService($pdo))->record(
+            $actorId,
+            $action === 'reject' ? 'Reject' : 'Approve',
+            ($action === 'reject' ? 'Rejected' : 'Approved') . ' student registration for user #' . $userId . '.',
+            'Success',
+            $userId,
+            'registration',
+            (string) $userId
+        );
 
         echo json_encode([
             'message' => $message,

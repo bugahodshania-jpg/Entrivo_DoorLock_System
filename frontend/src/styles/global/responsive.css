@@ -1,0 +1,226 @@
+/* Screen-size adaptations. Rules here only apply below laptop width so the
+   existing laptop layout (1280px and wider) stays unchanged. */
+
+@media (max-width: 1279px) {
+  .admin-dashboard,
+  .manage-users,
+  .settings-page,
+  .fingerprint-page,
+  .reports-page,
+  .activity-logs-page,
+  .access-logs-page,
+  .user-portal-page,
+  .schedules-page,
+  .register-user-page {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .dashboard-panel-header,
+  .activity-logs-toolbar,
+  .admin-dashboard-hero,
+  .settings-hero,
+  .pending-registrations-header,
+  .fingerprint-sync-header,
+  .schedules-header-actions,
+  .schedules-calendar-legend {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .dashboard-recent-table-wrap,
+  .manage-users-table-wrap,
+  .schedules-table-wrap,
+  .schedules-week,
+  .reports-table-wrap,
+  .reports-extended-table-wrap,
+  .activity-logs-table-wrap,
+  .fingerprint-table-wrap,
+  .fingerprint-jobs-wrap,
+  .pending-registrations-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 980px) {
+  .fingerprint-job-summary,
+  .fingerprint-sync-overview,
+  .user-override-layout,
+  .user-override-page-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-override-form-card {
+    max-width: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .fingerprint-summary-grid,
+  .fingerprint-sync-summary,
+  .rfid-summary-grid,
+  .manage-users-summary-grid,
+  .access-logs-summary-grid,
+  .user-portal-page .access-logs-summary-grid,
+  .reports-summary-grid,
+  .reports-profile,
+  .admin-module-strip,
+  .settings-module-strip,
+  .settings-summary-grid,
+  .settings-admin-dashboard,
+  .settings-admin-overview-grid,
+  .settings-admin-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-panel-header,
+  .activity-logs-toolbar,
+  .settings-hero,
+  .admin-dashboard-hero {
+    align-items: stretch;
+  }
+
+  .settings-hero-actions,
+  .pending-registrations-header > div:first-child,
+  .pending-registrations-page .pending-registrations-search,
+  .activity-logs-search,
+  .manage-users-search,
+  .rfid-search {
+    flex-basis: auto;
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .manage-users-header-actions,
+  .rfid-header-actions,
+  .fingerprint-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .access-logs-pagination,
+  .manage-users-pagination,
+  .schedules-pagination,
+  .fingerprint-jobs-pagination,
+  .reports-pagination,
+  .activity-logs-pagination:has(> p) {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .access-logs-pagination-controls,
+  .activity-logs-pagination-controls,
+  .manage-users-pagination-controls,
+  .schedules-pagination-controls,
+  .fingerprint-jobs-pagination-controls,
+  .reports-pagination > div,
+  .activity-logs-pagination:not(:has(> p)) {
+    align-items: center;
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .access-logs-pagination-controls span,
+  .activity-logs-pagination-controls span,
+  .manage-users-pagination-controls span,
+  .schedules-pagination-controls span,
+  .fingerprint-jobs-pagination-controls span,
+  .reports-pagination > div > span,
+  .activity-logs-pagination:not(:has(> p)) > span {
+    flex: 0 0 auto;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .access-logs-pagination-controls button,
+  .activity-logs-pagination-controls button,
+  .manage-users-pagination-controls button,
+  .schedules-pagination-controls button,
+  .fingerprint-jobs-pagination-controls button,
+  .reports-pagination > div > button,
+  .activity-logs-pagination:not(:has(> p)) > button {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-dashboard {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .dashboard-recent-card,
+  .settings-hero,
+  .admin-dashboard-hero {
+    padding: 16px;
+  }
+
+  .schedules-calendar-card,
+  .schedules-card {
+    padding: 12px;
+  }
+
+  .schedules-calendar-legend {
+    gap: 8px 12px;
+  }
+
+  .notification-view-modal,
+  .settings-admin-edit-modal,
+  .export-format-modal,
+  .action-confirm-modal,
+  .fingerprint-modal,
+  .fingerprint-progress-modal,
+  .schedules-modal,
+  .manage-users-privileges-modal,
+  .rfid-assign-modal,
+  .rfid-modal {
+    max-height: calc(100dvh - 24px);
+    max-width: calc(100vw - 20px);
+    overflow: auto;
+    width: min(100%, calc(100vw - 20px));
+  }
+
+  .user-portal-toast-stack,
+  .fingerprint-toast-stack {
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .dashboard-recent-table-wrap td.dashboard-recent-empty,
+  .manage-users-table-wrap td.dashboard-recent-empty,
+  .schedules-table-wrap td.dashboard-recent-empty,
+  .reports-table-wrap td.dashboard-recent-empty,
+  .activity-logs-table-wrap td.dashboard-recent-empty,
+  .fingerprint-table-wrap td.dashboard-recent-empty,
+  .fingerprint-jobs-wrap td.dashboard-recent-empty {
+    text-align: left;
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-dashboard {
+    padding: 12px;
+  }
+
+  .super-admin-topbar-title h1 {
+    font-size: 17px;
+  }
+
+  .dashboard-summary-card,
+  .manage-users-summary-card,
+  .fingerprint-summary-card {
+    min-height: 0;
+  }
+}

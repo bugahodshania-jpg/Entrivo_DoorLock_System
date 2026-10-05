@@ -1,6 +1,6 @@
 import './styles/global/global.css';
 import { useEffect, useState } from 'react';
-import AdminDashboard from './pages/admin/AdminDashboard.jsx';
+import AdminLayout from './pages/admin/AdminLayout.jsx';
 import Register from './pages/auth/Register.jsx';
 import Login from './pages/auth/Login.jsx';
 import Home from './pages/shared/Home.jsx';
@@ -10,6 +10,7 @@ import ActivityLogs from './pages/superAdmin/ActivityLogs.jsx';
 import Fingerprint from './pages/superAdmin/Fingerprint.jsx';
 import ManageUsers from './pages/superAdmin/ManageUsers.jsx';
 import PendingRegistrations from './pages/superAdmin/PendingRegistrations.jsx';
+import PendingOverrides from './pages/superAdmin/PendingOverrides.jsx';
 import RegisterUser from './pages/superAdmin/RegisterUser.jsx';
 import Reports from './pages/superAdmin/Reports.jsx';
 import RFIDCards from './pages/superAdmin/RFIDCards.jsx';
@@ -18,11 +19,20 @@ import Settings from './pages/superAdmin/Settings.jsx';
 import ViewProfile from './pages/superAdmin/ViewProfile.jsx';
 import SuperAdminDashboard from './pages/superAdmin/SuperAdminDashboard.jsx';
 import SuperAdminLayout from './pages/superAdmin/SuperAdminLayout.jsx';
+import UserLayout from './pages/user/UserLayout.jsx';
+import UserDashboard from './pages/user/UserDashboard.jsx';
+import MyAccount from './pages/user/MyAccount.jsx';
+import UserAccessLogs from './pages/user/UserAccessLogs.jsx';
+import UserActivityLogs from './pages/user/UserActivityLogs.jsx';
+import RequestOverride from './pages/user/RequestOverride.jsx';
+import MySchedule from './pages/user/MySchedule.jsx';
 import {
+  firstAllowedPortalPath,
   firstAllowedSuperAdminPath,
   privilegeForPath,
   userHasPrivilege,
 } from './utils/privileges';
+import './styles/global/responsive.css';
 
 const superAdminRoutes = {
   '/super-admin/dashboard': SuperAdminDashboard,
@@ -32,11 +42,25 @@ const superAdminRoutes = {
   '/super-admin/fingerprint': Fingerprint,
   '/super-admin/rfid-cards': RFIDCards,
   '/super-admin/schedules': Schedules,
+  '/super-admin/pending-overrides': PendingOverrides,
   '/super-admin/access-logs': AccessLogs,
   '/super-admin/activity-logs': ActivityLogs,
   '/super-admin/reports': Reports,
   '/super-admin/profile': ViewProfile,
   '/super-admin/settings': Settings,
+};
+
+const adminRoutes = Object.fromEntries(
+  Object.entries(superAdminRoutes).map(([route, page]) => [route.replace('/super-admin', '/admin'), page]),
+);
+
+const userPortalRoutes = {
+  '/user/dashboard': UserDashboard,
+  '/user/my-account': MyAccount,
+  '/user/access-logs': UserAccessLogs,
+  '/user/activity-logs': UserActivityLogs,
+  '/user/request-override': RequestOverride,
+  '/user/my-schedule': MySchedule,
 };
 
 function getStoredUser() {
@@ -205,9 +229,12 @@ export default function App() {
   }
 
   if (superAdminRoutes[path]) {
-    const isAdminPortalUser = user?.role === 'super_admin' || user?.role === 'admin';
+    if (user?.role === 'admin') {
+      window.location.replace(`${path.replace('/super-admin', '/admin')}${window.location.search}`);
+      return null;
+    }
 
-    if (!isAdminPortalUser) {
+    if (user?.role !== 'super_admin') {
       window.location.replace('/login');
       return null;
     }
@@ -228,13 +255,48 @@ export default function App() {
     );
   }
 
-  if (path === '/admin/dashboard') {
+  if (adminRoutes[path]) {
+    if (user?.role === 'super_admin') {
+      window.location.replace(`${path.replace('/admin', '/super-admin')}${window.location.search}`);
+      return null;
+    }
+
     if (user?.role !== 'admin') {
       window.location.replace('/login');
       return null;
     }
 
-    return <AdminDashboard user={user} onLogout={logout} />;
+    const requiredPrivilege = privilegeForPath(path);
+
+    if (requiredPrivilege && !userHasPrivilege(user, requiredPrivilege)) {
+      window.location.replace(firstAllowedPortalPath(user));
+      return null;
+    }
+
+    const AdminPage = adminRoutes[path];
+
+    return (
+      <AdminLayout user={user} onLogout={logout}>
+        <AdminPage user={user} onLogout={logout} />
+      </AdminLayout>
+    );
+  }
+
+  if (userPortalRoutes[path]) {
+    const isFacultyOrStaff = user?.role === 'faculty' || user?.role === 'staff';
+
+    if (!isFacultyOrStaff) {
+      window.location.replace('/login');
+      return null;
+    }
+
+    const UserPage = userPortalRoutes[path];
+
+    return (
+      <UserLayout user={user} onLogout={logout}>
+        <UserPage user={user} onLogout={logout} />
+      </UserLayout>
+    );
   }
 
   return <NotFound />;

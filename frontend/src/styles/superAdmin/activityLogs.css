@@ -114,6 +114,24 @@
   background: #f3f7f5;
 }
 
+.activity-logs-reset {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  color: #60716a;
+  cursor: pointer;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.activity-logs-reset:hover {
+  background: #f3f7f5;
+  color: #0c4b2d;
+}
+
 .activity-logs-search {
   align-items: center;
   display: inline-flex;
@@ -234,6 +252,7 @@
 
 .activity-logs-page .activity-logs-table th:nth-child(1),
 .activity-logs-page .activity-logs-table td:nth-child(1) {
+  padding-left: 16px;
   width: 11%;
 }
 
@@ -332,19 +351,61 @@
 }
 
 .activity-logs-page .activity-logs-table .activity-logs-status-login,
-.activity-logs-page .activity-logs-table .activity-logs-status-success {
+.activity-logs-page .activity-logs-table .activity-logs-status-success,
+.activity-logs-page .activity-logs-table .activity-logs-status-add,
+.activity-logs-page .activity-logs-table .activity-logs-status-enroll,
+.activity-logs-page .activity-logs-table .activity-logs-status-approve,
+.activity-logs-page .activity-logs-table .activity-logs-status-unblock {
   background: #e7f6ed;
   color: #0c7a43;
 }
 
-.activity-logs-page .activity-logs-table .activity-logs-status-logout {
-  background: #f2f4f3;
-  color: #68766f;
+.activity-logs-page .activity-logs-table .activity-logs-status-logout,
+.activity-logs-page .activity-logs-table .activity-logs-status-update,
+.activity-logs-page .activity-logs-table .activity-logs-status-edit {
+  background: #eef3f8;
+  color: #3b5b7a;
 }
 
-.activity-logs-page .activity-logs-table .activity-logs-status-failed {
+.activity-logs-page .activity-logs-table .activity-logs-status-failed,
+.activity-logs-page .activity-logs-table .activity-logs-status-delete,
+.activity-logs-page .activity-logs-table .activity-logs-status-reject,
+.activity-logs-page .activity-logs-table .activity-logs-status-block {
   background: #fbeaea;
   color: #b93636;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-access,
+.activity-logs-page .activity-logs-table .activity-logs-status-schedule,
+.activity-logs-page .activity-logs-table .activity-logs-status-rfid,
+.activity-logs-page .activity-logs-table .activity-logs-status-user {
+  background: #e8f1fb;
+  color: #1d4e89;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-password,
+.activity-logs-page .activity-logs-table .activity-logs-status-security,
+.activity-logs-page .activity-logs-table .activity-logs-status-override {
+  background: #fbf3e6;
+  color: #8a5a12;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-recovery {
+  background: #f3eefe;
+  color: #5b3d8a;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-job,
+.activity-logs-page .activity-logs-table .activity-logs-status-sync {
+  background: #e6f6f7;
+  color: #0f6b73;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-account,
+.activity-logs-page .activity-logs-table .activity-logs-status-registration,
+.activity-logs-page .activity-logs-table .activity-logs-status-fingerprint {
+  background: #e7f6ed;
+  color: #0c7a43;
 }
 
 .activity-logs-description {
@@ -407,6 +468,25 @@
   color: #98a7a0;
   cursor: not-allowed;
   opacity: 0.8;
+}
+
+@media (max-width: 1100px) {
+  .activity-logs-page .dashboard-panel-header {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .activity-logs-page .dashboard-panel-header > div {
+    min-width: 0;
+  }
+
+  .activity-logs-page .activity-logs-export {
+    align-self: flex-start;
+    margin-left: auto;
+  }
 }
 
 @media (max-width: 900px) {

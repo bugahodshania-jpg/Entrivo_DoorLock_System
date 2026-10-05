@@ -12,10 +12,20 @@ enum FingerprintScanStatus
     FINGERPRINT_SCAN_ERROR = 3
 };
 
+enum SensorSlotState
+{
+    SENSOR_SLOT_EMPTY = 0,
+    SENSOR_SLOT_OCCUPIED = 1,
+    SENSOR_SLOT_UNREADABLE = 2
+};
+
 extern HardwareSerial FingerSerial;
 extern Adafruit_Fingerprint finger;
 
 bool initFingerprint();
+uint16_t sensorSlotCapacity();
+SensorSlotState probeSensorSlot(uint16_t slot, String &errorMessage);
+bool deleteTemplateFromSlot(uint16_t slot, String &errorMessage);
 bool storeTemplateInSlot(uint16_t slot, const uint8_t *templateBinary, size_t templateLength, String &errorMessage);
 FingerprintScanStatus pollFingerprintMatch(uint16_t &matchedSlot, String &errorMessage);
 

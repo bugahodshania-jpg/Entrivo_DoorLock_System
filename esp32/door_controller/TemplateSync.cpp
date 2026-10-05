@@ -160,19 +160,142 @@ namespace
 
         return true;
     }
+
+    bool reservedListContains(const String &reservedSlots, uint16_t slot)
+    {
+        if (reservedSlots.length() == 0 || slot == 0)
+        {
+            return false;
+        }
+
+        const String token = String(slot);
+        int start = 0;
+
+        while (start < static_cast<int>(reservedSlots.length()))
+        {
+            int end = reservedSlots.indexOf(',', start);
+            if (end < 0)
+            {
+                end = reservedSlots.length();
+            }
+
+            String piece = reservedSlots.substring(start, end);
+            piece.trim();
+            if (piece == token)
+            {
+                return true;
+            }
+
+            start = end + 1;
+        }
+
+        return false;
+    }
+
+    bool slotCanStoreTemplate(
+        const TemplateSyncJob &job,
+        uint16_t slot,
+        uint16_t capacity,
+        bool &unreadable,
+        String &errorMessage)
+    {
+        unreadable = false;
+
+        if (slot == 0 || slot > capacity)
+        {
+            return false;
+        }
+
+        if (reservedListContains(job.reservedSlots, slot))
+        {
+            return false;
+        }
+
+        const String existingHash = getTemplateHash(slot);
+        if (job.templateHash.length() > 0 && existingHash.equalsIgnoreCase(job.templateHash))
+        {
+            return true;
+        }
+
+        const SensorSlotState state = probeSensorSlot(slot, errorMessage);
+        if (state == SENSOR_SLOT_UNREADABLE)
+        {
+            unreadable = true;
+            return false;
+        }
+
+        return state == SENSOR_SLOT_EMPTY;
+    }
+
+    uint16_t chooseDoorSlot(const TemplateSyncJob &job, String &errorMessage)
+    {
+        const uint16_t capacity = sensorSlotCapacity();
+        const uint16_t preferred = job.targetSlot > 0 ? static_cast<uint16_t>(job.targetSlot) : 0;
+        bool unreadable = false;
+
+        if (preferred > 0 && slotCanStoreTemplate(job, preferred, capacity, unreadable, errorMessage))
+        {
+            return preferred;
+        }
+
+        if (unreadable)
+        {
+            return 0;
+        }
+
+        for (uint16_t slot = 1; slot <= capacity; ++slot)
+        {
+            if (slot == preferred)
+            {
+                continue;
+            }
+
+            if (slotCanStoreTemplate(job, slot, capacity, unreadable, errorMessage))
+            {
+                return slot;
+            }
+
+            if (unreadable)
+            {
+                return 0;
+            }
+        }
+
+        errorMessage = "Sensor B has no free slot that can be linked to this user.";
+        return 0;
+    }
+
+    bool previousSlotBelongsToJob(const TemplateSyncJob &job, uint16_t previousSlot)
+    {
+        if (previousSlot == 0)
+        {
+            return false;
+        }
+
+        DoorSlotUser previousUser;
+        if (loadDoorSlotUser(previousSlot, previousUser) && previousUser.fingerprintId == job.fingerprintId)
+        {
+            return true;
+        }
+
+        const String previousHash = getTemplateHash(previousSlot);
+        return job.templateHash.length() > 0 && previousHash.equalsIgnoreCase(job.templateHash);
+    }
 }
 
-bool runTemplateSyncJob(const TemplateSyncJob &job, String &errorMessage)
+bool runTemplateSyncJob(const TemplateSyncJob &job, uint16_t &storedSlot, String &errorMessage)
 {
+    storedSlot = 0;
+
     if (job.queueId <= 0)
     {
         errorMessage = "Template sync queue ID is invalid.";
         return false;
     }
 
-    if (job.targetSlot <= 0)
+    if (job.fingerprintId <= 0)
     {
-        errorMessage = "The backend did not provide a valid target slot for this template sync.";
+        errorMessage = "Template sync job is missing the fingerprint record.";
         return false;
     }
 
@@ -220,27 +343,67 @@ bool runTemplateSyncJob(const TemplateSyncJob &job, String &errorMessage)
         return false;
     }
 
-    Serial.print("Writing template to slot ");
-    Serial.println(job.targetSlot);
-
-    if (!storeTemplateInSlot(
-            static_cast<uint16_t>(job.targetSlot),
-            templateBinary,
-            templateLength,
-            errorMessage))
+    const uint16_t doorSlot = chooseDoorSlot(job, errorMessage);
+    if (doorSlot == 0)
     {
         return false;
     }
 
-    if (job.templateHash.length() > 0 && !saveTemplateHash(static_cast<uint16_t>(job.targetSlot), job.templateHash))
+    const uint16_t previousSlot = getFingerprintDoorSlot(job.fingerprintId);
+    if (previousSlot > 0 && previousSlot != doorSlot && previousSlotBelongsToJob(job, previousSlot))
     {
-        Serial.println("Warning: template metadata could not be cached locally.");
+        if (!deleteTemplateFromSlot(previousSlot, errorMessage))
+        {
+            errorMessage = "Could not remove this user's previous Sensor B slot: " + errorMessage;
+            return false;
+        }
+
+        clearTemplateHash(previousSlot);
+        clearDoorSlotUser(previousSlot);
     }
+
+    Serial.print("Writing template for ");
+    Serial.print(job.userName.length() > 0 ? job.userName : String("Unknown user"));
+    Serial.print(" to Sensor B slot ");
+    Serial.println(doorSlot);
+
+    if (job.targetSlot > 0 && static_cast<uint16_t>(job.targetSlot) != doorSlot)
+    {
+        Serial.print("Enrollment slot ");
+        Serial.print(job.targetSlot);
+        Serial.println(" is already in use, so this user is linked to the Sensor B slot above.");
+    }
+
+    if (!storeTemplateInSlot(doorSlot, templateBinary, templateLength, errorMessage))
+    {
+        return false;
+    }
+
+    DoorSlotUser doorUser;
+    doorUser.slot = doorSlot;
+    doorUser.fingerprintId = job.fingerprintId;
+    doorUser.userId = job.userId;
+    doorUser.userName = job.userName.length() > 0 ? job.userName : String("Unknown user");
+    doorUser.fingerName = job.fingerName.length() > 0 ? job.fingerName : String("Fingerprint");
+
+    if ((job.templateHash.length() > 0 && !saveTemplateHash(doorSlot, job.templateHash)) || !saveDoorSlotUser(doorUser))
+    {
+        String cleanupError;
+        deleteTemplateFromSlot(doorSlot, cleanupError);
+        clearTemplateHash(doorSlot);
+        clearDoorSlotUser(doorSlot);
+        errorMessage = "The template was written, but Sensor B could not link that slot to the user.";
+        return false;
+    }
+
+    storedSlot = doorSlot;
 
     Serial.print("Template sync job #");
     Serial.print(job.queueId);
-    Serial.print(" saved to slot ");
-    Serial.println(job.targetSlot);
+    Serial.print(" linked ");
+    Serial.print(doorUser.userName);
+    Serial.print(" to Sensor B slot ");
+    Serial.println(doorSlot);
 
     return true;
 }

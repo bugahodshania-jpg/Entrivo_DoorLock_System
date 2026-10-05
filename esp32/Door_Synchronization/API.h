@@ -8,7 +8,7 @@
 void checkPendingTemplateSync();
 void checkPendingScheduleSync();
 
-bool reportTemplateSyncCompleted(const TemplateSyncJob &job);
+bool reportTemplateSyncCompleted(const TemplateSyncJob &job, uint16_t storedSlot);
 bool reportTemplateSyncFailed(const TemplateSyncJob &job, const String &errorMessage);
 
 bool reportScheduleSyncCompleted(const ScheduleSyncJob &job);

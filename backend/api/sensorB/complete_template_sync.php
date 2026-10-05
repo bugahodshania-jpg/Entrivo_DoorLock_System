@@ -32,6 +32,13 @@ try {
     $controller = new FingerprintSyncController();
     $result = $controller->completeDeviceJob($input);
 
+    if (!empty($result['body']['success']) && is_array($result['body']['job'] ?? null)) {
+        require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+        $job = $result['body']['job'];
+        $job['error_message'] = '';
+        (new ActivityLogService(entrivo_pdo()))->recordFingerprintSync('synced', $job, null);
+    }
+
     http_response_code((int) ($result['status'] ?? 200));
     echo json_encode($result['body'] ?? ['message' => 'OK']);
 } catch (Throwable $error) {

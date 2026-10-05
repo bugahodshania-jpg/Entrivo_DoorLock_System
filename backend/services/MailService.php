@@ -2,16 +2,38 @@
 
 class MailService
 {
-    public function send(string $to, string $subject, string $text): void
+    public static function mailbox(string $name): array
+    {
+        $prefix = match ($name) {
+            'credentials' => 'SMTP_CREDENTIALS',
+            'otp' => 'SMTP_OTP',
+            default => 'SMTP',
+        };
+
+        $username = trim((string) (getenv($prefix . '_USERNAME') ?: getenv('SMTP_USERNAME') ?: ''));
+        $password = (string) (getenv($prefix . '_PASSWORD') ?: '');
+
+        if ($password === '' && $prefix === 'SMTP') {
+            $password = (string) (getenv('SMTP_PASSWORD') ?: '');
+        }
+
+        return [
+            'username' => $username,
+            'password' => $password,
+            'from_name' => trim((string) (getenv('SMTP_FROM_NAME') ?: 'Entrivo')),
+        ];
+    }
+
+    public function send(string $to, string $subject, string $text, ?array $account = null): void
     {
         $host = getenv('SMTP_HOST') ?: 'smtp.gmail.com';
         $port = (int) (getenv('SMTP_PORT') ?: 587);
-        $username = trim((string) (getenv('SMTP_USERNAME') ?: ''));
-        $password = str_replace(' ', '', (string) (getenv('SMTP_PASSWORD') ?: ''));
-        $fromName = trim((string) (getenv('SMTP_FROM_NAME') ?: 'Entrivo'));
+        $username = trim((string) ($account['username'] ?? getenv('SMTP_USERNAME') ?: ''));
+        $password = str_replace(' ', '', (string) ($account['password'] ?? getenv('SMTP_PASSWORD') ?: ''));
+        $fromName = trim((string) ($account['from_name'] ?? getenv('SMTP_FROM_NAME') ?: 'Entrivo'));
 
         if ($username === '' || $password === '') {
-            throw new RuntimeException('Recovery email is not configured. Set SMTP_USERNAME to the Gmail account that owns the app password.');
+            throw new RuntimeException('Email is not configured. Set SMTP_USERNAME to the Gmail account that owns the app password.');
         }
 
         $socket = stream_socket_client("tcp://{$host}:{$port}", $errno, $errstr, 20);
@@ -81,7 +103,7 @@ class MailService
             }
 
             if (!in_array((int) $matches[1], $codes, true)) {
-                throw new RuntimeException('The recovery email could not be sent.');
+                throw new RuntimeException('The email could not be sent.');
             }
 
             return;

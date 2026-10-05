@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
+import { portalHref } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 
 const initialDashboardSummary = {
@@ -18,43 +19,49 @@ const initialDashboardSummary = {
 };
 
 const chartWidth = 640;
-const chartHeight = 220;
-const chartPadding = 28;
+const chartHeight = 240;
+const chartPadding = {
+  top: 16,
+  right: 4,
+  bottom: 32,
+  left: 26,
+};
 
 function formatNumber(value) {
   return new Intl.NumberFormat('en-US').format(Number(value) || 0);
 }
 
-function getChartPoints(data, key, maxValue) {
-  if (!data.length) {
-    return '';
+function getNiceMax(value) {
+  const safeValue = Math.max(1, Number(value) || 0);
+
+  if (safeValue <= 4) {
+    return 4;
   }
 
-  return data
-    .map((item, index) => {
-      const x =
-        chartPadding +
-        (index * (chartWidth - chartPadding * 2)) / Math.max(data.length - 1, 1);
-      const y =
-        chartHeight -
-        chartPadding -
-        ((Number(item[key]) || 0) / maxValue) * (chartHeight - chartPadding * 2);
+  const magnitude = 10 ** Math.floor(Math.log10(safeValue));
+  const normalized = safeValue / magnitude;
 
-      return `${x},${y}`;
-    })
-    .join(' ');
+  if (normalized <= 1) return magnitude;
+  if (normalized <= 2) return 2 * magnitude;
+  if (normalized <= 5) return 5 * magnitude;
+
+  return 10 * magnitude;
 }
 
-function getChartPoint(data, key, maxValue, index) {
-  const x =
-    chartPadding +
-    (index * (chartWidth - chartPadding * 2)) / Math.max(data.length - 1, 1);
-  const y =
-    chartHeight -
-    chartPadding -
-    ((Number(data[index]?.[key]) || 0) / maxValue) * (chartHeight - chartPadding * 2);
+function getYTicks(maxValue, tickCount = 4) {
+  return Array.from({ length: tickCount + 1 }, (_, index) =>
+    Math.round((maxValue / tickCount) * index),
+  );
+}
 
-  return { x, y };
+function getBarLayout(dataLength) {
+  const plotWidth = chartWidth - chartPadding.left - chartPadding.right;
+  const groupWidth = plotWidth / Math.max(dataLength, 1);
+  const clusterWidth = Math.min(groupWidth * 0.72, 56);
+  const barGap = 3;
+  const barWidth = Math.max((clusterWidth - barGap) / 2, 6);
+
+  return { groupWidth, clusterWidth, barGap, barWidth };
 }
 
 export default function SuperAdminDashboard() {
@@ -85,7 +92,7 @@ export default function SuperAdminDashboard() {
         setAccessTrend(response.data.accessTrend || []);
         setTodayAccessTrend(response.data.todayAccessTrend || []);
         setTodaySchedules(response.data.todaySchedules || []);
-        setRecentAccessLogs(response.data.recentAccessLogs || []);
+        setRecentAccessLogs((response.data.recentAccessLogs || []).slice(0, 5));
         setOverrideRequests(response.data.overrideRequests || response.data.pendingOverrides || []);
       } catch {
         if (isActive) {
@@ -140,14 +147,15 @@ export default function SuperAdminDashboard() {
     chartRange === 'today'
       ? 'Granted and denied access by time today'
       : 'Granted and denied access over the last 7 days';
-  const maxChartValue = Math.max(
-    1,
+  const rawMax = Math.max(
+    0,
     ...chartData.flatMap((item) => [Number(item.granted) || 0, Number(item.denied) || 0]),
   );
-  const hasGrantedData = chartData.some((item) => Number(item.granted) > 0);
-  const hasDeniedData = chartData.some((item) => Number(item.denied) > 0);
-  const grantedPoints = getChartPoints(chartData, 'granted', maxChartValue);
-  const deniedPoints = getChartPoints(chartData, 'denied', maxChartValue);
+  const maxChartValue = getNiceMax(rawMax);
+  const yTicks = getYTicks(maxChartValue);
+  const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
+  const baselineY = chartHeight - chartPadding.bottom;
+  const { groupWidth, clusterWidth, barGap, barWidth } = getBarLayout(chartData.length);
 
   return (
     <main className="admin-dashboard" aria-label="Super admin dashboard">
@@ -233,61 +241,73 @@ export default function SuperAdminDashboard() {
                 </div>
               </div>
 
-              <div className="dashboard-line-chart" role="img" aria-label="Line chart for granted and denied access">
+              <div
+                className="dashboard-bar-chart"
+                role="img"
+                aria-label="Bar chart comparing granted and denied access"
+              >
                 <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
-                  <line
-                    x1={chartPadding}
-                    y1={chartHeight - chartPadding}
-                    x2={chartWidth - chartPadding}
-                    y2={chartHeight - chartPadding}
-                    className="dashboard-chart-axis"
-                  />
-                  {[0.25, 0.5, 0.75].map((ratio) => (
-                    <line
-                      key={ratio}
-                      x1={chartPadding}
-                      y1={chartPadding + ratio * (chartHeight - chartPadding * 2)}
-                      x2={chartWidth - chartPadding}
-                      y2={chartPadding + ratio * (chartHeight - chartPadding * 2)}
-                      className="dashboard-chart-grid-line"
-                    />
-                  ))}
-                  <polyline
-                    className={`dashboard-chart-line ${
-                      hasGrantedData ? 'dashboard-chart-line-granted' : 'dashboard-chart-line-neutral'
-                    }`}
-                    points={grantedPoints}
-                  />
-                  <polyline
-                    className={`dashboard-chart-line ${
-                      hasDeniedData ? 'dashboard-chart-line-denied' : 'dashboard-chart-line-neutral'
-                    }`}
-                    points={deniedPoints}
-                  />
+                  {yTicks.map((tick) => {
+                    const y = baselineY - (tick / maxChartValue) * plotHeight;
+
+                    return (
+                      <g key={`tick-${tick}`}>
+                        <line
+                          x1={chartPadding.left}
+                          y1={y}
+                          x2={chartWidth - chartPadding.right}
+                          y2={y}
+                          className={tick === 0 ? 'dashboard-chart-axis' : 'dashboard-chart-grid-line'}
+                        />
+                        <text
+                          x={chartPadding.left - 6}
+                          y={y + 3}
+                          className="dashboard-chart-axis-label"
+                          textAnchor="end"
+                        >
+                          {tick}
+                        </text>
+                      </g>
+                    );
+                  })}
+
                   {chartData.map((item, index) => {
-                    const grantedPoint = getChartPoint(chartData, 'granted', maxChartValue, index);
-                    const deniedPoint = getChartPoint(chartData, 'denied', maxChartValue, index);
+                    const granted = Number(item.granted) || 0;
+                    const denied = Number(item.denied) || 0;
+                    const groupCenter =
+                      chartPadding.left + index * groupWidth + groupWidth / 2;
+                    const clusterStart = groupCenter - clusterWidth / 2;
+                    const grantedHeight = (granted / maxChartValue) * plotHeight;
+                    const deniedHeight = (denied / maxChartValue) * plotHeight;
+                    const grantedX = clusterStart;
+                    const deniedX = clusterStart + barWidth + barGap;
 
                     return (
                       <g key={item.date}>
-                        <circle
-                          className={`dashboard-chart-dot ${
-                            hasGrantedData ? 'dashboard-chart-dot-granted' : 'dashboard-chart-dot-neutral'
-                          }`}
-                          cx={grantedPoint.x}
-                          cy={grantedPoint.y}
-                          r="3.5"
-                        />
-                        <circle
-                          className={`dashboard-chart-dot ${
-                            hasDeniedData ? 'dashboard-chart-dot-denied' : 'dashboard-chart-dot-neutral'
-                          }`}
-                          cx={deniedPoint.x}
-                          cy={deniedPoint.y}
-                          r="3.5"
-                        />
+                        <rect
+                          className="dashboard-chart-bar dashboard-chart-bar-granted"
+                          x={grantedX}
+                          y={baselineY - grantedHeight}
+                          width={barWidth}
+                          height={Math.max(grantedHeight, granted > 0 ? 2 : 0)}
+                          rx="2"
+                          ry="2"
+                        >
+                          <title>{`${item.label}: ${granted} granted`}</title>
+                        </rect>
+                        <rect
+                          className="dashboard-chart-bar dashboard-chart-bar-denied"
+                          x={deniedX}
+                          y={baselineY - deniedHeight}
+                          width={barWidth}
+                          height={Math.max(deniedHeight, denied > 0 ? 2 : 0)}
+                          rx="2"
+                          ry="2"
+                        >
+                          <title>{`${item.label}: ${denied} denied`}</title>
+                        </rect>
                         <text
-                          x={grantedPoint.x}
+                          x={groupCenter}
                           y={chartHeight - 8}
                           className="dashboard-chart-label"
                           textAnchor="middle"
@@ -332,7 +352,7 @@ export default function SuperAdminDashboard() {
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href="/super-admin/schedules">
+              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules')}>
                 View All Overrides
               </a>
             </aside>
@@ -342,19 +362,20 @@ export default function SuperAdminDashboard() {
             <article className="dashboard-recent-card">
             <div className="dashboard-panel-header">
               <div>
-                <h2>Recent Access Logs</h2>
+                <h2>Today's Access Logs</h2>
               </div>
-              <a className="dashboard-text-link" href="/super-admin/access-logs">
+              <a className="dashboard-text-link" href={portalHref('/super-admin/access-logs')}>
                 View All
               </a>
             </div>
 
             <div className="dashboard-recent-table-wrap">
-              <table className="dashboard-recent-table">
+              <table className="dashboard-recent-table dashboard-access-recent-table">
                 <thead>
                   <tr>
                     <th>Time</th>
-                    <th>User</th>
+                    <th>Name</th>
+                    <th>User ID</th>
                     <th>Method</th>
                     <th>Access Type</th>
                     <th>Status</th>
@@ -366,8 +387,12 @@ export default function SuperAdminDashboard() {
                       <tr key={log.id}>
                         <td>{log.time}</td>
                         <td>
-                          <strong>{log.userName}</strong>
-                          <span>{log.userIdentifier}</span>
+                          <strong>{log.userName || 'Unknown'}</strong>
+                        </td>
+                        <td>
+                          <span className="dashboard-user-id">
+                            {log.userIdentifier || '—'}
+                          </span>
                         </td>
                         <td>{log.method}</td>
                         <td>{log.accessType}</td>
@@ -380,7 +405,7 @@ export default function SuperAdminDashboard() {
                     ))
                   ) : (
                     <tr>
-                      <td className="dashboard-recent-empty" colSpan="5">
+                      <td className="dashboard-recent-empty" colSpan="6">
                         No recent access logs.
                       </td>
                     </tr>
@@ -421,7 +446,7 @@ export default function SuperAdminDashboard() {
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href="/super-admin/schedules">
+              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules')}>
                 View All Schedule
               </a>
             </aside>

@@ -40,11 +40,18 @@ try {
 
         $statement = $pdo->prepare(
             'SELECT users.id, users.username, users.email, users.role, users.is_active,
-                    admin_info.employee_id, admin_info.first_name, admin_info.middle_name,
-                    admin_info.last_name, admin_info.extension_name, admin_info.office_department,
-                    admin_info.work_position, admin_info.users_photo
+                    COALESCE(admin_info.employee_id, faculty_info.employee_id, staff_info.employee_id) AS employee_id,
+                    COALESCE(admin_info.first_name, faculty_info.first_name, staff_info.first_name) AS first_name,
+                    COALESCE(admin_info.middle_name, faculty_info.middle_name, staff_info.middle_name) AS middle_name,
+                    COALESCE(admin_info.last_name, faculty_info.last_name, staff_info.last_name) AS last_name,
+                    COALESCE(admin_info.extension_name, faculty_info.extension_name, staff_info.extension_name) AS extension_name,
+                    COALESCE(admin_info.office_department, faculty_info.office_department, staff_info.office_department) AS office_department,
+                    COALESCE(admin_info.work_position, faculty_info.work_position, staff_info.work_position) AS work_position,
+                    COALESCE(admin_info.users_photo, faculty_info.users_photo, staff_info.users_photo) AS users_photo
              FROM users
              LEFT JOIN admin_info ON admin_info.user_id = users.id
+             LEFT JOIN faculty_info ON faculty_info.user_id = users.id
+             LEFT JOIN staff_info ON staff_info.user_id = users.id
              WHERE users.id = :user_id
              LIMIT 1'
         );
@@ -133,6 +140,83 @@ try {
                 'code' => 'super_admin_session_taken',
             ]);
         }
+        exit;
+    }
+
+    $action = (string) ($input['action'] ?? '');
+    if (in_array($action, ['first_login_verify', 'first_login_resend', 'first_login_password', 'first_login_profile', 'first_login_security'], true)) {
+        require_once dirname(__DIR__) . '/services/FirstLoginService.php';
+        $firstLogin = new FirstLoginService($pdo);
+
+        if ($action === 'first_login_verify') {
+            $firstLogin->verifyOtp((string) ($input['challenge_id'] ?? ''), (string) ($input['otp'] ?? ''));
+            echo json_encode(['message' => 'Code accepted. Set a new password to continue.']);
+            exit;
+        }
+
+        if ($action === 'first_login_resend') {
+            try {
+                $setup = $firstLogin->resend((string) ($input['challenge_id'] ?? ''));
+            } catch (InvalidArgumentException $resendError) {
+                throw $resendError;
+            } catch (Throwable) {
+                http_response_code(502);
+                echo json_encode(['message' => 'The verification email could not be sent. Try again.']);
+                exit;
+            }
+
+            echo json_encode([
+                'message' => 'A new verification code was sent.',
+                'challenge_id' => $setup['challenge_id'],
+                'masked_email' => $setup['masked_email'],
+                'expires_in' => $setup['expires_in'],
+            ]);
+            exit;
+        }
+
+        if ($action === 'first_login_profile') {
+            $progress = $firstLogin->completeProfile((string) ($input['challenge_id'] ?? ''), $input);
+            echo json_encode([
+                'message' => 'Information saved. Set your security questions to continue.',
+                'next_step' => $progress['next_step'],
+            ]);
+            exit;
+        }
+
+        if ($action === 'first_login_security') {
+            $completed = $firstLogin->saveSecurityQuestions((string) ($input['challenge_id'] ?? ''), $input);
+            completeAuthenticatedLogin(
+                $pdo,
+                $security,
+                $superAdminSession,
+                $privilegeService,
+                (int) $completed['id']
+            );
+            exit;
+        }
+
+        $completed = $firstLogin->replaceTemporaryPassword(
+            (string) ($input['challenge_id'] ?? ''),
+            (string) ($input['password'] ?? ''),
+            (string) ($input['confirm_password'] ?? '')
+        );
+
+        if (($completed['next_step'] ?? 'done') !== 'done') {
+            echo json_encode([
+                'message' => 'Password saved. Complete your information to continue.',
+                'next_step' => $completed['next_step'],
+                'setup' => $completed['setup'] ?? null,
+            ]);
+            exit;
+        }
+
+        completeAuthenticatedLogin(
+            $pdo,
+            $security,
+            $superAdminSession,
+            $privilegeService,
+            (int) $completed['id']
+        );
         exit;
     }
 
@@ -230,12 +314,20 @@ try {
 
     $statement = $pdo->prepare(
         'SELECT users.id, users.username, users.email, users.password_hash, users.role, users.is_active,
-                users.approval_status,
-                admin_info.employee_id, admin_info.first_name, admin_info.middle_name,
-                admin_info.last_name, admin_info.extension_name, admin_info.office_department,
-                admin_info.work_position, admin_info.users_photo
+                users.must_change_password, users.onboarding_step, users.approval_status,
+                COALESCE(admin_info.employee_id, faculty_info.employee_id, staff_info.employee_id) AS employee_id,
+                COALESCE(admin_info.first_name, faculty_info.first_name, staff_info.first_name, student_info.first_name) AS first_name,
+                COALESCE(admin_info.middle_name, faculty_info.middle_name, staff_info.middle_name, student_info.middle_name) AS middle_name,
+                COALESCE(admin_info.last_name, faculty_info.last_name, staff_info.last_name, student_info.last_name) AS last_name,
+                COALESCE(admin_info.extension_name, faculty_info.extension_name, staff_info.extension_name, student_info.extension_name) AS extension_name,
+                COALESCE(admin_info.office_department, faculty_info.office_department, staff_info.office_department) AS office_department,
+                COALESCE(admin_info.work_position, faculty_info.work_position, staff_info.work_position) AS work_position,
+                COALESCE(admin_info.users_photo, faculty_info.users_photo, staff_info.users_photo) AS users_photo
          FROM users
          LEFT JOIN admin_info ON admin_info.user_id = users.id
+         LEFT JOIN faculty_info ON faculty_info.user_id = users.id
+         LEFT JOIN staff_info ON staff_info.user_id = users.id
+         LEFT JOIN student_info ON student_info.user_id = users.id
          WHERE users.username = :username
          LIMIT 1'
     );
@@ -374,6 +466,113 @@ try {
             exit;
         }
 
+        if ((int) ($user['must_change_password'] ?? 0) === 1) {
+            if (trim((string) ($user['email'] ?? '')) === '') {
+                $pdo->commit();
+                http_response_code(422);
+                echo json_encode([
+                    'message' => 'This account has no email address, so the verification code cannot be sent.',
+                    'field' => 'username',
+                    'locked' => false,
+                    'retry_after' => 0,
+                    'show_forgot_password' => false,
+                ]);
+                exit;
+            }
+
+            $security->clearFailedAttempts($userId);
+            $pdo->commit();
+
+            require_once dirname(__DIR__) . '/services/FirstLoginService.php';
+
+            try {
+                $setup = (new FirstLoginService($pdo))->begin(
+                    $userId,
+                    (string) $user['email'],
+                    (string) $user['username']
+                );
+            } catch (InvalidArgumentException $setupError) {
+                http_response_code(422);
+                echo json_encode([
+                    'message' => $setupError->getMessage(),
+                    'field' => 'password',
+                    'locked' => false,
+                    'retry_after' => 0,
+                    'show_forgot_password' => false,
+                ]);
+                exit;
+            } catch (Throwable) {
+                http_response_code(502);
+                echo json_encode([
+                    'message' => 'Your password was accepted, but the verification email could not be sent. Try signing in again.',
+                    'field' => 'password',
+                    'locked' => false,
+                    'retry_after' => 0,
+                    'show_forgot_password' => false,
+                ]);
+                exit;
+            }
+
+            echo json_encode([
+                'message' => 'Credentials accepted. Enter the verification code sent to your email.',
+                'requires_first_login' => true,
+                'next_step' => 'otp',
+                'challenge_id' => $setup['challenge_id'],
+                'masked_email' => $setup['masked_email'],
+                'expires_in' => $setup['expires_in'],
+                'locked' => false,
+                'retry_after' => 0,
+                'show_forgot_password' => false,
+            ]);
+            exit;
+        }
+
+        $onboardingStep = (string) ($user['onboarding_step'] ?? 'done');
+        if (in_array($onboardingStep, ['profile', 'security'], true)) {
+            $security->clearFailedAttempts($userId);
+            $pdo->commit();
+
+            require_once dirname(__DIR__) . '/services/FirstLoginService.php';
+
+            try {
+                $setup = (new FirstLoginService($pdo))->beginContinuation($userId);
+            } catch (InvalidArgumentException $setupError) {
+                http_response_code(422);
+                echo json_encode([
+                    'message' => $setupError->getMessage(),
+                    'field' => 'password',
+                    'locked' => false,
+                    'retry_after' => 0,
+                    'show_forgot_password' => false,
+                ]);
+                exit;
+            } catch (Throwable) {
+                http_response_code(502);
+                echo json_encode([
+                    'message' => 'Your password was accepted, but account setup could not be opened. Try signing in again.',
+                    'field' => 'password',
+                    'locked' => false,
+                    'retry_after' => 0,
+                    'show_forgot_password' => false,
+                ]);
+                exit;
+            }
+
+            echo json_encode([
+                'message' => 'Sign-in accepted. Finish account setup to open your dashboard.',
+                'requires_first_login' => true,
+                'next_step' => $setup['next_step'],
+                'challenge_id' => $setup['challenge_id'],
+                'masked_email' => $setup['masked_email'],
+                'expires_in' => $setup['expires_in'],
+                'setup' => $setup['setup'],
+                'locked' => false,
+                'retry_after' => 0,
+                'show_forgot_password' => false,
+            ]);
+            exit;
+        }
+
         $security->registerSuccessfulLogin($userId, $username);
         $pdo->commit();
     } catch (Throwable $inner) {
@@ -400,7 +599,7 @@ try {
         }
     }
 
-    unset($user['password_hash']);
+    unset($user['password_hash'], $user['must_change_password'], $user['onboarding_step']);
 
     echo json_encode([
         'message' => 'Login successful.',
@@ -418,6 +617,71 @@ try {
     http_response_code(500);
     echo json_encode([
         'message' => 'Unable to connect to the authentication service.',
+    ]);
+}
+
+function completeAuthenticatedLogin(
+    PDO $pdo,
+    LoginSecurityService $security,
+    SuperAdminDashboardSession $superAdminSession,
+    UserPrivilegeService $privilegeService,
+    int $userId
+): void {
+    $statement = $pdo->prepare(
+        'SELECT users.id, users.username, users.email, users.password_hash, users.role, users.is_active,
+                users.must_change_password, users.onboarding_step,
+                COALESCE(admin_info.employee_id, faculty_info.employee_id, staff_info.employee_id) AS employee_id,
+                COALESCE(admin_info.first_name, faculty_info.first_name, staff_info.first_name, student_info.first_name) AS first_name,
+                COALESCE(admin_info.middle_name, faculty_info.middle_name, staff_info.middle_name, student_info.middle_name) AS middle_name,
+                COALESCE(admin_info.last_name, faculty_info.last_name, staff_info.last_name, student_info.last_name) AS last_name,
+                COALESCE(admin_info.extension_name, faculty_info.extension_name, staff_info.extension_name, student_info.extension_name) AS extension_name,
+                COALESCE(admin_info.office_department, faculty_info.office_department, staff_info.office_department) AS office_department,
+                COALESCE(admin_info.work_position, faculty_info.work_position, staff_info.work_position) AS work_position,
+                COALESCE(admin_info.users_photo, faculty_info.users_photo, staff_info.users_photo) AS users_photo
+         FROM users
+         LEFT JOIN admin_info ON admin_info.user_id = users.id
+         LEFT JOIN faculty_info ON faculty_info.user_id = users.id
+         LEFT JOIN staff_info ON staff_info.user_id = users.id
+         LEFT JOIN student_info ON student_info.user_id = users.id
+         WHERE users.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $userId]);
+    $user = $statement->fetch();
+
+    if (!$user || !(bool) $user['is_active']) {
+        http_response_code(403);
+        echo json_encode(['message' => 'This account cannot be opened.']);
+        return;
+    }
+
+    $security->registerSuccessfulLogin($userId, (string) $user['username']);
+
+    if (($user['role'] ?? '') === 'super_admin') {
+        try {
+            $superAdminSession->claim($userId, (string) $user['username']);
+        } catch (InvalidArgumentException $sessionError) {
+            http_response_code(409);
+            echo json_encode([
+                'message' => $sessionError->getMessage(),
+                'field' => 'username',
+                'locked' => false,
+                'retry_after' => 0,
+                'show_forgot_password' => false,
+                'code' => 'super_admin_session_taken',
+            ]);
+            return;
+        }
+    }
+
+    unset($user['password_hash'], $user['must_change_password'], $user['onboarding_step']);
+
+    echo json_encode([
+        'message' => 'Login successful.',
+        'user' => attachUserPrivileges($privilegeService, $user),
+        'locked' => false,
+        'retry_after' => 0,
+        'show_forgot_password' => false,
     ]);
 }
 

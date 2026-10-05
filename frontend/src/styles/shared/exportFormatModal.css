@@ -1,0 +1,141 @@
+.export-format-overlay {
+  align-items: center;
+  background: rgba(10, 18, 14, 0.62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 10000;
+}
+
+.export-format-modal {
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(16, 37, 29, 0.24);
+  box-sizing: border-box;
+  max-width: 440px;
+  padding: 18px;
+  width: 100%;
+}
+
+.export-format-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.export-format-header strong {
+  color: #10251d;
+  display: block;
+  font-size: 16px;
+}
+
+.export-format-header p {
+  color: #7a8882;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.export-format-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #42564e;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.export-format-prompt {
+  color: #42564e;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.export-format-options {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.export-format-option {
+  align-items: flex-start;
+  background: #ffffff;
+  border: 1px solid #d7dee4;
+  border-radius: 4px;
+  color: #0c4b2d;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 10px;
+  padding: 14px 12px;
+  text-align: left;
+}
+
+.export-format-option:hover,
+.export-format-option:focus-visible {
+  background: #eef5f1;
+  border-color: #0c4b2d;
+  outline: none;
+}
+
+.export-format-option svg {
+  flex: 0 0 auto;
+}
+
+.export-format-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.export-format-option strong {
+  color: #10251d;
+  font-size: 14px;
+}
+
+.export-format-option small {
+  color: #6b7680;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.export-format-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0 2px;
+}
+
+.export-format-cancel {
+  background: #f3f7f5;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  color: #243d34;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 10px 20px;
+}
+
+.export-format-cancel:hover {
+  background: #e8f0ec;
+}
+
+@media (max-width: 480px) {
+  .export-format-options {
+    grid-template-columns: 1fr;
+  }
+}

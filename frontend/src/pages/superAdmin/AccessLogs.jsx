@@ -5,30 +5,18 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  RefreshCw,
   Search,
   X,
   XCircle,
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import ExportFormatModal from '../../components/ExportFormatModal';
 import { getManilaDateStamp } from '../../utils/dateTime';
+import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
-
-function escapeCsvValue(value) {
-  const text = value == null ? '' : String(value);
-  const escaped = text.replace(/"/g, '""');
-
-  if (/[",\n\r]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-
-  return escaped;
-}
-
-function toCsv(rows) {
-  return rows.map((row) => row.map(escapeCsvValue).join(',')).join('\r\n');
-}
 
 const initialSummary = {
   totalToday: 0,
@@ -160,6 +148,7 @@ export default function AccessLogs() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -278,7 +267,7 @@ export default function AccessLogs() {
     [summary.deniedToday, summary.grantedToday, summary.totalToday],
   );
 
-  const columns = ['Date & Time', 'User', 'Identifier', 'Related Data', 'Schedule', 'Status'];
+  const columns = ['Date & Time', 'User', 'Identifier', 'Method', 'Access Type', 'Schedule', 'Status'];
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
   const viewScopedLogs = useMemo(() => {
@@ -366,9 +355,10 @@ export default function AccessLogs() {
     setCurrentPage(1);
   }, [viewFilter, statusFilter, dateFrom, dateTo, searchQuery]);
 
-  function handleDownloadCsv() {
-    const csvRows = [
-      [
+  function handleExport(format) {
+    setIsExportModalOpen(false);
+    exportTable(format, {
+      headers: [
         'Access Date',
         'Access Time',
         'User',
@@ -380,7 +370,7 @@ export default function AccessLogs() {
         'Schedule',
         'Status',
       ],
-      ...visibleAccessLogs.map((log) => [
+      rows: visibleAccessLogs.map((log) => [
         log.date,
         log.time,
         log.userName,
@@ -392,20 +382,23 @@ export default function AccessLogs() {
         `${log.scheduleId ?? 'N/A'} | ${log.scheduleWindow ?? 'N/A'}`,
         log.status,
       ]),
-    ];
-    const csv = toCsv(csvRows);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download =
-      viewFilter === 'today'
-        ? `access_logs_today_${todayDateStamp}.csv`
-        : `access_logs_all_${todayDateStamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+      fileBaseName:
+        viewFilter === 'today'
+          ? `access_logs_today_${todayDateStamp}`
+          : `access_logs_all_${todayDateStamp}`,
+      pdf: {
+        title: viewFilter === 'today' ? "Today's Access Logs" : 'Access Logs',
+        note: buildExportNote(visibleAccessLogs.length, 'access attempt', [
+          statusFilter !== 'all' ? `Status: ${activeStatusFilterConfig.label}` : '',
+          dateFrom ? `From ${dateFrom}` : '',
+          dateTo ? `To ${dateTo}` : '',
+          searchQuery.trim() ? `Search: "${searchQuery.trim()}"` : '',
+        ]),
+        widths: [62, 55, 95, 120, 70, 50, 55, 70, 130, 50],
+        emphasizeColumn: 2,
+        emptyMessage: 'No access logs match the selected filters.',
+      },
+    });
   }
 
   return (
@@ -438,7 +431,7 @@ export default function AccessLogs() {
           <button
             type="button"
             className="access-logs-export"
-            onClick={handleDownloadCsv}
+            onClick={() => setIsExportModalOpen(true)}
             disabled={isLoading || Boolean(errorMessage) || visibleAccessLogs.length === 0}
           >
             <Download size={15} aria-hidden="true" />
@@ -608,6 +601,23 @@ export default function AccessLogs() {
                 </button>
               ) : null}
             </div>
+            <button
+              type="button"
+              className="access-logs-reset"
+              aria-label="Reset filters"
+              title="Reset filters"
+              onClick={() => {
+                setViewFilter('today');
+                setStatusFilter('all');
+                setDateFrom('');
+                setDateTo('');
+                setSearchQuery('');
+                setIsViewFilterMenuOpen(false);
+                setIsStatusFilterMenuOpen(false);
+              }}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
           </div>
 
           <label className="access-logs-search">
@@ -678,8 +688,10 @@ export default function AccessLogs() {
                       <span>{log.userRole ? log.userRole.replace('_', ' ') : 'No role'}</span>
                     </td>
                     <td>
-                      <strong>{log.method}</strong>
-                      <span>{log.accessType}</span>
+                      <strong>{log.method || 'N/A'}</strong>
+                    </td>
+                    <td>
+                      <strong>{log.accessType || 'N/A'}</strong>
                     </td>
                     <td>
                       <strong>{log.scheduleId ?? 'N/A'}</strong>
@@ -729,6 +741,15 @@ export default function AccessLogs() {
           </div>
         )}
       </section>
+      <ExportFormatModal
+        open={isExportModalOpen}
+        title="Export Access Logs"
+        subtitle={`${visibleAccessLogs.length} access attempt${visibleAccessLogs.length === 1 ? '' : 's'} in the current view`}
+        prompt="Only the access logs matching the current filters will be exported. Choose the file format."
+        pdfHint="Printable access log table"
+        onSelect={handleExport}
+        onClose={() => setIsExportModalOpen(false)}
+      />
     </main>
   );
 }

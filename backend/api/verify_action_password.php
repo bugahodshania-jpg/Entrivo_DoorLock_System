@@ -44,7 +44,10 @@ try {
     $statement->execute(['id' => $userId]);
     $user = $statement->fetch(PDO::FETCH_ASSOC);
 
-    if (!$user || !(bool) $user['is_active'] || ($user['role'] ?? '') !== 'super_admin') {
+    $role = strtolower(trim((string) ($user['role'] ?? '')));
+    $allowedRoles = ['super_admin', 'faculty', 'staff'];
+
+    if (!$user || !(bool) $user['is_active'] || !in_array($role, $allowedRoles, true)) {
         throw new InvalidArgumentException('The security password is incorrect.');
     }
 

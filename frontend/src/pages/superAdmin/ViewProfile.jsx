@@ -3,8 +3,12 @@ import {
   EyeOff,
   Fingerprint,
   IdCard,
+  Info,
+  Link2,
+  Lock,
   Pencil,
   Save,
+  Shield,
   ShieldCheck,
   UserCircle,
   X,
@@ -16,6 +20,41 @@ import '../../styles/superAdmin/dashboard.css';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
+
+const securityQuestionOptions = [
+  'What is the name of your first school?',
+  "What is your mother's maiden name?",
+  'What city were you born in?',
+  'What is the name of your favorite teacher?',
+  'What was the name of your first pet?',
+  'What is your favorite book?',
+];
+
+const emptySecurityForm = [
+  { question: '', answer: '', originalQuestion: '', originalAnswer: '' },
+  { question: '', answer: '', originalQuestion: '', originalAnswer: '' },
+  { question: '', answer: '', originalQuestion: '', originalAnswer: '' },
+];
+
+function securitySlotsFromSaved(saved) {
+  const list = Array.isArray(saved) ? saved : [];
+
+  return [0, 1, 2].map((index) => {
+    const match =
+      list.find((item) => Number(item?.slot ?? item?.question_slot) === index + 1) ||
+      list[index] ||
+      {};
+    const question = match.question || '';
+    const answer = match.answer || '';
+
+    return {
+      question,
+      answer,
+      originalQuestion: question,
+      originalAnswer: answer,
+    };
+  });
+}
 
 function formatPasswordLastUpdated(profile) {
   if (profile?.password_last_updated_label) {
@@ -54,6 +93,12 @@ export default function ViewProfile({ user }) {
     new_password: false,
     confirm_password: false,
   });
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [securityForm, setSecurityForm] = useState(emptySecurityForm);
+  const [visibleAnswers, setVisibleAnswers] = useState([false, false, false]);
+  const [editableQuestions, setEditableQuestions] = useState([false, false, false]);
+  const [securityError, setSecurityError] = useState('');
+  const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [adminProfileForm, setAdminProfileForm] = useState({
     sex: '',
     age: '',
@@ -327,6 +372,117 @@ export default function ViewProfile({ user }) {
     setPasswordVisibility((current) => ({ ...current, [fieldKey]: !current[fieldKey] }));
   }
 
+  function openSecurityModal() {
+    const slots = securitySlotsFromSaved(adminProfile?.security_questions);
+    setSecurityForm(slots);
+    setVisibleAnswers([true, true, true]);
+    setEditableQuestions(slots.map((item) => !item.question));
+    setSecurityError('');
+    setIsSecurityModalOpen(true);
+  }
+
+  function closeSecurityModal() {
+    if (isSavingSecurity) {
+      return;
+    }
+
+    setIsSecurityModalOpen(false);
+    setSecurityError('');
+  }
+
+  function updateSecurityQuestion(index, field, value) {
+    setSecurityForm((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)),
+    );
+    setSecurityError('');
+  }
+
+  async function handleSaveSecurityQuestions(event) {
+    event.preventDefault();
+
+    if (!user?.id || isSavingSecurity) {
+      return;
+    }
+
+    const questions = securityForm.map((item) => ({
+      question: item.question.trim(),
+      answer: item.answer.trim(),
+      originalQuestion: item.originalQuestion,
+      originalAnswer: item.originalAnswer,
+    }));
+
+    if (questions.some((item) => !item.question)) {
+      setSecurityError('Select three security questions.');
+      return;
+    }
+
+    const invalidAnswer = questions.some((item) => {
+      const canKeepSavedAnswer =
+        item.answer === '' &&
+        item.question === item.originalQuestion &&
+        item.originalAnswer === '' &&
+        item.originalQuestion !== '';
+
+      if (item.answer.length >= 2) {
+        return false;
+      }
+
+      return item.answer.length > 0 || !canKeepSavedAnswer;
+    });
+
+    if (invalidAnswer) {
+      setSecurityError('Each answer must be at least 2 characters. Leave a blank answer only to keep one already saved.');
+      return;
+    }
+
+    if (new Set(questions.map((item) => item.question)).size !== 3) {
+      setSecurityError('Choose three different security questions.');
+      return;
+    }
+
+    const hasChanges = questions.some(
+      (item) => item.question !== item.originalQuestion || item.answer !== item.originalAnswer,
+    );
+
+    if (!hasChanges) {
+      setSecurityError('Change a question or answer before updating.');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Update security questions',
+      message: 'Are you sure you want to update your security questions?',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSavingSecurity(true);
+    setSecurityError('');
+
+    try {
+      const response = await axiosClient.post('/api/admin_profile.php', {
+        action: 'update_security_questions',
+        user_id: user.id,
+        security_questions: questions.map((item) => ({
+          question: item.question,
+          answer: item.answer,
+        })),
+      });
+      const refreshed = await axiosClient.get(
+        `/api/admin_profile.php?user_id=${encodeURIComponent(user.id)}`,
+      );
+      setAdminProfile(refreshed.data?.profile || null);
+      setIsSecurityModalOpen(false);
+      setSaveNotice(response.data?.message || 'Security questions updated successfully.');
+    } catch (error) {
+      setSecurityError(error?.response?.data?.message || 'Unable to update security questions.');
+    } finally {
+      setIsSavingSecurity(false);
+    }
+  }
+
   function handleStartAdminProfileEdit() {
     setIsEditingAdminProfile(true);
     setSaveNotice('');
@@ -560,11 +716,11 @@ export default function ViewProfile({ user }) {
               <button
                 type="button"
                 className="settings-admin-profile-edit-button"
-                onClick={handleStartAdminProfileEdit}
-                disabled={isAdminProfileLoading || isSavingAdminProfile}
+                onClick={openSecurityModal}
+                disabled={isAdminProfileLoading || isSavingSecurity}
               >
-                <Pencil size={18} aria-hidden="true" />
-                Edit Profile
+                <ShieldCheck size={18} aria-hidden="true" />
+                Update Security Question
               </button>
             </section>
 
@@ -770,6 +926,173 @@ export default function ViewProfile({ user }) {
               ) : null}
             </section>
           </div>
+
+          {isSecurityModalOpen ? (
+            <div
+              className="pending-registration-review-backdrop settings-admin-edit-backdrop"
+              role="presentation"
+              onClick={closeSecurityModal}
+            >
+              <form
+                className="pending-registration-review settings-security-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="admin-security-title"
+                onClick={(event) => event.stopPropagation()}
+                onSubmit={handleSaveSecurityQuestions}
+              >
+                <header>
+                  <div>
+                    <h2 id="admin-security-title">Update Security Questions</h2>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close security questions"
+                    onClick={closeSecurityModal}
+                    disabled={isSavingSecurity}
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </header>
+
+                <div className="settings-security-layout">
+                  <div className="settings-security-fields">
+                    {securityForm.map((item, index) => (
+                      <div className="settings-security-group" key={`security-question-${index}`}>
+                        <label className="settings-security-field">
+                          <span>Security question {index + 1}</span>
+                          {item.question && !editableQuestions[index] ? (
+                            <span className="settings-security-current">
+                              <input type="text" value={item.question} readOnly />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditableQuestions((current) =>
+                                    current.map((editable, itemIndex) => (itemIndex === index ? true : editable)),
+                                  )
+                                }
+                                disabled={isSavingSecurity}
+                              >
+                                Change
+                              </button>
+                            </span>
+                          ) : (
+                            <select
+                              value={item.question}
+                              onChange={(event) => updateSecurityQuestion(index, 'question', event.target.value)}
+                              disabled={isSavingSecurity}
+                            >
+                              <option value="">Select a question</option>
+                              {(item.question && !securityQuestionOptions.includes(item.question)
+                                ? [item.question, ...securityQuestionOptions]
+                                : securityQuestionOptions
+                              ).map((question) => (
+                                <option
+                                  key={question}
+                                  value={question}
+                                  disabled={securityForm.some(
+                                    (entry, entryIndex) => entryIndex !== index && entry.question === question,
+                                  )}
+                                >
+                                  {question}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </label>
+                        <label className="settings-security-field">
+                          <span>Answer</span>
+                          <span className="settings-security-answer">
+                            <input
+                              type={visibleAnswers[index] ? 'text' : 'password'}
+                              value={item.answer}
+                              maxLength={100}
+                              autoComplete="off"
+                              placeholder={
+                                item.originalAnswer
+                                  ? ''
+                                  : item.originalQuestion
+                                    ? 'Leave blank to keep the saved answer'
+                                    : 'Enter your answer'
+                              }
+                              onChange={(event) => updateSecurityQuestion(index, 'answer', event.target.value)}
+                            />
+                            <button
+                              type="button"
+                              aria-label={visibleAnswers[index] ? 'Hide answer' : 'Show answer'}
+                              onClick={() =>
+                                setVisibleAnswers((current) =>
+                                  current.map((visible, itemIndex) => (itemIndex === index ? !visible : visible)),
+                                )
+                              }
+                            >
+                              {visibleAnswers[index] ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          </span>
+                          {!item.originalAnswer && item.originalQuestion ? (
+                            <small className="settings-security-hint">
+                              A saved answer is on file. Leave this blank to keep it, or type a new one.
+                            </small>
+                          ) : null}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  <aside className="settings-security-info" aria-label="Why security questions are needed">
+                    <div>
+                      <span><Shield size={16} aria-hidden="true" /></span>
+                      <div>
+                        <h3>Why do we need this?</h3>
+                        <p>Your answers keep your account safe and recoverable.</p>
+                      </div>
+                    </div>
+                    <div>
+                      <span><ShieldCheck size={16} aria-hidden="true" /></span>
+                      <div>
+                        <h3>Account Recovery</h3>
+                        <p>Verify your identity if you ever forget your password.</p>
+                      </div>
+                    </div>
+                    <div>
+                      <span><Link2 size={16} aria-hidden="true" /></span>
+                      <div>
+                        <h3>Keep It Private</h3>
+                        <p>Pick answers only you would know and avoid guessable details.</p>
+                      </div>
+                    </div>
+                    <div>
+                      <span><Lock size={16} aria-hidden="true" /></span>
+                      <div>
+                        <h3>Only You Can See Them</h3>
+                        <p>Your saved answers are shown here so you can review and update them.</p>
+                      </div>
+                    </div>
+                    <div className="settings-security-note">
+                      <Info size={15} aria-hidden="true" />
+                      <p>Choose answers you'll remember. You'll need them to regain access to your account.</p>
+                    </div>
+                  </aside>
+                </div>
+
+                {securityError ? <p className="pending-registration-error" role="alert">{securityError}</p> : null}
+
+                <footer>
+                  <button
+                    type="button"
+                    className="pending-registration-reject"
+                    onClick={closeSecurityModal}
+                    disabled={isSavingSecurity}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="pending-registration-approve" disabled={isSavingSecurity}>
+                    {isSavingSecurity ? 'Updating...' : 'Update'}
+                  </button>
+                </footer>
+              </form>
+            </div>
+          ) : null}
 
           {isEditingAdminProfile ? (
             <div

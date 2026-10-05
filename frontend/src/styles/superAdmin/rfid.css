@@ -107,6 +107,56 @@
   grid-template-columns: minmax(240px, 320px);
 }
 
+.pending-overrides-page .rfid-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pending-overrides-page .dashboard-recent-card > .dashboard-panel-header {
+  margin-bottom: 18px;
+}
+
+.pending-overrides-toolbar {
+  margin-bottom: 6px;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(7),
+.pending-overrides-page .pending-overrides-table td:nth-child(7) {
+  text-align: center;
+  width: 10%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(8),
+.pending-overrides-page .pending-overrides-table td:nth-child(8) {
+  text-align: center;
+  width: 8%;
+}
+
+.pending-overrides-page .dashboard-log-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  text-transform: uppercase;
+}
+
+.pending-overrides-page .dashboard-log-status-pending {
+  background: #fff4df;
+  color: #9a6700;
+}
+
+.pending-overrides-page .dashboard-log-status-approved {
+  background: #e7f7ef;
+  color: #147a45;
+}
+
+@media (max-width: 760px) {
+  .pending-overrides-page .rfid-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pending-registrations-header {
   align-items: center;
   flex-wrap: wrap;
@@ -150,12 +200,14 @@
 }
 
 .pending-registrations-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
   padding-top: 14px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pending-registrations-table {
-  min-width: 0;
+  min-width: 1180px;
   table-layout: fixed;
   width: 100%;
 }
@@ -169,11 +221,20 @@
 
 .pending-registrations-page .pending-registrations-table th {
   border-top: 1px solid #e3ebe6;
+  overflow: hidden;
   padding-top: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-overrides-page .pending-overrides-table th {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .pending-registrations-page .pending-registrations-table th:nth-child(1),
 .pending-registrations-page .pending-registrations-table td:nth-child(1) {
+  padding-left: 16px;
   width: 19%;
 }
 
@@ -208,6 +269,15 @@
 .pending-registrations-page .pending-registrations-table td:nth-child(8) {
   text-align: center;
   width: 8%;
+}
+
+.pending-override-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 22rem;
 }
 
 .pending-registration-menu-button {
@@ -619,6 +689,35 @@
   gap: 8px;
 }
 
+.rfid-cards-card > .dashboard-panel-header {
+  margin-bottom: 0;
+}
+
+.rfid-filter .manage-users-role-tab-trigger {
+  max-width: 260px;
+  min-width: 148px;
+}
+
+.rfid-filter .manage-users-role-tab-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rfid-filter .manage-users-role-tab-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.rfid-filter .manage-users-role-tab-menu.rfid-filter-menu {
+  max-width: 380px;
+  min-width: 100%;
+  width: max-content;
+}
+
+.rfid-filter-menu .manage-users-role-tab-option-label {
+  white-space: normal;
+}
+
 .rfid-search {
   align-items: center;
   background: #ffffff;
@@ -702,11 +801,10 @@
 .rfid-table-wrap {
   max-width: 100%;
   overflow-x: auto;
-  padding-top: 12px;
+  padding-top: 2px;
 }
 
 .rfid-table {
-  border-top: 1px solid #d8e4dd;
   min-width: 1080px;
   table-layout: fixed;
   width: 100%;
@@ -714,6 +812,7 @@
 
 .rfid-table th:nth-child(1),
 .rfid-table td:nth-child(1) {
+  padding-left: 16px;
   width: 17%;
 }
 
@@ -778,8 +877,8 @@
 }
 
 .rfid-table th {
-  padding-top: 14px;
-  padding-bottom: 14px;
+  padding-top: 6px;
+  padding-bottom: 12px;
 }
 
 .rfid-table td strong {
@@ -844,6 +943,19 @@
   }
 
   .rfid-search input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .rfid-filter-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rfid-filter-row > .rfid-filter,
+  .rfid-filter .manage-users-role-tab-trigger,
+  .rfid-filter .manage-users-role-tab-menu {
+    max-width: none;
     min-width: 0;
     width: 100%;
   }

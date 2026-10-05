@@ -57,17 +57,38 @@ void processAccessControl()
     g_lastDecisionSlot = matchedSlot;
     g_lastDecisionAt = now;
 
-    String policyReason;
-    if (!isSlotAllowedOffline(matchedSlot, policyReason))
+    DoorSlotUser doorUser;
+    if (!loadDoorSlotUser(matchedSlot, doorUser))
     {
-        Serial.print("Access denied for slot ");
+        Serial.print("Door slot ");
         Serial.print(matchedSlot);
-        Serial.print(": ");
-        Serial.println(policyReason);
+        Serial.println(" matched a fingerprint, but it is not linked to a user.");
         return;
     }
 
-    Serial.print("Access granted for slot ");
+    Serial.print("Identified ");
+    Serial.print(doorUser.userName);
+    Serial.print(" (");
+    Serial.print(doorUser.fingerName);
+    Serial.print(") on Sensor B slot ");
     Serial.println(matchedSlot);
+
+    if (hasAccessPolicySnapshot())
+    {
+        String policyReason;
+        if (!isSlotAllowedOffline(matchedSlot, policyReason))
+        {
+            Serial.print("Access denied for ");
+            Serial.print(doorUser.userName);
+            Serial.print(": ");
+            Serial.println(policyReason);
+            return;
+        }
+    }
+
+    Serial.print("Access granted for ");
+    Serial.print(doorUser.userName);
+    Serial.print(" using ");
+    Serial.println(doorUser.fingerName);
     openDoorRelay();
 }

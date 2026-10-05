@@ -5,8 +5,8 @@
 // WiFi
 // ============================
 
-#define WIFI_SSID      "ESP32_TEST"
-#define WIFI_PASSWORD  "12345678"
+#define WIFI_SSID      "ESP32_HOTSPOT"
+#define WIFI_PASSWORD  "onetwoeight"
 
 // ============================
 // Backend

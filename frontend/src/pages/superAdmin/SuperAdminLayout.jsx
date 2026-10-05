@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActionConfirmProvider } from '../../components/ActionConfirm';
+import NotificationBell from '../../components/NotificationBell';
 import {
   ClipboardCheck,
   Activity,
-  Bell,
   CalendarClock,
   ChevronDown,
   ChevronLeft,
@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Settings,
+  ShieldAlert,
   User,
   Users,
   FileBarChart,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
 import { formatDateInManila } from '../../utils/dateTime';
+import { portalLayoutClassName, useCompactNav } from '../../hooks/useCompactNav';
 import { normalizePrivileges, PRIVILEGE_PATHS } from '../../utils/privileges';
 import '../../styles/superAdmin/adminLayout.css';
 
@@ -73,6 +75,12 @@ const navSections = [
         href: '/super-admin/schedules',
         icon: CalendarClock,
         privilege: 'schedules',
+      },
+      {
+        label: 'Pending overrides',
+        href: '/super-admin/pending-overrides',
+        icon: ShieldAlert,
+        privilege: 'pending_overrides',
       },
       {
         label: 'Access Logs',
@@ -163,6 +171,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     return window.localStorage.getItem('super_admin_sidebar_collapsed') === 'true';
   });
+  const { isCompact, isMobileNavOpen, setIsMobileNavOpen } = useCompactNav();
   const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
   const [isSidebarProfileOpen, setIsSidebarProfileOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -249,8 +258,21 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   }, [isProfileDrawerOpen, isSidebarProfileOpen]);
 
   return (
-    <div className={`super-admin-layout${isCollapsed ? ' is-sidebar-collapsed' : ''}`}>
-      <aside className="super-admin-sidebar" aria-label="Super admin navigation">
+    <div className={portalLayoutClassName({ isCollapsed, isCompact, isMobileNavOpen })}>
+      {isCompact && isMobileNavOpen ? (
+        <button
+          className="super-admin-nav-backdrop"
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setIsMobileNavOpen(false)}
+        />
+      ) : null}
+      <aside
+        className="super-admin-sidebar"
+        aria-label="Super admin navigation"
+        aria-hidden={isCompact && !isMobileNavOpen}
+        inert={isCompact && !isMobileNavOpen ? true : undefined}
+      >
         <div className="super-admin-sidebar-brand">
           <a className="super-admin-logo" href={dashboardHref} aria-label="Entrivo dashboard">
             <img className="super-admin-logo-mark" src={entrivoLogo} alt="" aria-hidden="true" />
@@ -262,18 +284,25 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
           <button
             className="super-admin-sidebar-toggle"
             type="button"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-expanded={!isCollapsed}
-            onClick={() => setIsCollapsed((current) => !current)}
+            aria-label={isCompact ? 'Close navigation' : isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={isCompact ? isMobileNavOpen : !isCollapsed}
+            onClick={() => {
+              if (isCompact) {
+                setIsMobileNavOpen(false);
+                return;
+              }
+
+              setIsCollapsed((current) => !current);
+            }}
           >
-            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            {isCompact || !isCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
           </button>
         </div>
 
         <nav className="super-admin-nav" aria-label="Super admin pages">
           {visibleNavSections.map(({ heading, links }) => (
             <div className="super-admin-nav-section" key={heading}>
-              <p className="super-admin-nav-heading" aria-hidden={isCollapsed}>
+              <p className="super-admin-nav-heading" aria-hidden={!isCompact && isCollapsed}>
                 {heading}
               </p>
               <div className="super-admin-nav-section-links">
@@ -286,7 +315,8 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
                       href={href}
                       key={href}
                       data-label={label}
-                      title={isCollapsed ? label : undefined}
+                      title={!isCompact && isCollapsed ? label : undefined}
+                      onClick={() => setIsMobileNavOpen(false)}
                     >
                       <Icon size={20} aria-hidden="true" />
                       <span>{label}</span>
@@ -337,9 +367,16 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
             <button
               className="super-admin-header-sidebar-toggle"
               type="button"
-              aria-label="Expand sidebar"
-              aria-expanded={!isCollapsed}
-              onClick={() => setIsCollapsed(false)}
+              aria-label={isCompact ? 'Open navigation' : 'Expand sidebar'}
+              aria-expanded={isCompact ? isMobileNavOpen : !isCollapsed}
+              onClick={() => {
+                if (isCompact) {
+                  setIsMobileNavOpen((open) => !open);
+                  return;
+                }
+
+                setIsCollapsed(false);
+              }}
             >
               <Menu size={18} />
             </button>
@@ -349,14 +386,17 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
           </div>
 
           <div className="super-admin-topbar-actions">
-            <button className="super-admin-icon-button super-admin-notification" type="button" aria-label="Notifications">
-              <Bell size={16} strokeWidth={1.75} />
-              {unreadNotificationCount > 0 && (
-                <span aria-label={`${unreadNotificationCount} unread notifications`}>
-                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-                </span>
-              )}
-            </button>
+            <NotificationBell
+              requestUrl="/api/activity_logs.php"
+              requestParams={{ limit: 10 }}
+              viewAllHref="/super-admin/activity-logs"
+              badgeCount={unreadNotificationCount}
+              dismissOpen={isProfileDrawerOpen || isSidebarProfileOpen}
+              onOpen={() => {
+                setIsProfileDrawerOpen(false);
+                setIsSidebarProfileOpen(false);
+              }}
+            />
             <div className="super-admin-date-card" aria-label={`${headerDate}, ${headerMetaLabel} Asia/Manila`}>
               <div>
                 <strong>{headerDate}</strong>

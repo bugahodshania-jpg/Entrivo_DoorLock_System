@@ -67,52 +67,50 @@ class UserRegistrationService
             }
         }
 
-        $username = $this->requiredText($input, 'username', 'Username');
-        $password = (string)($input['password'] ?? '');
-        $email = $this->normalizeEmail($this->requiredText($input, 'email', 'Email'));
+        $username = $this->normalizeUsername($this->requiredText($input, 'username', 'Username'), $role);
+        $idLabel = $role === 'student' ? 'School ID' : 'Employee ID';
+        $identifier = $this->normalizeIssuedId(
+            $this->requiredText($input, $role === 'student' ? 'school_id' : 'employee_id', $idLabel),
+            $idLabel,
+            $role
+        );
+        $password = $this->temporaryPasswordFromId($username, $identifier);
+        $email = $this->normalizeEmail($this->requiredText($input, 'email', 'School email'));
         $firstName = $this->normalizeTitleText($this->requiredText($input, 'first_name', 'First name'));
         $lastName = $this->normalizeTitleText($this->requiredText($input, 'last_name', 'Last name'));
-        $dateOfBirth = $this->requiredText($input, 'date_of_birth', 'Date of birth');
+        $middleName = $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null));
 
-        if (strlen($password) < 8) {
-            throw new InvalidArgumentException('Password must be at least 8 characters.');
-        }
-
-        if ($role === 'student' && !str_contains($username, '.')) {
-            throw new InvalidArgumentException('Username must include a dot (.).');
-        }
-
-        $profile = [
+        $sharedProfile = [
             'first_name' => $firstName,
-            'middle_name' => $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null)),
+            'middle_name' => $middleName,
             'last_name' => $lastName,
-            'extension_name' => $this->optionalText($input['extension_name'] ?? $input['suffix'] ?? null),
-            'sex' => $this->requiredSex($input['sex'] ?? null),
-            'date_of_birth' => $dateOfBirth,
-            'age' => $this->calculateAge($dateOfBirth),
-            'contact_number' => $this->normalizeContactNumber($this->requiredText($input, 'contact_number', 'Contact number')),
-            'province' => $this->normalizeTitleText($this->requiredText($input, 'province', 'Province')),
-            'city_municipality' => $this->normalizeTitleText($this->requiredText($input, 'city_municipality', 'City / Municipality')),
-            'barangay' => $this->normalizeTitleText($this->requiredText($input, 'barangay', 'Barangay')),
-            'street_address' => $this->optionalText($input['street_address'] ?? $input['address'] ?? null),
+            'extension_name' => null,
+            'sex' => null,
+            'date_of_birth' => null,
+            'age' => null,
+            'contact_number' => null,
+            'province' => null,
+            'city_municipality' => null,
+            'barangay' => null,
+            'street_address' => null,
         ];
 
         if ($role === 'student') {
             $profile = [
-                'school_id' => $this->normalizeSchoolId($this->requiredText($input, 'school_id', 'School ID')),
-                ...$profile,
-                'college' => $this->requiredText($input, 'college', 'College'),
-                'program_department' => $this->requiredText($input, 'program_department', 'Program / Department'),
-                'year_level' => $this->requiredYearLevel($input['year_level'] ?? null),
-                'section' => $this->optionalSection($input['section'] ?? null),
+                'school_id' => $identifier,
+                ...$sharedProfile,
+                'college' => null,
+                'program_department' => null,
+                'year_level' => null,
+                'section' => null,
             ];
         } else {
             $profile = [
-                'employee_id' => $this->requiredText($input, 'employee_id', 'Employee ID'),
-                ...$profile,
-                'office_department' => $this->requiredText($input, 'office_department', 'Department'),
-                'work_position' => $this->requiredText($input, 'work_position', 'Position'),
-                'users_photo' => $this->optionalText($input['users_photo'] ?? null),
+                'employee_id' => $identifier,
+                ...$sharedProfile,
+                'office_department' => null,
+                'work_position' => null,
+                'users_photo' => null,
             ];
         }
 
@@ -120,8 +118,8 @@ class UserRegistrationService
             $this->pdo->beginTransaction();
 
             $userStatement = $this->pdo->prepare(
-                'INSERT INTO users (username, email, password_hash, role, is_active)
-                 VALUES (:username, :email, :password_hash, :role, TRUE)'
+                "INSERT INTO users (username, email, password_hash, role, is_active, must_change_password, onboarding_step)
+                 VALUES (:username, :email, :password_hash, :role, TRUE, 1, 'password')"
             );
             $userStatement->execute([
                 'username' => $username,
@@ -132,8 +130,7 @@ class UserRegistrationService
 
             $userId = (int)$this->pdo->lastInsertId();
             $this->insertProfile($role, $userId, $profile);
-            $rfidCard = $role === 'student' ? $this->createRfidCard($userId, $input['rfid_uid'] ?? null) : null;
-            $fingerprint = $role === 'student' ? null : $this->createPendingFingerprint($userId);
+            $fingerprint = $this->createPendingFingerprint($userId);
 
             $this->pdo->commit();
 
@@ -167,9 +164,175 @@ class UserRegistrationService
                 'position' => $profile['work_position'] ?? $profile['program_department'] ?? null,
                 'year_level' => $profile['year_level'] ?? null,
                 'section' => $profile['section'] ?? null,
-                'rfid' => $rfidCard,
+                'temporary_password' => $password,
+                'rfid' => null,
                 'fingerprint' => $fingerprint,
             ];
+        } catch (Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $error;
+        }
+    }
+
+    public function completeOnboardingProfile(int $userId, array $input): void
+    {
+        $account = $this->loadOnboardingAccount($userId);
+        $step = (string) ($account['onboarding_step'] ?? '');
+
+        if (in_array($step, ['security', 'done'], true)) {
+            return;
+        }
+
+        if ($step !== 'profile') {
+            throw new InvalidArgumentException('Set a new password before completing your information.');
+        }
+
+        $role = (string) $account['role'];
+        $dateOfBirth = $this->requiredText($input, 'date_of_birth', 'Date of birth');
+        $shared = [
+            'middle_name' => $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null)),
+            'extension_name' => $this->boundedText($this->optionalText($input['extension_name'] ?? null), 'Suffix', 20),
+            'sex' => $this->requiredSex($input['sex'] ?? null),
+            'date_of_birth' => $dateOfBirth,
+            'age' => $this->calculateAge($dateOfBirth),
+            'contact_number' => $this->normalizeContactNumber($this->requiredText($input, 'contact_number', 'Contact number')),
+            'province' => $this->boundedText($this->normalizeTitleText($this->requiredText($input, 'province', 'Province')), 'Province', 100),
+            'city_municipality' => $this->boundedText(
+                $this->normalizeTitleText($this->requiredText($input, 'city_municipality', 'City / Municipality')),
+                'City / Municipality',
+                100
+            ),
+            'barangay' => $this->boundedText($this->normalizeTitleText($this->requiredText($input, 'barangay', 'Barangay')), 'Barangay', 100),
+            'street_address' => $this->boundedText($this->optionalText($input['street_address'] ?? null), 'Street address', 255),
+        ];
+
+        try {
+            $this->pdo->beginTransaction();
+
+            if ($role === 'student') {
+                $college = $this->requiredText($input, 'college', 'College');
+                $program = $this->requiredText($input, 'program_department', 'Program / Department');
+
+                if (!isset(self::STUDENT_PROGRAMS[$college])) {
+                    throw new InvalidArgumentException('Select a college from the list.');
+                }
+
+                if (!in_array($program, self::STUDENT_PROGRAMS[$college], true)) {
+                    throw new InvalidArgumentException('Select a program for the chosen college.');
+                }
+
+                $statement = $this->pdo->prepare(
+                    'UPDATE student_info
+                     SET middle_name = :middle_name,
+                         extension_name = :extension_name,
+                         sex = :sex,
+                         date_of_birth = :date_of_birth,
+                         age = :age,
+                         contact_number = :contact_number,
+                         college = :college,
+                         program_department = :program_department,
+                         year_level = :year_level,
+                         section = :section,
+                         province = :province,
+                         city_municipality = :city_municipality,
+                         barangay = :barangay,
+                         street_address = :street_address
+                     WHERE user_id = :user_id'
+                );
+                $statement->execute([
+                    ...$shared,
+                    'college' => $college,
+                    'program_department' => $program,
+                    'year_level' => $this->requiredYearLevel($input['year_level'] ?? null),
+                    'section' => $this->optionalSection($input['section'] ?? null),
+                    'user_id' => $userId,
+                ]);
+                $this->createRfidCard($userId, $input['rfid_uid'] ?? null);
+            } else {
+                $table = self::PROFILE_TABLES[$role];
+                $statement = $this->pdo->prepare(
+                    "UPDATE {$table}
+                     SET middle_name = :middle_name,
+                         extension_name = :extension_name,
+                         sex = :sex,
+                         date_of_birth = :date_of_birth,
+                         age = :age,
+                         contact_number = :contact_number,
+                         office_department = :office_department,
+                         work_position = :work_position,
+                         province = :province,
+                         city_municipality = :city_municipality,
+                         barangay = :barangay,
+                         street_address = :street_address
+                     WHERE user_id = :user_id"
+                );
+                $statement->execute([
+                    ...$shared,
+                    'office_department' => $this->boundedText(
+                        $this->requiredText($input, 'office_department', 'Department / Office'),
+                        'Department / Office',
+                        150
+                    ),
+                    'work_position' => $this->boundedText(
+                        $this->requiredText($input, 'work_position', 'Position'),
+                        'Position',
+                        150
+                    ),
+                    'user_id' => $userId,
+                ]);
+            }
+
+            $this->pdo->prepare(
+                "UPDATE users SET onboarding_step = 'security' WHERE id = :id AND onboarding_step = 'profile'"
+            )->execute(['id' => $userId]);
+            $this->pdo->commit();
+        } catch (PDOException $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            if (($error->errorInfo[1] ?? null) === 1062) {
+                throw new InvalidArgumentException('That RFID UID is already assigned.');
+            }
+
+            throw $error;
+        } catch (Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $error;
+        }
+    }
+
+    public function saveInitialSecurityQuestions(int $userId, array $input): void
+    {
+        $account = $this->loadOnboardingAccount($userId);
+        $step = (string) ($account['onboarding_step'] ?? '');
+
+        if ($step === 'done') {
+            return;
+        }
+
+        if ($step !== 'security') {
+            throw new InvalidArgumentException('Complete your information before setting security questions.');
+        }
+
+        $questions = $this->normalizeSecurityQuestions($input['security_questions'] ?? null);
+
+        try {
+            $this->pdo->beginTransaction();
+            $this->pdo->prepare('DELETE FROM account_security_questions WHERE user_id = :user_id')->execute([
+                'user_id' => $userId,
+            ]);
+            $this->insertSecurityQuestions($userId, $questions);
+            $this->pdo->prepare(
+                "UPDATE users SET onboarding_step = 'done' WHERE id = :id AND onboarding_step = 'security'"
+            )->execute(['id' => $userId]);
+            $this->pdo->commit();
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
@@ -556,6 +719,78 @@ class UserRegistrationService
         return $digits;
     }
 
+    private function normalizeUsername(string $username, string $role): string
+    {
+        $username = trim($username);
+
+        if (!preg_match('/^[A-Za-z][A-Za-z0-9._-]{2,49}$/', $username)) {
+            throw new InvalidArgumentException('Username must start with a letter and be 3 to 50 characters, using letters, numbers, dots, underscores, or hyphens.');
+        }
+
+        if ($role === 'student' && !str_contains($username, '.')) {
+            throw new InvalidArgumentException('Username must include a dot (.).');
+        }
+
+        return $username;
+    }
+
+    private function normalizeIssuedId(string $value, string $label, string $role = 'student'): string
+    {
+        $normalized = trim($value);
+        $isStudent = $role === 'student';
+        $pattern = $isStudent ? '/^\d{4}-\d{4}$/' : '/^\d{6}-\d{6}$/';
+        $format = $isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
+
+        if (!preg_match($pattern, $normalized)) {
+            throw new InvalidArgumentException("{$label} must use {$format} format.");
+        }
+
+        return $normalized;
+    }
+
+    private function temporaryPasswordFromId(string $username, string $identifier): string
+    {
+        $parts = explode('-', $identifier, 2);
+        $password = $username . '@' . ($parts[1] ?? '');
+
+        if (strlen($password) < 8 || strlen($password) > 72) {
+            throw new InvalidArgumentException('The generated temporary password is not valid. Check the username and ID.');
+        }
+
+        return $password;
+    }
+
+    private function boundedText(?string $value, string $label, int $max): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (strlen($value) > $max) {
+            throw new InvalidArgumentException("{$label} must be {$max} characters or fewer.");
+        }
+
+        return $value;
+    }
+
+    private function loadOnboardingAccount(int $userId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, role, onboarding_step, is_active
+             FROM users
+             WHERE id = :id
+             LIMIT 1'
+        );
+        $statement->execute(['id' => $userId]);
+        $account = $statement->fetch(PDO::FETCH_ASSOC);
+
+        if (!$account || !(bool) $account['is_active']) {
+            throw new InvalidArgumentException('This account could not be found.');
+        }
+
+        return $account;
+    }
+
     private function normalizeSchoolId(string $schoolId): string
     {
         $normalized = trim($schoolId);
@@ -802,6 +1037,7 @@ class UserRegistrationService
                 'slot' => $index + 1,
                 'question' => $prompt,
                 'answer_hash' => password_hash(strtolower($answer), PASSWORD_DEFAULT),
+                'answer_text' => $answer,
             ];
         }
 
@@ -811,8 +1047,8 @@ class UserRegistrationService
     private function insertSecurityQuestions(int $userId, array $questions): void
     {
         $statement = $this->pdo->prepare(
-            'INSERT INTO account_security_questions (user_id, question_slot, question, answer_hash)
-             VALUES (:user_id, :question_slot, :question, :answer_hash)'
+            'INSERT INTO account_security_questions (user_id, question_slot, question, answer_hash, answer_text)
+             VALUES (:user_id, :question_slot, :question, :answer_hash, :answer_text)'
         );
 
         foreach ($questions as $question) {
@@ -821,6 +1057,7 @@ class UserRegistrationService
                 'question_slot' => $question['slot'],
                 'question' => $question['question'],
                 'answer_hash' => $question['answer_hash'],
+                'answer_text' => $question['answer_text'],
             ]);
         }
     }

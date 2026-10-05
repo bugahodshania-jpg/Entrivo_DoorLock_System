@@ -8,6 +8,7 @@ class FingerprintEnrollmentService
     private FingerprintEnrollmentJob $jobModel;
     private Fingerprint $fingerprintModel;
     private const EXPECTED_TEMPLATE_BYTES = 512;
+    private const MAX_FINGERPRINTS_PER_USER = 5;
 
     public function __construct()
     {
@@ -75,6 +76,19 @@ class FingerprintEnrollmentService
                 return [
                     "success" => false,
                     "message" => "That finger is already registered for this user. Use Update instead."
+                ];
+            }
+        }
+
+        $isExistingFingerprintUpdate = $fingerprintId !== null && $fingerprintId > 0;
+
+        if (!$isExistingFingerprintUpdate) {
+            $storedFingerprintCount = $this->fingerprintModel->countNamedFingerprints((int) $userId);
+
+            if ($storedFingerprintCount >= self::MAX_FINGERPRINTS_PER_USER) {
+                return [
+                    "success" => false,
+                    "message" => "This user already has 5 fingerprints. Update an existing finger or delete one before adding another."
                 ];
             }
         }

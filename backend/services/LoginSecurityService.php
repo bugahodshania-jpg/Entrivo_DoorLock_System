@@ -220,6 +220,21 @@ class LoginSecurityService
         ];
     }
 
+    public function clearFailedAttempts(int $userId): void
+    {
+        $update = $this->pdo->prepare(
+            'UPDATE user_login_sessions
+             SET failed_attempts = 0,
+                 current_batch = 0,
+                 lock_count = 0,
+                 locked_until = NULL,
+                 session_status = \'active\',
+                 updated_at = NOW()
+             WHERE user_id = :user_id'
+        );
+        $update->execute(['user_id' => $userId]);
+    }
+
     public function registerSuccessfulLogin(int $userId, string $username): void
     {
         $update = $this->pdo->prepare(

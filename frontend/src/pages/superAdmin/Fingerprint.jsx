@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import {
   Activity,
+  ArrowLeft,
   Ban,
   BriefcaseBusiness,
   Check,
@@ -11,7 +12,6 @@ import {
   CircleAlert,
   Clock,
   Download,
-  Expand,
   Eye,
   Fingerprint as FingerprintIcon,
   IdCard,
@@ -20,6 +20,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Info,
   Trash2,
   Upload,
   UserRound,
@@ -30,7 +31,7 @@ import axiosClient from '../../api/axiosClient';
 import RowActionMenu from '../../components/RowActionMenu';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
 import { formatDateTimeInManila } from '../../utils/dateTime';
-import { userHasPrivilege } from '../../utils/privileges';
+import { canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/fingerprint.css';
@@ -184,6 +185,8 @@ function filterFingerprintsBySync(fingerprints, syncFilter) {
     (fingerprint) => getFingerprintSyncStatusKey(fingerprint) === syncFilter,
   );
 }
+
+const MAX_FINGERPRINTS_PER_USER = 5;
 
 const fingerNameOptions = [
   'Right Thumb',
@@ -697,6 +700,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [fingerprintsByRole, setFingerprintsByRole] = useState(initialFingerprints);
   const [enrollmentJobs, setEnrollmentJobs] = useState([]);
   const [finishedJobsPage, setFinishedJobsPage] = useState(1);
+  const [fingerprintPage, setFingerprintPage] = useState(1);
+  const [syncJobsPage, setSyncJobsPage] = useState(1);
+  const [isFinishedJobsVisible, setIsFinishedJobsVisible] = useState(false);
+  const finishedJobsSectionRef = useRef(null);
   const [syncJobs, setSyncJobs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
@@ -730,9 +737,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [brokenUserPhotoValue, setBrokenUserPhotoValue] = useState('');
   const [isFingerNameMenuOpen, setIsFingerNameMenuOpen] = useState(false);
   const [viewFingerprint, setViewFingerprint] = useState(null);
-  const [isViewPhotoExpanded, setIsViewPhotoExpanded] = useState(false);
+  const [viewJob, setViewJob] = useState(null);
   const [isDeletingFingerprintId, setIsDeletingFingerprintId] = useState(null);
   const fingerNameMenuRef = useRef(null);
+  const autoEnrollHandledRef = useRef(false);
 
   const loadFingerprints = useCallback(async () => {
     try {
@@ -942,6 +950,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
       .filter((fingerprint) => fingerprint.userId === userId);
   }
 
+  function countStoredFingerprints(userId) {
+    return getUserFingerprints(userId).filter(
+      (fingerprint) =>
+        fingerprint.fingerName && fingerprint.fingerName !== 'Pending Enrollment',
+    ).length;
+  }
+
   function getUsedFingerNames(userId, excludedFingerprintId = null) {
     return new Set(
       getUserFingerprints(userId)
@@ -1039,16 +1054,27 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
   function closeFingerprintView() {
     setViewFingerprint(null);
-    setIsViewPhotoExpanded(false);
   }
 
   function openFingerprintView(fingerprint) {
     setViewFingerprint(fingerprint);
-    setIsViewPhotoExpanded(false);
+  }
+
+  function closeJobView() {
+    setViewJob(null);
+  }
+
+  function openJobView(job) {
+    setViewJob(job);
   }
 
   async function handleDeleteFingerprint(fingerprint) {
     if (!fingerprint?.id || isDeletingFingerprintId) {
+      return;
+    }
+
+    if (!canDeleteRecords(currentUser)) {
+      pushToast('Admin accounts cannot delete fingerprint records.', 'error');
       return;
     }
 
@@ -1116,6 +1142,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
     const availableFingerNames =
       mode === 'add' ? getAvailableFingerNames(fingerprint.userId) : fingerNameOptions;
 
+    if (mode === 'add' && countStoredFingerprints(fingerprint.userId) >= MAX_FINGERPRINTS_PER_USER) {
+      pushToast(
+        `${fingerprint.name} already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`,
+        'error',
+      );
+      return;
+    }
+
     if (mode === 'add' && availableFingerNames.length === 0) {
       pushToast(
         `All supported finger names are already used for ${fingerprint.name}. No extra fingerprint slot is available.`,
@@ -1135,6 +1169,43 @@ export default function Fingerprint({ user: currentUser } = {}) {
     );
     setErrorMessage('');
   }
+
+  useEffect(() => {
+    if (isLoading || autoEnrollHandledRef.current) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const enrollUserId = Number(params.get('enroll_user_id') || 0);
+    const fingerprintId = Number(params.get('fingerprint_id') || 0);
+
+    if (!enrollUserId && !fingerprintId) {
+      return;
+    }
+
+    const allFingerprints = Object.values(fingerprintsByRole).flat();
+    const matchedFingerprint =
+      (fingerprintId
+        ? allFingerprints.find((item) => Number(item.id) === fingerprintId)
+        : null) ||
+      allFingerprints.find(
+        (item) =>
+          Number(item.userId) === enrollUserId &&
+          String(item.status || '').toLowerCase() !== 'active',
+      ) ||
+      allFingerprints.find((item) => Number(item.userId) === enrollUserId);
+
+    if (!matchedFingerprint) {
+      return;
+    }
+
+    autoEnrollHandledRef.current = true;
+    window.history.replaceState({}, '', portalHref('/super-admin/fingerprint'));
+    void openEnrollmentModal(
+      matchedFingerprint,
+      matchedFingerprint.status === 'active' ? 'update' : 'enroll',
+    );
+  }, [fingerprintsByRole, isLoading]);
 
   function closeEnrollmentModal() {
     if (activeActionId) {
@@ -1232,6 +1303,16 @@ export default function Fingerprint({ user: currentUser } = {}) {
     const isAddAction = selectedEnrollmentMode === 'add';
 
     if (
+      isAddAction &&
+      countStoredFingerprints(enrollmentTarget.userId) >= MAX_FINGERPRINTS_PER_USER
+    ) {
+      setErrorMessage(
+        `This user already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`,
+      );
+      return;
+    }
+
+    if (
       isFingerNameTakenByAnotherRecord(
         enrollmentTarget.userId,
         requestedFingerName,
@@ -1325,6 +1406,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     try {
       const response = await axiosClient.post('/api/fingerprint/retry_job.php', {
         job_id: job.job_id,
+        actor_id: currentUser?.id || undefined,
       });
 
       pushToast(response.data?.message || `Enrollment job #${job.job_id} queued again.`, 'success');
@@ -1352,6 +1434,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       const response = await axiosClient.post('/api/fingerprint/cancel_job.php', {
         job_id: job.job_id,
         reason: 'Cancelled by admin from the fingerprint dashboard.',
+        actor_id: currentUser?.id || undefined,
       });
 
       pushToast(response.data?.message || `Enrollment job #${job.job_id} cancelled.`, 'success');
@@ -1383,6 +1466,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     try {
       const response = await axiosClient.post('/api/sensorB/queue_template_sync.php', {
         fingerprint_id: fingerprint.id,
+        actor_id: currentUser?.id || undefined,
       });
 
       const message = response.data?.message || 'Template sync queued for Sensor B.';
@@ -1439,6 +1523,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     try {
       const response = await axiosClient.post('/api/sensorB/retry_sync_job.php', {
         queue_id: job.queue_id,
+        actor_id: currentUser?.id || undefined,
       });
 
       pushToast(response.data?.message || `Sync job #${job.queue_id} queued again.`, 'success');
@@ -1466,6 +1551,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     try {
       const response = await axiosClient.post('/api/sensorB/cancel_sync_job.php', {
         queue_id: job.queue_id,
+        actor_id: currentUser?.id || undefined,
       });
 
       pushToast(response.data?.message || `Sync job #${job.queue_id} cancelled.`, 'success');
@@ -1679,6 +1765,23 @@ export default function Fingerprint({ user: currentUser } = {}) {
     () => buildFingerprintGroups(visibleFingerprints),
     [visibleFingerprints],
   );
+  const rowsPerPage = 6;
+  const fingerprintPageCount = Math.max(1, Math.ceil(groupedVisibleFingerprints.length / rowsPerPage));
+  const paginatedFingerprintGroups = useMemo(() => {
+    const startIndex = (fingerprintPage - 1) * rowsPerPage;
+    return groupedVisibleFingerprints.slice(startIndex, startIndex + rowsPerPage);
+  }, [fingerprintPage, groupedVisibleFingerprints, rowsPerPage]);
+
+  useEffect(() => {
+    if (fingerprintPage > fingerprintPageCount) {
+      setFingerprintPage(fingerprintPageCount);
+    }
+  }, [fingerprintPage, fingerprintPageCount]);
+
+  useEffect(() => {
+    setFingerprintPage(1);
+  }, [activeTab, activeEnrollmentFilter, activeSyncFilter, normalizedSearchQuery]);
+
   const visibleUserCount = groupedVisibleFingerprints.length;
   const roleFilterCounts = useMemo(() => {
     const counts = {};
@@ -1963,8 +2066,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
     fingerprint.status === 'active' ? 'Update' : 'Enroll'
   );
   const shouldShowAddFingerprintAction = useCallback(
-    (fingerprint) => fingerprint.status === 'active',
-    [],
+    (fingerprint) =>
+      fingerprint.status === 'active' &&
+      countStoredFingerprints(fingerprint.userId) < MAX_FINGERPRINTS_PER_USER,
+    [fingerprintsByRole],
   );
   const shouldHideTemplateActions = useCallback(
     (fingerprint) => !revealedTemplateActionIds.includes(fingerprint.id),
@@ -2241,12 +2346,17 @@ export default function Fingerprint({ user: currentUser } = {}) {
     () => enrollmentJobs.filter((job) => job.is_closed ?? ['completed', 'failed', 'cancelled'].includes(job.status)),
     [enrollmentJobs],
   );
-  const enrollmentRowsPerPage = 10;
-  const finishedJobsPageCount = Math.max(1, Math.ceil(finishedEnrollmentJobs.length / enrollmentRowsPerPage));
+  const finishedJobsPageCount = Math.max(1, Math.ceil(finishedEnrollmentJobs.length / rowsPerPage));
   const safeFinishedJobsPage = Math.min(finishedJobsPage, finishedJobsPageCount);
   const pagedFinishedJobs = finishedEnrollmentJobs.slice(
-    (safeFinishedJobsPage - 1) * enrollmentRowsPerPage,
-    safeFinishedJobsPage * enrollmentRowsPerPage,
+    (safeFinishedJobsPage - 1) * rowsPerPage,
+    safeFinishedJobsPage * rowsPerPage,
+  );
+  const syncJobsPageCount = Math.max(1, Math.ceil(syncJobs.length / rowsPerPage));
+  const safeSyncJobsPage = Math.min(syncJobsPage, syncJobsPageCount);
+  const pagedSyncJobs = syncJobs.slice(
+    (safeSyncJobsPage - 1) * rowsPerPage,
+    safeSyncJobsPage * rowsPerPage,
   );
   const closedJobs = useMemo(
     () =>
@@ -2255,38 +2365,42 @@ export default function Fingerprint({ user: currentUser } = {}) {
         .slice(0, 4),
     [enrollmentJobs],
   );
+
+  useEffect(() => {
+    if (activeSection !== 'jobs') {
+      setIsFinishedJobsVisible(false);
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (isFinishedJobsVisible) {
+      finishedJobsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [isFinishedJobsVisible]);
   const enrollmentModalCopy = useMemo(() => {
     if (selectedEnrollmentMode === 'add') {
       return {
         title: 'Add Another Fingerprint',
-        subtitle:
-          'Review the user details and choose an unused finger before creating a new enrollment job.',
-        fingerLabel: 'Finger To Add',
+        subtitle: 'Choose an unused finger. Existing fingerprints stay enrolled.',
+        fingerLabel: 'Finger to add',
         actionLabel: 'Ready for New Enrollment',
-        helperText:
-          'Only unused finger names stay selectable so the system does not create a duplicate fingerprint record for this user.',
       };
     }
 
     if (selectedEnrollmentMode === 'update') {
       return {
         title: 'Update Fingerprint',
-        subtitle:
-          'Confirm the user information and select the exact finger record that should be refreshed.',
-        fingerLabel: 'Finger To Update',
+        subtitle: 'Replace one enrolled finger. The others stay saved.',
+        fingerLabel: 'Finger to update',
         actionLabel: 'Ready for Update',
-        helperText:
-          'Used finger names from other records are locked to prevent overwriting the wrong fingerprint entry.',
       };
     }
 
     return {
       title: 'Start Fingerprint Enrollment',
-      subtitle: 'Review the user details before creating the enrollment job.',
-      fingerLabel: 'Finger To Enroll',
+      subtitle: 'Choose a finger to enroll for door access.',
+      fingerLabel: 'Finger to enroll',
       actionLabel: 'Ready for Enrollment',
-      helperText:
-        'Select the exact finger before starting so the enrollment job and template mapping stay correct.',
     };
   }, [selectedEnrollmentMode]);
   const selectedFingerprintInitials = useMemo(
@@ -2314,6 +2428,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
       selectedEnrollmentMode === 'add' ? null : selectedFingerprint.id,
     );
   }, [fingerprintsByRole, selectedEnrollmentMode, selectedFingerprint]);
+  const storedFingerprintCount = useMemo(() => {
+    if (!selectedFingerprint) {
+      return 0;
+    }
+
+    return countStoredFingerprints(selectedFingerprint.userId);
+  }, [fingerprintsByRole, selectedFingerprint]);
   const availableFingerCount = useMemo(() => {
     if (!selectedFingerprint) {
       return fingerNameOptions.length;
@@ -2587,7 +2708,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 label: isDeletingFingerprintId === fingerprint.id ? 'Deleting...' : 'Delete',
                 icon: Trash2,
                 danger: true,
-                hidden: !canUpdateFingerprints,
+                hidden: !canUpdateFingerprints || !canDeleteRecords(currentUser),
                 disabled: isDeletingFingerprintId === fingerprint.id,
                 onClick: () => handleDeleteFingerprint(fingerprint),
               },
@@ -2609,19 +2730,20 @@ export default function Fingerprint({ user: currentUser } = {}) {
             <th>Current Step</th>
             <th>Status</th>
             <th>Updated</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {isLoadingJobs && (
             <tr>
-              <td className="dashboard-recent-empty" colSpan={6}>
+              <td className="dashboard-recent-empty" colSpan={7}>
                 Loading enrollment jobs...
               </td>
             </tr>
           )}
           {!isLoadingJobs && jobs.length === 0 && !jobErrorMessage && (
             <tr>
-              <td className="dashboard-recent-empty" colSpan={6}>
+              <td className="dashboard-recent-empty" colSpan={7}>
                 {emptyLabel}
               </td>
             </tr>
@@ -2660,6 +2782,18 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   </span>
                 </td>
                 <td className="fingerprint-job-updated">{formatJobTimestamp(job.updated_at)}</td>
+                <td className="fingerprint-job-actions-cell">
+                  <RowActionMenu
+                    label={`Actions for enrollment job ${job.job_id}`}
+                    items={[
+                      {
+                        label: 'View',
+                        icon: Eye,
+                        onClick: () => openJobView(job),
+                      },
+                    ]}
+                  />
+                </td>
               </tr>
             ))}
         </tbody>
@@ -2667,13 +2801,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
     </div>
   );
 
-  const renderEnrollmentJobsPagination = (page, pageCount, total, setPage, label) => {
-    if (isLoadingJobs || total === 0) {
+  const renderEnrollmentJobsPagination = (page, pageCount, total, setPage, label, isBusy = false) => {
+    if (isBusy || total === 0) {
       return null;
     }
 
-    const start = (page - 1) * enrollmentRowsPerPage + 1;
-    const end = Math.min(page * enrollmentRowsPerPage, total);
+    const start = (page - 1) * rowsPerPage + 1;
+    const end = Math.min(page * rowsPerPage, total);
 
     return (
       <div className="fingerprint-jobs-pagination" aria-label={label}>
@@ -2751,14 +2885,88 @@ export default function Fingerprint({ user: currentUser } = {}) {
       },
     ];
   }, [viewFingerprint]);
-
-  const viewFingerprintPhotoSrc = useMemo(() => {
-    if (!viewFingerprint?.userPhoto) {
-      return '';
+  const viewJobUserRecord = useMemo(() => {
+    if (!viewJob) {
+      return null;
     }
 
-    return resolveUserPhotoSrc(viewFingerprint.userPhoto);
-  }, [viewFingerprint]);
+    return (
+      Object.values(fingerprintsByRole)
+        .flat()
+        .find((item) => Number(item.userId) === Number(viewJob.user_id)) || null
+    );
+  }, [fingerprintsByRole, viewJob]);
+
+  const viewJobGroups = useMemo(() => {
+    if (!viewJob) {
+      return [];
+    }
+
+    const resultText =
+      viewJob.error_message ||
+      (viewJob.status === 'completed' ? 'Enrollment completed' : formatStatusLabel(viewJob.status));
+
+    return [
+      {
+        title: 'Personal',
+        fields: [
+          ['Full name', viewJob.user_name, true],
+          ['Email', viewJob.email || viewJobUserRecord?.email],
+          ['Employee ID', viewJobUserRecord?.identifier],
+          ['Role', formatRoleLabel(viewJob.role || viewJobUserRecord?.role)],
+          ['User ID', `#${viewJob.user_id}`],
+        ],
+      },
+      {
+        title: 'Enrollment Job',
+        fields: [
+          ['Job ID', `#${viewJob.job_id}`],
+          ['Status', formatStatusLabel(viewJob.status)],
+          ['Progress', `${viewJob.progress ?? 0}%`],
+          ['Current step', viewJob.current_step || 'Waiting for ESP32'],
+          ['Result', resultText, true],
+        ],
+      },
+      {
+        title: 'Device and Template',
+        fields: [
+          ['Finger name', viewJob.finger_name],
+          ['Device', `Device ${viewJob.enrollment_device_id ?? 'N/A'}`],
+          ['Assigned slot', viewJob.assigned_slot != null ? String(viewJob.assigned_slot) : 'Not assigned'],
+          [
+            'Template',
+            viewJob.has_template_data
+              ? `Saved (${formatTemplateBytes(viewJob.template_bytes)})`
+              : 'Not uploaded',
+          ],
+        ],
+      },
+      {
+        title: 'Timeline',
+        fields: [
+          ['Created', formatJobTimestamp(viewJob.created_at)],
+          ['Started', formatJobTimestamp(viewJob.started_at)],
+          ['Finished', formatJobTimestamp(viewJob.finished_at)],
+          ['Last updated', formatJobTimestamp(viewJob.updated_at)],
+        ],
+      },
+    ];
+  }, [viewJob, viewJobUserRecord]);
+
+  useEffect(() => {
+    if (!viewJob) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setViewJob(null);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [viewJob]);
 
   return (
     <>
@@ -2809,7 +3017,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
             <div className="dashboard-panel-header">
               <div>
                 <span>{activeTabConfig.label} Fingerprints</span>
-                <p>Enrollment and active account status for fingerprint access.</p>
+                <p>Enrollment and each account's current status for fingerprint access.</p>
               </div>
               <div className="fingerprint-header-actions">
                 <div className="fingerprint-job-link-row">
@@ -3083,7 +3291,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
                   {!isLoading &&
                     !errorMessage &&
-                    groupedVisibleFingerprints.map((group) => {
+                    paginatedFingerprintGroups.map((group) => {
                       const expanded = isUserExpanded(group.userId);
 
                       return (
@@ -3107,12 +3315,19 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 </tbody>
               </table>
             </div>
+            {renderEnrollmentJobsPagination(
+              Math.min(fingerprintPage, fingerprintPageCount),
+              fingerprintPageCount,
+              groupedVisibleFingerprints.length,
+              setFingerprintPage,
+              'Fingerprint records pagination',
+              isLoading || Boolean(errorMessage),
+            )}
           </section>
         </>
       )}
 
-      {activeSection === 'jobs' && (
-        <>
+      {activeSection === 'jobs' && !isFinishedJobsVisible && (
         <section className="dashboard-recent-card fingerprint-card fingerprint-jobs-card">
           <div className="dashboard-panel-header">
             <div>
@@ -3124,6 +3339,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               className="fingerprint-back-button"
               onClick={() => setActiveSection('fingerprints')}
             >
+              <ArrowLeft size={15} strokeWidth={2.2} aria-hidden="true" />
               Back to Fingerprints
             </button>
           </div>
@@ -3300,6 +3516,18 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     ))}
                   </div>
                 )}
+
+                {finishedEnrollmentJobs.length > 0 && (
+                  <div className="fingerprint-live-list-footer">
+                    <button
+                      type="button"
+                      className="fingerprint-view-all-button"
+                      onClick={() => setIsFinishedJobsVisible(true)}
+                    >
+                      View All Enrollment Jobs
+                    </button>
+                  </div>
+                )}
               </article>
             </div>
           </section>
@@ -3310,14 +3538,28 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </p>
           )}
         </section>
+      )}
 
-        <section className="dashboard-recent-card fingerprint-card fingerprint-jobs-card fingerprint-jobs-table-card">
+      {activeSection === 'jobs' && isFinishedJobsVisible && (
+        <section
+          ref={finishedJobsSectionRef}
+          className="dashboard-recent-card fingerprint-card fingerprint-jobs-card fingerprint-jobs-table-card"
+        >
           <div className="dashboard-panel-header">
             <div>
               <span>Finished Enrollment Jobs</span>
               <p>Completed, failed, and cancelled enrollment jobs.</p>
             </div>
+            <button
+              type="button"
+              className="fingerprint-back-button"
+              onClick={() => setIsFinishedJobsVisible(false)}
+            >
+              <ArrowLeft size={15} strokeWidth={2.2} aria-hidden="true" />
+              Back to Enrollment Jobs
+            </button>
           </div>
+          <hr className="fingerprint-jobs-divider" />
           {renderEnrollmentJobsTable(pagedFinishedJobs, 'No finished enrollment jobs.')}
           {renderEnrollmentJobsPagination(
             safeFinishedJobsPage,
@@ -3325,9 +3567,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
             finishedEnrollmentJobs.length,
             setFinishedJobsPage,
             'Finished enrollment jobs pagination',
+            isLoadingJobs,
           )}
         </section>
-        </>
       )}
 
       {activeSection === 'sync-jobs' && (
@@ -3342,6 +3584,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               className="fingerprint-back-button"
               onClick={() => setActiveSection('fingerprints')}
             >
+              <ArrowLeft size={15} strokeWidth={2.2} aria-hidden="true" />
               Back to Fingerprints
             </button>
           </div>
@@ -3406,7 +3649,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 )}
 
                 {!isLoadingSyncJobs &&
-                  syncJobs.map((job) => (
+                  pagedSyncJobs.map((job) => (
                     <tr key={job.queue_id}>
                       <td className="fingerprint-job-identity">
                         <strong>Queue #{job.queue_id}</strong>
@@ -3474,13 +3717,21 @@ export default function Fingerprint({ user: currentUser } = {}) {
               </tbody>
             </table>
           </div>
+          {renderEnrollmentJobsPagination(
+            safeSyncJobsPage,
+            syncJobsPageCount,
+            syncJobs.length,
+            setSyncJobsPage,
+            'Sync jobs pagination',
+            isLoadingSyncJobs,
+          )}
         </section>
       )}
 
       {selectedFingerprint && (
         <div className="fingerprint-modal-overlay" onClick={closeEnrollmentModal}>
           <section
-            className="fingerprint-modal"
+            className="fingerprint-modal fingerprint-enrollment-modal"
             role="dialog"
             aria-modal="true"
             aria-label={`${
@@ -3509,12 +3760,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </div>
 
             <div className="fingerprint-enrollment-profile-card">
-              <div className="fingerprint-enrollment-profile-media">
+              <div className="fingerprint-enrollment-identity">
                 <div className="fingerprint-enrollment-avatar-shell">
                   {selectedFingerprintPhotoSrc ? (
                     <img
                       src={selectedFingerprintPhotoSrc}
-                      alt={`${selectedFingerprint.name} profile`}
+                      alt=""
                       onError={() =>
                         setBrokenUserPhotoValue(String(selectedFingerprint.userPhoto || '__missing__'))
                       }
@@ -3523,62 +3774,26 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     <span>{selectedFingerprintInitials}</span>
                   )}
                 </div>
-              </div>
-
-              <div className="fingerprint-enrollment-profile-copy">
-                <div className="fingerprint-enrollment-profile-heading">
-                  <div>
-                    <h4>{selectedFingerprint.name}</h4>
-                    <div className="fingerprint-enrollment-pill-row">
-                      <span className="fingerprint-enrollment-pill">
-                        <BriefcaseBusiness size={14} aria-hidden="true" />
-                        {formatRoleLabel(selectedFingerprint.role)}
-                      </span>
-                      <span
-                        className={`fingerprint-enrollment-pill fingerprint-enrollment-pill-status fingerprint-enrollment-pill-status-${selectedFingerprint.userStatus}`}
-                      >
-                        <ShieldCheck size={14} aria-hidden="true" />
-                        {formatStatusLabel(selectedFingerprint.userStatus)}
-                      </span>
-                    </div>
-                  </div>
-                  <FingerprintIcon
-                    className="fingerprint-enrollment-watermark"
-                    size={64}
-                    aria-hidden="true"
-                  />
+                <div className="fingerprint-enrollment-profile-copy">
+                  <h4>{selectedFingerprint.name}</h4>
+                  <p>
+                    <span>{formatRoleLabel(selectedFingerprint.role)}</span>
+                    <span className="fingerprint-enrollment-profile-dot" aria-hidden="true" />
+                    <span>{selectedFingerprint.identifier}</span>
+                    {formatStatusLabel(selectedFingerprint.status) !==
+                      formatStatusLabel(selectedFingerprint.userStatus) && (
+                      <>
+                        <span className="fingerprint-enrollment-profile-dot" aria-hidden="true" />
+                        <span>Record {formatStatusLabel(selectedFingerprint.status)}</span>
+                      </>
+                    )}
+                  </p>
                 </div>
-
-                <div className="fingerprint-enrollment-detail-list">
-                  <div className="fingerprint-enrollment-detail-row">
-                    <span>
-                      <IdCard size={15} aria-hidden="true" />
-                      Employee ID
-                    </span>
-                    <strong>{selectedFingerprint.identifier}</strong>
-                  </div>
-                  <div className="fingerprint-enrollment-detail-row">
-                    <span>
-                      <FingerprintIcon size={15} aria-hidden="true" />
-                      {enrollmentModalCopy.fingerLabel}
-                    </span>
-                    <strong>{selectedFingerName}</strong>
-                  </div>
-                  <div className="fingerprint-enrollment-detail-row">
-                    <span>
-                      <UserRound size={15} aria-hidden="true" />
-                      User ID
-                    </span>
-                    <strong>{selectedFingerprint.userId}</strong>
-                  </div>
-                  <div className="fingerprint-enrollment-detail-row">
-                    <span>
-                      <ShieldCheck size={15} aria-hidden="true" />
-                      Record Status
-                    </span>
-                    <strong>{formatStatusLabel(selectedFingerprint.status)}</strong>
-                  </div>
-                </div>
+                <span
+                  className={`fingerprint-enrollment-pill fingerprint-enrollment-pill-status fingerprint-enrollment-pill-status-${selectedFingerprint.userStatus}`}
+                >
+                  {formatStatusLabel(selectedFingerprint.userStatus)}
+                </span>
               </div>
             </div>
 
@@ -3636,16 +3851,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 </div>
               </label>
 
-              <div className="fingerprint-enrollment-safety-note">
-                <CircleAlert size={18} aria-hidden="true" />
-                <div>
-                  <strong>Safer selection</strong>
-                  <p>
-                    {enrollmentModalCopy.helperText} {availableFingerCount} of {fingerNameOptions.length}{' '}
-                    supported finger names remain available for this user.
-                  </p>
-                </div>
-              </div>
+              <p className="fingerprint-enrollment-safety-note">
+                {storedFingerprintCount} of {MAX_FINGERPRINTS_PER_USER} enrolled
+                <span aria-hidden="true"> · </span>
+                {availableFingerCount} unused
+              </p>
             </div>
 
             {errorMessage && (
@@ -3661,7 +3871,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 onClick={handleEnrollmentAction}
                 disabled={activeActionId === selectedFingerprint.id}
               >
-                <FingerprintIcon size={15} aria-hidden="true" />
                 {activeActionId === selectedFingerprint.id
                   ? 'Starting...'
                   : enrollmentModalCopy.actionLabel}
@@ -3674,7 +3883,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       {trackedEnrollmentProgress && trackedEnrollmentDisplayJob && (
         <div className="fingerprint-modal-overlay" onClick={closeEnrollmentProgressModal}>
           <section
-            className="fingerprint-modal fingerprint-progress-modal"
+            className={`fingerprint-modal fingerprint-progress-modal fingerprint-progress-tone-${trackedEnrollmentInstructionTone}`}
             role="dialog"
             aria-modal="true"
             aria-label={`Enrollment progress for ${trackedEnrollmentDisplayJob.user_name}`}
@@ -3687,14 +3896,20 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 </div>
                 <div className="fingerprint-progress-header-copy">
                   <h3>Fingerprint Enrollment</h3>
-                  <p>Enroll and manage fingerprints for secure access</p>
+                  <p>
+                    {trackedEnrollmentDisplayJob.user_name}
+                    {' · '}
+                    {trackedEnrollmentDisplayJob.finger_name}
+                  </p>
                 </div>
               </div>
               <div className="fingerprint-progress-header-actions">
                 <div className="fingerprint-progress-device-pill">
                   <span aria-hidden="true" />
-                  <strong>Device: ESP32 (R307S)</strong>
-                  <em>{formatStatusLabel(trackedEnrollmentDisplayJob.status)}</em>
+                  <strong>ESP32 (R307S)</strong>
+                  <em className={`is-${String(trackedEnrollmentDisplayJob.status || 'unknown').toLowerCase()}`}>
+                    {formatStatusLabel(trackedEnrollmentDisplayJob.status)}
+                  </em>
                 </div>
                 <button
                   type="button"
@@ -3797,22 +4012,31 @@ export default function Fingerprint({ user: currentUser } = {}) {
                       <Activity size={14} aria-hidden="true" />
                       Real-Time Status
                     </span>
-                    <div className="fingerprint-progress-print" aria-hidden="true">
-                      {trackedEnrollmentFingerprintImageSrc ? (
-                        <img
-                          src={trackedEnrollmentFingerprintImageSrc}
-                          alt=""
-                          className="fingerprint-progress-print-image"
-                        />
-                      ) : (
-                        <RealisticFingerprintMark />
-                      )}
+                    <div className="fingerprint-progress-status-panel">
+                      <div
+                        className="fingerprint-progress-print"
+                        style={{
+                          '--print-progress': `${Math.max(0, Math.min(100, trackedEnrollmentDisplayJob.progress || 0))}%`,
+                        }}
+                        aria-hidden="true"
+                      >
+                        {trackedEnrollmentFingerprintImageSrc ? (
+                          <img
+                            src={trackedEnrollmentFingerprintImageSrc}
+                            alt=""
+                            className="fingerprint-progress-print-image"
+                          />
+                        ) : (
+                          <RealisticFingerprintMark />
+                        )}
+                      </div>
+                      <div className="fingerprint-progress-status-copy">
+                        <span className="fingerprint-progress-quality">
+                          {trackedEnrollmentInstruction}
+                        </span>
+                        <p className="fingerprint-progress-card-note">{trackedEnrollmentInstructionHint}</p>
+                      </div>
                     </div>
-                    <span className="fingerprint-progress-quality">
-                      <CheckCircle2 size={16} aria-hidden="true" />
-                      {trackedEnrollmentInstruction}
-                    </span>
-                    <p className="fingerprint-progress-card-note">{trackedEnrollmentInstructionHint}</p>
                     <div className="fingerprint-progress-scan-footer">
                       <div className="fingerprint-progress-guide-meta">
                         <span>{Math.max(0, Math.min(100, trackedEnrollmentDisplayJob.progress || 0))}% Complete</span>
@@ -3827,8 +4051,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                         />
                       </div>
                       <div className="fingerprint-progress-inline-tip">
-                        <ShieldCheck size={15} aria-hidden="true" />
-                        <strong>Tip</strong>
+                        <Info size={14} aria-hidden="true" />
                         <span>Ensure the finger is clean and dry for better recognition.</span>
                       </div>
                     </div>
@@ -4209,39 +4432,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               </header>
 
               <div className="pending-registration-review-body">
-                <div className="pending-registration-review-identity">
-                  <div className="pending-registration-review-photo">
-                    {viewFingerprintPhotoSrc ? (
-                      <>
-                        <img src={viewFingerprintPhotoSrc} alt={`${viewFingerprint.name} photo`} />
-                        <button
-                          type="button"
-                          className="pending-registration-photo-expand"
-                          aria-label="Expand photo"
-                          onClick={() => setIsViewPhotoExpanded(true)}
-                        >
-                          <Expand size={14} aria-hidden="true" />
-                        </button>
-                      </>
-                    ) : (
-                      <p className="pending-registration-review-photo-empty">No photo</p>
-                    )}
-                  </div>
-                  {viewFingerprintGroups[0] ? (
-                    <section className="pending-registration-review-card">
-                      <h3>{viewFingerprintGroups[0].title}</h3>
-                      <dl>
-                        {viewFingerprintGroups[0].fields.map(([label, value, isWide]) => (
-                          <div key={label} className={isWide ? 'is-wide' : undefined}>
-                            <dt>{label}</dt>
-                            <dd>{value || '—'}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </section>
-                  ) : null}
-                </div>
-                {viewFingerprintGroups.slice(1).map((group) => (
+                {viewFingerprintGroups.map((group) => (
                   <section className="pending-registration-review-card" key={group.title}>
                     <h3>{group.title}</h3>
                     <dl>
@@ -4266,25 +4457,60 @@ export default function Fingerprint({ user: currentUser } = {}) {
           document.body,
         )
       : null}
-    {isViewPhotoExpanded && viewFingerprintPhotoSrc
+    {viewJob
       ? createPortal(
           <div
-            className="pending-registration-photo-lightbox"
+            className="pending-registration-review-backdrop"
             role="presentation"
-            onClick={() => setIsViewPhotoExpanded(false)}
+            onClick={closeJobView}
           >
-            <button
-              type="button"
-              aria-label="Close expanded photo"
-              onClick={() => setIsViewPhotoExpanded(false)}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
-            <img
-              src={viewFingerprintPhotoSrc}
-              alt={`${viewFingerprint?.name || 'User'} photo`}
+            <section
+              className="pending-registration-review"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="enrollment-job-view-title"
               onClick={(event) => event.stopPropagation()}
-            />
+            >
+              <header>
+                <div>
+                  <h2 id="enrollment-job-view-title">View Enrollment Job</h2>
+                  <p>Review this enrollment job, its device progress, and the final result.</p>
+                </div>
+                <button type="button" aria-label="Close enrollment job view" onClick={closeJobView}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="pending-registration-review-body">
+                {viewJobGroups.map((group) => (
+                  <section className="pending-registration-review-card" key={group.title}>
+                    <h3>{group.title}</h3>
+                    <dl>
+                      {group.fields.map(([label, value, isWide]) => (
+                        <div key={label} className={isWide ? 'is-wide' : undefined}>
+                          <dt>{label}</dt>
+                          <dd>
+                            {label === 'Status' ? (
+                              <span className={`dashboard-log-status dashboard-log-status-${viewJob.status}`}>
+                                {value}
+                              </span>
+                            ) : (
+                              value || '—'
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+
+              <footer>
+                <button type="button" className="pending-registration-reject" onClick={closeJobView}>
+                  Close
+                </button>
+              </footer>
+            </section>
           </div>,
           document.body,
         )

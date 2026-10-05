@@ -15,9 +15,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 try {
     $pdo = entrivo_pdo();
+    $activityLog = new ActivityLogService($pdo);
+
+    // Ensure schedule_kind exists (regular vs override).
+    try {
+        $kindColumn = $pdo->query("SHOW COLUMNS FROM schedules LIKE 'schedule_kind'")->fetch(PDO::FETCH_ASSOC);
+        if (!$kindColumn) {
+            $pdo->exec(
+                "ALTER TABLE schedules
+                 ADD COLUMN schedule_kind ENUM('regular', 'override') NOT NULL DEFAULT 'regular'
+                 COMMENT 'regular = admin-created schedule; override = approved override request'
+                 AFTER schedule_type"
+            );
+        }
+        $pdo->exec(
+            "UPDATE schedules
+             SET schedule_kind = 'override'
+             WHERE status = 'overridden'
+               AND schedule_kind <> 'override'"
+        );
+    } catch (Throwable $ignored) {
+        // Ignore alter races / restricted environments.
+    }
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS schedule_edit_history (
             history_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -97,6 +121,7 @@ try {
                 s.schedule_id AS id,
                 s.user_id AS userId,
                 s.schedule_type AS scheduleType,
+                COALESCE(s.schedule_kind, 'regular') AS scheduleKind,
                 DATE_FORMAT(s.schedule_date, '%Y-%m-%d') AS scheduleDate,
                 DATE_FORMAT(s.schedule_date, '%W, %b %e, %Y') AS scheduleDateLabel,
                 TIME_FORMAT(s.time_start, '%H:%i') AS timeStart,
@@ -156,6 +181,7 @@ try {
                 s.schedule_id AS id,
                 s.user_id AS userId,
                 s.schedule_type AS scheduleType,
+                COALESCE(s.schedule_kind, 'regular') AS scheduleKind,
                 DATE_FORMAT(s.schedule_date, '%Y-%m-%d') AS scheduleDate,
                 TIME_FORMAT(s.time_start, '%H:%i') AS timeStart,
                 TIME_FORMAT(s.time_end, '%H:%i') AS timeEnd,
@@ -262,6 +288,7 @@ try {
 
         $userId = (int) ($payload['userId'] ?? 0);
         $scheduleType = $payload['scheduleType'] ?? 'single';
+        $scheduleKind = $payload['scheduleKind'] ?? 'regular';
         $scheduleDate = $payload['scheduleDate'] ?? null;
         $startDate = $payload['startDate'] ?? null;
         $endDate = $payload['endDate'] ?? null;
@@ -270,9 +297,23 @@ try {
         $timeStart = $payload['timeStart'] ?? null;
         $timeEnd = $payload['timeEnd'] ?? null;
         $gracePeriodMinutes = (int) ($payload['gracePeriodMinutes'] ?? 15);
-        $status = $payload['status'] ?? 'pending';
+        $status = strtolower(trim((string) ($payload['status'] ?? 'pending')));
         $createdBy = $payload['createdBy'] ?? null;
         $confirmOverlap = !empty($payload['confirmOverlap']);
+        $allowedKinds = ['regular', 'override'];
+        $allowedRegularStatuses = ['pending', 'approved', 'completed', 'cancelled'];
+
+        if (!in_array($scheduleKind, $allowedKinds, true)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Schedule kind must be Regular or Override.']);
+            exit;
+        }
+
+        if (!in_array($status, $allowedRegularStatuses, true)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Regular schedules must use Pending, Approved, Completed, or Cancelled.']);
+            exit;
+        }
 
         if ($userId <= 0 || !$timeStart || !$timeEnd) {
             http_response_code(422);
@@ -313,11 +354,12 @@ try {
             }
 
             $insert = $pdo->prepare(
-                "INSERT INTO schedules (user_id, schedule_type, schedule_date, time_start, time_end, start_date, end_date, repeat_type, repeat_days, repeat_day, grace_period_minutes, status, created_by, approved_by, approved_at)
-                 VALUES (:user_id, 'single', :schedule_date, :time_start, :time_end, NULL, NULL, 'none', NULL, NULL, :grace_period_minutes, :status, :created_by, :approved_by, :approved_at)"
+                "INSERT INTO schedules (user_id, schedule_type, schedule_kind, schedule_date, time_start, time_end, start_date, end_date, repeat_type, repeat_days, repeat_day, grace_period_minutes, status, created_by, approved_by, approved_at)
+                 VALUES (:user_id, 'single', :schedule_kind, :schedule_date, :time_start, :time_end, NULL, NULL, 'none', NULL, NULL, :grace_period_minutes, :status, :created_by, :approved_by, :approved_at)"
             );
             $insert->execute([
                 ':user_id' => $userId,
+                ':schedule_kind' => $scheduleKind,
                 ':schedule_date' => $scheduleDate,
                 ':time_start' => $timeStart,
                 ':time_end' => $timeEnd,
@@ -330,6 +372,16 @@ try {
 
             $scheduleId = (int) $pdo->lastInsertId();
             $row = $fetchScheduleById($scheduleId);
+
+            $activityLog->record(
+                $createdBy ? (int) $createdBy : null,
+                'Add',
+                'Added schedule for user #' . $userId . ' on ' . $scheduleDate . ' (' . $timeStart . ' - ' . $timeEnd . ').',
+                'Success',
+                $userId,
+                'schedule',
+                (string) $scheduleId
+            );
 
             echo json_encode([
                 'message' => 'Schedule created.',
@@ -391,13 +443,14 @@ try {
 
             if (!empty($validDates)) {
                 $insert = $pdo->prepare(
-                    "INSERT INTO schedules (user_id, schedule_type, schedule_date, time_start, time_end, start_date, end_date, repeat_type, repeat_days, repeat_day, grace_period_minutes, status, created_by, approved_by, approved_at)
-                     VALUES (:user_id, 'single', :schedule_date, :time_start, :time_end, NULL, NULL, 'none', NULL, NULL, :grace_period_minutes, :status, :created_by, :approved_by, :approved_at)"
+                    "INSERT INTO schedules (user_id, schedule_type, schedule_kind, schedule_date, time_start, time_end, start_date, end_date, repeat_type, repeat_days, repeat_day, grace_period_minutes, status, created_by, approved_by, approved_at)
+                     VALUES (:user_id, 'single', :schedule_kind, :schedule_date, :time_start, :time_end, NULL, NULL, 'none', NULL, NULL, :grace_period_minutes, :status, :created_by, :approved_by, :approved_at)"
                 );
 
                 foreach ($validDates as $date) {
                     $insert->execute([
                         ':user_id' => $userId,
+                        ':schedule_kind' => $scheduleKind,
                         ':schedule_date' => $date,
                         ':time_start' => $timeStart,
                         ':time_end' => $timeEnd,
@@ -418,6 +471,18 @@ try {
                 'schedules' => $createdSchedules,
                 'conflicts' => $conflicts,
             ]);
+
+            if (!empty($createdSchedules)) {
+                $activityLog->record(
+                    $createdBy ? (int) $createdBy : null,
+                    'Add',
+                    'Added ' . count($createdSchedules) . ' recurring schedule(s) for user #' . $userId . '.',
+                    'Success',
+                    $userId,
+                    'schedule',
+                    null
+                );
+            }
             exit;
         }
 
@@ -440,7 +505,7 @@ try {
         $timeEnd = $payload['timeEnd'] ?? null;
         $scheduleDate = $payload['scheduleDate'] ?? null;
         $gracePeriodMinutes = (int) ($payload['gracePeriodMinutes'] ?? 15);
-        $status = $payload['status'] ?? 'pending';
+        $status = strtolower(trim((string) ($payload['status'] ?? 'pending')));
         $updatedBy = isset($payload['updatedBy']) ? (int) $payload['updatedBy'] : null;
         $updatedByName = trim((string) ($payload['updatedByName'] ?? ''));
 
@@ -449,6 +514,21 @@ try {
         if (!$existingSchedule) {
             http_response_code(404);
             echo json_encode(['message' => 'Schedule not found.']);
+            exit;
+        }
+
+        $existingKind = strtolower(trim((string) ($existingSchedule['scheduleKind'] ?? 'regular')));
+        $allowedStatuses = $existingKind === 'override'
+            ? ['overridden', 'approved', 'completed', 'cancelled']
+            : ['pending', 'approved', 'completed', 'cancelled'];
+
+        if (!in_array($status, $allowedStatuses, true)) {
+            http_response_code(422);
+            echo json_encode([
+                'message' => $existingKind === 'override'
+                    ? 'Override schedules must use Overridden, Approved, Completed, or Cancelled.'
+                    : 'Regular schedules must use Pending, Approved, Completed, or Cancelled.',
+            ]);
             exit;
         }
 
@@ -502,6 +582,17 @@ try {
 
         $insertScheduleHistory($scheduleId, $updatedBy, $updatedByName, $changes);
 
+        $activityLog->record(
+            $updatedBy,
+            'Edit',
+            'Edited schedule #' . $scheduleId
+                . (!empty($changes) ? ' (' . count($changes) . ' field change(s)).' : '.'),
+            'Success',
+            isset($existingSchedule['userId']) ? (int) $existingSchedule['userId'] : null,
+            'schedule',
+            (string) $scheduleId
+        );
+
         echo json_encode([
             'message' => 'Schedule updated.',
             'schedule' => $row,
@@ -511,6 +602,7 @@ try {
 
     if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
         $scheduleId = (int) ($_GET['id'] ?? 0);
+        $actorId = filter_var($_GET['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
         if ($scheduleId <= 0) {
             http_response_code(422);
@@ -518,7 +610,24 @@ try {
             exit;
         }
 
+        require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
+        (new UserPrivilegeService($pdo))->assertActorCanDeleteRecords(
+            (int) $actorId,
+            'Admin accounts cannot delete schedules.'
+        );
+
+        $existingSchedule = $fetchScheduleById($scheduleId);
         $pdo->prepare("DELETE FROM schedules WHERE schedule_id = :id")->execute([':id' => $scheduleId]);
+
+        $activityLog->record(
+            $actorId,
+            'Delete',
+            'Deleted schedule #' . $scheduleId . '.',
+            'Success',
+            isset($existingSchedule['userId']) ? (int) $existingSchedule['userId'] : null,
+            'schedule',
+            (string) $scheduleId
+        );
 
         echo json_encode(['message' => 'Schedule deleted.', 'id' => $scheduleId]);
         exit;
@@ -526,6 +635,9 @@ try {
 
     http_response_code(405);
     echo json_encode(['message' => 'Method not allowed']);
+} catch (InvalidArgumentException $error) {
+    http_response_code(403);
+    echo json_encode(['message' => $error->getMessage()]);
 } catch (Throwable $error) {
     http_response_code(500);
     echo json_encode(['message' => 'Unable to process schedules.', 'error' => $error->getMessage()]);

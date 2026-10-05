@@ -1,6 +1,7 @@
 <?php
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 header('Content-Type: application/json');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -35,6 +36,155 @@ function normalizeSex($value): ?string
         'female' => 'Female',
         default => null,
     };
+}
+
+function adminSecurityQuestionOptions(): array
+{
+    return [
+        'What is the name of your first school?',
+        'What is your mother\'s maiden name?',
+        'What city were you born in?',
+        'What is the name of your favorite teacher?',
+        'What was the name of your first pet?',
+        'What is your favorite book?',
+    ];
+}
+
+function saveAdminSecurityQuestions(PDO $pdo, int $userId, mixed $questions): void
+{
+    $account = $pdo->prepare('SELECT id, role, is_active FROM users WHERE id = :id LIMIT 1');
+    $account->execute(['id' => $userId]);
+    $user = $account->fetch();
+
+    if (!$user || !(bool) $user['is_active'] || !in_array($user['role'], ['admin', 'super_admin'], true)) {
+        http_response_code(404);
+        echo json_encode(['message' => 'Admin profile was not found.']);
+        return;
+    }
+
+    if (!is_array($questions) || count($questions) !== 3) {
+        http_response_code(422);
+        echo json_encode(['message' => 'Provide exactly three security questions.']);
+        return;
+    }
+
+    $allowed = adminSecurityQuestionOptions();
+    $normalized = [];
+    $seen = [];
+
+    foreach (array_values($questions) as $index => $item) {
+        if (!is_array($item)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Provide exactly three security questions.']);
+            return;
+        }
+
+        $question = trim((string) ($item['question'] ?? ''));
+        $answer = preg_replace('/\s+/', ' ', trim((string) ($item['answer'] ?? '')));
+
+        if (!in_array($question, $allowed, true)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Select a security question from the list.']);
+            return;
+        }
+
+        if (isset($seen[$question])) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Choose three different security questions.']);
+            return;
+        }
+
+        if ($answer !== '' && strlen($answer) > 100) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Each security answer must be 100 characters or fewer.']);
+            return;
+        }
+
+        $slot = $index + 1;
+        $exists = $pdo->prepare(
+            'SELECT question_id, question
+             FROM account_security_questions
+             WHERE user_id = :user_id AND question_slot = :slot
+             LIMIT 1'
+        );
+        $exists->execute(['user_id' => $userId, 'slot' => $slot]);
+        $row = $exists->fetch();
+        $keepExisting = $answer === '' && $row && $question === trim((string) $row['question']);
+
+        if (!$keepExisting && ($answer === '' || strlen($answer) < 2)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'Each security answer must be at least 2 characters.']);
+            return;
+        }
+
+        $seen[$question] = true;
+        $normalized[] = [
+            'slot' => $slot,
+            'question' => $question,
+            'keep_existing' => $keepExisting,
+            'question_id' => $row ? (int) $row['question_id'] : null,
+            'answer_hash' => $keepExisting ? null : password_hash(strtolower($answer), PASSWORD_DEFAULT),
+            'answer_text' => $keepExisting ? null : $answer,
+        ];
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        foreach ($normalized as $item) {
+            if ($item['keep_existing']) {
+                continue;
+            }
+
+            if ($item['question_id']) {
+                $save = $pdo->prepare(
+                    'UPDATE account_security_questions
+                     SET question = :question,
+                         answer_hash = :answer_hash,
+                         answer_text = :answer_text
+                     WHERE question_id = :question_id'
+                );
+                $save->execute([
+                    'question' => $item['question'],
+                    'answer_hash' => $item['answer_hash'],
+                    'answer_text' => $item['answer_text'],
+                    'question_id' => $item['question_id'],
+                ]);
+            } else {
+                $save = $pdo->prepare(
+                    'INSERT INTO account_security_questions (user_id, question_slot, question, answer_hash, answer_text)
+                     VALUES (:user_id, :slot, :question, :answer_hash, :answer_text)'
+                );
+                $save->execute([
+                    'user_id' => $userId,
+                    'slot' => $item['slot'],
+                    'question' => $item['question'],
+                    'answer_hash' => $item['answer_hash'],
+                    'answer_text' => $item['answer_text'],
+                ]);
+            }
+        }
+
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $error;
+    }
+
+    (new ActivityLogService($pdo))->record(
+        $userId,
+        'Update',
+        'Updated admin account security questions.',
+        'Success',
+        $userId,
+        'security_questions',
+        (string) $userId
+    );
+
+    echo json_encode(['message' => 'Security questions updated successfully.']);
 }
 
 try {
@@ -94,6 +244,22 @@ try {
             exit;
         }
 
+        $questionStatement = $pdo->prepare(
+            'SELECT question_slot, question, answer_text
+             FROM account_security_questions
+             WHERE user_id = :user_id
+             ORDER BY question_slot ASC'
+        );
+        $questionStatement->execute(['user_id' => $userId]);
+        $user['security_questions'] = array_map(
+            static fn ($row) => [
+                'question_slot' => (int) $row['question_slot'],
+                'question' => $row['question'],
+                'answer' => (string) ($row['answer_text'] ?? ''),
+            ],
+            $questionStatement->fetchAll()
+        );
+
         echo json_encode([
             'message' => 'Admin profile loaded.',
             'profile' => $user,
@@ -107,6 +273,11 @@ try {
     if (!$userId) {
         http_response_code(422);
         echo json_encode(['message' => 'A valid user id is required.']);
+        exit;
+    }
+
+    if (($input['action'] ?? '') === 'update_security_questions') {
+        saveAdminSecurityQuestions($pdo, (int) $userId, $input['security_questions'] ?? null);
         exit;
     }
 
@@ -222,6 +393,15 @@ try {
 
         if (!$authRow || !password_verify($currentPassword, $authRow['password_hash'])) {
             $pdo->rollBack();
+            (new ActivityLogService($pdo))->record(
+                (int) $userId,
+                'Password',
+                'Password change failed. The current password was incorrect.',
+                'Failed',
+                (int) $userId,
+                'password',
+                (string) $userId
+            );
             http_response_code(401);
             echo json_encode(['message' => 'Current password is incorrect.']);
             exit;
@@ -238,6 +418,29 @@ try {
     }
 
     $pdo->commit();
+
+    $activityLog = new ActivityLogService($pdo);
+    $activityLog->record(
+        (int) $userId,
+        'Update',
+        'Updated admin account profile details.',
+        'Success',
+        (int) $userId,
+        'profile',
+        (string) $userId
+    );
+
+    if ($newPassword !== '') {
+        $activityLog->record(
+            (int) $userId,
+            'Password',
+            'Changed admin account password.',
+            'Success',
+            (int) $userId,
+            'password',
+            (string) $userId
+        );
+    }
 
     echo json_encode([
         'message' => 'Admin profile updated.',

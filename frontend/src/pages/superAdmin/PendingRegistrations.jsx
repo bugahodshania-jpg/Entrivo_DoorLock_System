@@ -14,6 +14,7 @@ export default function PendingRegistrations() {
   const [errorMessage, setErrorMessage] = useState('');
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [approvingId, setApprovingId] = useState(null);
   const [menuState, setMenuState] = useState(null);
   const [review, setReview] = useState(null);
@@ -75,6 +76,22 @@ export default function PendingRegistrations() {
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery)),
     );
   }, [normalizedSearchQuery, registrations]);
+  const rowsPerPage = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleRegistrations.length / rowsPerPage));
+  const paginatedRegistrations = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return visibleRegistrations.slice(startIndex, startIndex + rowsPerPage);
+  }, [currentPage, rowsPerPage, visibleRegistrations]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [normalizedSearchQuery]);
 
   async function updateRegistration(registration, action) {
     const confirmed = await confirmAction({
@@ -99,6 +116,16 @@ export default function PendingRegistrations() {
       const response = await axiosClient.post('/api/pending_registrations.php', {
         user_id: registration.id,
         action,
+        actor_id: (() => {
+          try {
+            const raw =
+              window.localStorage.getItem('entrivo_user') ||
+              window.sessionStorage.getItem('entrivo_user');
+            return raw ? JSON.parse(raw)?.id : undefined;
+          } catch {
+            return undefined;
+          }
+        })(),
       });
       setRegistrations(response.data.registrations || []);
       const message = response.data.message || 'Student registration updated.';
@@ -297,7 +324,7 @@ export default function PendingRegistrations() {
               )}
 
               {!isLoading &&
-                visibleRegistrations.map((registration) => (
+                paginatedRegistrations.map((registration) => (
                   <tr key={registration.id}>
                     <td>
                       <strong>{registration.name}</strong>
@@ -330,6 +357,34 @@ export default function PendingRegistrations() {
             </tbody>
           </table>
         </div>
+
+        {!isLoading && !errorMessage && visibleRegistrations.length > 0 && (
+          <div className="manage-users-pagination" aria-label="Pending registrations pagination">
+            <p>
+              Showing {(currentPage - 1) * rowsPerPage + 1}-
+              {Math.min(currentPage * rowsPerPage, visibleRegistrations.length)} of {visibleRegistrations.length}
+            </p>
+            <div className="manage-users-pagination-controls">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </main>
     {menuState

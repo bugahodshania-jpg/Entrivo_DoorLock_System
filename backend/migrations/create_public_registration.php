@@ -49,6 +49,7 @@ try {
             question_slot TINYINT NOT NULL,
             question VARCHAR(255) NOT NULL,
             answer_hash VARCHAR(255) NOT NULL,
+            answer_text VARCHAR(100) NULL,
             created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (question_id),
             UNIQUE KEY uq_user_question_slot (user_id, question_slot),

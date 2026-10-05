@@ -2,6 +2,107 @@
   min-width: 0;
 }
 
+.register-user-admin-shell {
+  margin: 0;
+  max-width: none;
+}
+
+.register-user-page .public-register-card {
+  border-radius: 4px;
+  min-height: calc(100vh - 128px);
+}
+
+.register-user-page .public-register-account-info,
+.register-user-page .public-register-account-rules,
+.register-user-page .public-register-id-card {
+  border-radius: 4px;
+}
+
+.register-user-page .public-register-card .register-user-section:has(.public-register-account) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.register-user-page .public-register-card .register-user-section:has(.public-register-account) > .register-user-section-title {
+  grid-column: 1;
+  padding-top: 0;
+}
+
+.register-user-page .public-register-account-main {
+  grid-column: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+}
+
+.register-user-page .register-user-account-side {
+  width: 100%;
+}
+
+.register-user-page .public-register-cancel,
+.register-user-page .public-register-submit,
+.register-user-page .public-register-id-button {
+  border-radius: 4px;
+}
+
+.register-user-page .public-register-personal .public-register-street {
+  grid-column: 1 / -1;
+}
+
+.register-user-page .public-register-student {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.register-user-page .public-register-account-fields select {
+  appearance: none;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2310251d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 15px 15px;
+  border: 1px solid #d5ddd8;
+  border-radius: 2px;
+  box-sizing: border-box;
+  color: #13251f;
+  font: inherit;
+  font-size: 13px;
+  height: 34px;
+  max-height: 34px;
+  min-height: 34px;
+  outline: none;
+  padding: 4px 42px 4px 10px;
+  width: 100%;
+}
+
+.register-user-page .public-register-account-fields select:focus {
+  border-color: #0c4b2d;
+  box-shadow: 0 0 0 3px rgba(12, 75, 45, 0.12);
+}
+
+.register-user-page .public-register-account-fields select[aria-invalid='true'] {
+  border-color: #d14b4b;
+  box-shadow: 0 0 0 3px rgba(209, 75, 75, 0.1);
+}
+
+.register-user-page .register-user-account-side {
+  background: #f7f8f8;
+  border: 1px solid #e2e8e5;
+  border-radius: 4px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  width: 100%;
+}
+
+.register-user-page .register-user-account-side h3 {
+  color: #5d6d66;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.register-user-page .register-user-account-side .register-user-photo-dropzone {
+  min-height: 168px;
+  padding: 10px;
+}
+
 .register-user-card {
   padding: 18px;
 }
@@ -811,6 +912,54 @@
   margin: 0;
 }
 
+.register-user-credential {
+  background: #f7faf8;
+  border: 1px solid #dce7e2;
+  border-radius: 4px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.register-user-credential-password {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.register-user-credential-password span {
+  letter-spacing: 0.04em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.register-user-credential-password button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d7e2dc;
+  border-radius: 4px;
+  color: #0c4b2d;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.register-user-credential-note,
+.register-user-credential-status {
+  color: #30443b;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.register-user-credential-status.is-warning {
+  color: #8a4b12;
+}
+
 .register-user-success-note {
   align-items: center;
   background: #f0faf5;
@@ -892,6 +1041,180 @@
 
 .register-user-enroll-button:hover {
   background: #064729;
+}
+
+.register-user-enroll-modal {
+  gap: 16px;
+  max-height: calc(100vh - 36px);
+  max-width: 560px;
+  overflow: auto;
+  padding: 28px 28px 22px;
+  width: min(100%, 560px);
+}
+
+.register-user-enroll-modal .register-user-modal-close {
+  color: #5d6d66;
+  right: 14px;
+  top: 14px;
+}
+
+.register-user-enroll-header {
+  display: grid;
+  gap: 6px;
+  padding-right: 36px;
+}
+
+.register-user-enroll-header span {
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.register-user-enroll-header h2 {
+  color: #10251d;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.register-user-enroll-header p {
+  color: #61726b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.register-user-enroll-modal .register-user-credential {
+  background: #f7f8f8;
+  border-color: #e2e8e5;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.register-user-enroll-modal .register-user-panel-heading {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.register-user-enroll-modal .register-user-panel-icon {
+  display: none;
+}
+
+.register-user-enroll-modal .register-user-panel-heading h3 {
+  color: #5d6d66;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.register-user-enroll-modal .register-user-detail-row {
+  gap: 16px;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1fr);
+  padding: 8px 0;
+}
+
+.register-user-enroll-modal .register-user-detail-row dt {
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.register-user-enroll-modal .register-user-detail-row dd {
+  color: #10251d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.register-user-enroll-modal .register-user-credential-note,
+.register-user-enroll-modal .register-user-credential-status {
+  color: #61726b;
+}
+
+.register-user-enroll-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8e5;
+  border-radius: 6px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.register-user-enroll-panel h3 {
+  color: #5d6d66;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.register-user-enroll-status {
+  align-items: flex-start;
+  background: #f7f8f8;
+  border: 1px solid #e2e8e5;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.register-user-enroll-status > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.register-user-enroll-status span {
+  color: #5d6d66;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.register-user-enroll-status strong {
+  background: #eef1ef;
+  border-radius: 999px;
+  color: #4a5b54;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  text-transform: capitalize;
+}
+
+.register-user-enroll-status p {
+  color: #61726b;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.register-user-enroll-note {
+  color: #6a7c73;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.register-user-enroll-modal .register-user-skip-button {
+  background: #ffffff;
+  border: 1px solid #d9e2de;
+  color: #24352e;
+  font-weight: 700;
+}
+
+.register-user-enroll-modal .register-user-skip-button:hover {
+  background: #f5f7f7;
+}
+
+.register-user-enroll-modal .register-user-enroll-button {
+  font-weight: 800;
 }
 
 .register-user-camera-modal {
@@ -1079,5 +1402,349 @@
 
   .register-user-student-success-modal .register-user-detail-row dd {
     padding-left: 34px;
+  }
+
+  .register-user-enroll-modal {
+    max-height: calc(100vh - 36px);
+    overflow: auto;
+    padding: 22px 16px 16px;
+  }
+
+  .register-user-enroll-header h2 {
+    font-size: 20px;
+  }
+
+  .register-user-enroll-modal .register-user-detail-row {
+    gap: 4px;
+    grid-template-columns: 1fr;
+    padding: 8px 0;
+  }
+}
+
+.register-create-backdrop {
+  align-items: center;
+  background: rgba(4, 20, 13, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 90;
+}
+
+.register-create-modal {
+  background: #ffffff;
+  border: 1px solid #c9d6cf;
+  border-radius: 0;
+  box-shadow: 0 16px 40px rgba(16, 37, 29, 0.12);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 22px;
+  width: min(640px, 100%);
+}
+
+.register-create-heading-row {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.register-create-heading p {
+  color: #8a9892;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 4px 0 8px;
+  text-transform: uppercase;
+}
+
+.register-create-heading h2 {
+  color: #10251d;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.register-create-heading span {
+  color: #4d5f57;
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.register-create-close {
+  align-items: center;
+  background: #f4f7f5;
+  border: 1px solid #c9d6cf;
+  border-radius: 0;
+  color: #10251d;
+  cursor: pointer;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.register-create-form,
+.register-create-result {
+  display: grid;
+  gap: 12px 14px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+}
+
+.register-create-form {
+  align-items: start;
+}
+
+.register-create-form label {
+  align-content: start;
+  color: #10251d;
+  display: grid;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+  min-width: 0;
+}
+
+.register-create-form label.is-span,
+.register-create-note,
+.register-create-error,
+.register-create-status,
+.register-create-actions,
+.register-create-result dl,
+.register-create-result p {
+  grid-column: 1 / -1;
+}
+
+.register-create-form label i {
+  color: #0c4b2d;
+  font-style: normal;
+  margin-left: 2px;
+}
+
+.register-create-form input,
+.register-create-form select {
+  background: #ffffff;
+  border: 1px solid #c9d6cf;
+  border-radius: 0;
+  box-sizing: border-box;
+  color: #10251d;
+  font: inherit;
+  font-weight: 500;
+  height: 40px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.register-create-form input[readonly] {
+  background: #f4f7f5;
+  color: #24362e;
+}
+
+.register-create-form input:focus,
+.register-create-form select:focus {
+  border-color: #0c4b2d;
+  outline: 2px solid rgba(12, 75, 45, 0.16);
+  outline-offset: 1px;
+}
+
+.register-create-form label small,
+.register-create-note,
+.register-create-status {
+  color: #4d5f57;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  margin: 0;
+  min-height: 16px;
+}
+
+.register-create-form label small:empty {
+  display: none;
+}
+
+.register-create-form label small.register-create-field-error {
+  color: #d12424;
+}
+
+.register-create-email {
+  align-items: stretch;
+  background: #ffffff;
+  border: 1px solid #c9d6cf;
+  display: flex;
+  min-width: 0;
+}
+
+.register-create-email input {
+  border: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.register-create-email > span {
+  align-items: center;
+  background: #f4f7f5;
+  border-left: 1px solid #c9d6cf;
+  color: #24362e;
+  display: inline-flex;
+  flex: none;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.register-create-email:focus-within {
+  border-color: #0c4b2d;
+  outline: 2px solid rgba(12, 75, 45, 0.16);
+  outline-offset: 1px;
+}
+
+.register-create-email input:focus {
+  outline: none;
+}
+
+.register-create-email.is-invalid,
+.register-create-form input[aria-invalid='true'] {
+  border-color: #d12424;
+}
+
+.register-create-secret {
+  align-items: center;
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+
+.register-create-secret input,
+.register-create-secret span {
+  width: 100%;
+}
+
+.register-create-secret input {
+  padding-right: 40px;
+}
+
+.register-create-secret button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #4d5f57;
+  cursor: pointer;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 40px;
+}
+
+.register-create-note {
+  align-items: flex-start;
+  background: #f4f7f5;
+  border: 1px solid #c9d6cf;
+  border-radius: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.register-create-note svg {
+  color: #0c4b2d;
+  flex: none;
+  margin-top: 1px;
+}
+
+.register-create-error {
+  color: #d12424;
+  font-size: 13px;
+  margin: 0;
+}
+
+.register-create-status.is-warning {
+  color: #8a5a00;
+}
+
+.register-create-result dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.register-create-result dl div {
+  display: grid;
+  gap: 2px;
+}
+
+.register-create-result dt {
+  color: #6a7c73;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.register-create-result dd {
+  color: #10251d;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.register-create-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.register-create-primary,
+.register-create-secondary {
+  align-items: center;
+  border-radius: 0;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  gap: 8px;
+  height: 42px;
+  justify-content: center;
+}
+
+.register-create-primary {
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  color: #ffffff;
+}
+
+.register-create-primary:hover {
+  background: #083d24;
+}
+
+.register-create-secondary {
+  background: #ffffff;
+  border: 1px solid #c9d6cf;
+  color: #10251d;
+}
+
+.register-create-secondary:hover {
+  background: #f4f7f5;
+}
+
+.register-create-primary:disabled,
+.register-create-secondary:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+@media (max-width: 680px) {
+  .register-create-form,
+  .register-create-result,
+  .register-create-actions {
+    grid-template-columns: 1fr;
   }
 }

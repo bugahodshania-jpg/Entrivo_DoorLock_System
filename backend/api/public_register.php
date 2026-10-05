@@ -2,6 +2,7 @@
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/UserRegistrationService.php';
+require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 header('Content-Type: application/json');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -33,6 +34,17 @@ try {
     $pdo = entrivo_pdo();
     $service = new UserRegistrationService($pdo);
     $savedUser = $service->registerPublicStudent($input);
+    $savedUserId = isset($savedUser['user_id']) ? (int) $savedUser['user_id'] : (isset($savedUser['id']) ? (int) $savedUser['id'] : 0);
+
+    (new ActivityLogService($pdo))->record(
+        $savedUserId > 0 ? $savedUserId : null,
+        'Add',
+        'Submitted a public registration that is pending approval.',
+        'Success',
+        $savedUserId > 0 ? $savedUserId : null,
+        'registration',
+        $savedUserId > 0 ? (string) $savedUserId : null
+    );
 
     http_response_code(201);
     echo json_encode([

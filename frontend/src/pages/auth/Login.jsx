@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
 import logo from '../../assets/images/entrivo_logo.png';
 import PixelWave from '../../components/PixelWave';
+import FirstLoginSetup from './FirstLoginSetup';
 import PasswordReset, { readPasswordResetSession } from './PasswordReset';
-import { firstAllowedSuperAdminPath } from '../../utils/privileges';
+import { firstAllowedPortalPath, firstAllowedSuperAdminPath } from '../../utils/privileges';
 import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
 
@@ -62,6 +63,7 @@ export default function Login() {
   const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetOpen, setResetOpen] = useState(() => Boolean(readPasswordResetSession()));
+  const [firstLogin, setFirstLogin] = useState(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeShowcase, setActiveShowcase] = useState(0);
@@ -70,6 +72,14 @@ export default function Login() {
   const lockRestoreDoneRef = useRef(false);
 
   const isLocked = lockoutSeconds > 0;
+
+  useEffect(() => {
+    const username = new URLSearchParams(window.location.search).get('username')?.trim() || '';
+
+    if (username) {
+      setForm((current) => ({ ...current, username }));
+    }
+  }, []);
 
   useEffect(() => {
     const notice = window.sessionStorage.getItem('entrivo_login_notice');
@@ -171,6 +181,29 @@ export default function Login() {
   }, [menuOpen]);
 
   const closeMenu = () => setMenuOpen(false);
+
+  const finishLogin = (user) => {
+    const storage = rememberMe ? window.localStorage : window.sessionStorage;
+    storage.setItem('entrivo_user', JSON.stringify(user));
+    setStatus({ type: 'success', message: 'Login successful.' });
+
+    if (user.role === 'super_admin') {
+      window.location.assign(firstAllowedSuperAdminPath(user));
+      return;
+    }
+
+    if (user.role === 'admin') {
+      window.location.assign(firstAllowedPortalPath(user));
+      return;
+    }
+
+    if (user.role === 'faculty' || user.role === 'staff') {
+      window.location.assign('/user/dashboard');
+      return;
+    }
+
+    window.location.assign('/login');
+  };
 
   const applySecurityState = (data, usernameForLock = '') => {
     setShowForgotPassword(Boolean(data?.show_forgot_password));
@@ -322,16 +355,19 @@ export default function Login() {
       setLockoutSeconds(0);
       clearStoredLock();
 
-      const storage = rememberMe ? window.localStorage : window.sessionStorage;
-      storage.setItem('entrivo_user', JSON.stringify(data.user));
-      setStatus({ type: 'success', message: data.message });
-
-      if (data.user.role === 'super_admin' || data.user.role === 'admin') {
-        window.location.assign(firstAllowedSuperAdminPath(data.user));
+      if (data.requires_first_login) {
+        setFirstLogin({
+          challengeId: data.challenge_id,
+          maskedEmail: data.masked_email || 'your email',
+          expiresIn: Number(data.expires_in) || 600,
+          initialStep: data.next_step || 'otp',
+          setup: data.setup || null,
+        });
+        setStatus({ type: 'idle', message: '' });
         return;
       }
 
-      window.location.assign('/login');
+      finishLogin(data.user);
     } catch (error) {
       const message = error.message || 'Login failed.';
       setFieldErrors({ username: '', password: message });
@@ -548,6 +584,17 @@ export default function Login() {
         </section>
       </div>
       {resetOpen ? <PasswordReset onClose={() => setResetOpen(false)} /> : null}
+      {firstLogin ? (
+        <FirstLoginSetup
+          challengeId={firstLogin.challengeId}
+          maskedEmail={firstLogin.maskedEmail}
+          expiresIn={firstLogin.expiresIn}
+          initialStep={firstLogin.initialStep || 'otp'}
+          setup={firstLogin.setup || null}
+          onClose={() => setFirstLogin(null)}
+          onComplete={finishLogin}
+        />
+      ) : null}
     </main>
   );
 }

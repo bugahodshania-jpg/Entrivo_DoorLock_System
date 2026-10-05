@@ -48,6 +48,22 @@ class Fingerprint
         return $record ?: null;
     }
 
+    public function countNamedFingerprints(int $userId): int
+    {
+        $statement = $this->conn->prepare(
+            "SELECT COUNT(*) AS fingerprint_count
+             FROM fingerprints
+             WHERE user_id = :user_id
+               AND finger_name IS NOT NULL
+               AND TRIM(finger_name) <> ''"
+        );
+        $statement->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $statement->execute();
+        $row = $statement->fetch();
+
+        return (int) ($row['fingerprint_count'] ?? 0);
+    }
+
     public function findPendingRecordForUser(int $userId): ?array
     {
         $statement = $this->conn->prepare(
@@ -289,6 +305,92 @@ class Fingerprint
         $statement->execute();
 
         return $this->getById($fingerprintId);
+    }
+
+    public function listOtherSharedDoorSlots(int $fingerprintId): array
+    {
+        $statement = $this->conn->prepare(
+            "SELECT shared_door_slot
+             FROM fingerprints
+             WHERE shared_door_slot IS NOT NULL
+               AND shared_door_slot > 0
+               AND fingerprint_id <> :fingerprint_id
+             ORDER BY shared_door_slot ASC"
+        );
+        $statement->bindValue(':fingerprint_id', $fingerprintId, PDO::PARAM_INT);
+        $statement->execute();
+
+        $slots = [];
+        foreach ($statement->fetchAll() as $row) {
+            $slots[] = (int) $row['shared_door_slot'];
+        }
+
+        return $slots;
+    }
+
+    public function claimSharedDoorSlot(int $fingerprintId, int $slot): array
+    {
+        if ($fingerprintId <= 0 || $slot <= 0) {
+            return [
+                'success' => false,
+                'message' => 'A valid fingerprint and Sensor B slot are required.',
+            ];
+        }
+
+        $ownerStatement = $this->conn->prepare(
+            "SELECT fingerprint_id
+             FROM fingerprints
+             WHERE shared_door_slot = :shared_door_slot
+             LIMIT 1"
+        );
+        $ownerStatement->bindValue(':shared_door_slot', $slot, PDO::PARAM_INT);
+        $ownerStatement->execute();
+        $owner = $ownerStatement->fetch();
+        $ownerId = $owner ? (int) $owner['fingerprint_id'] : 0;
+
+        if ($ownerId > 0 && $ownerId !== $fingerprintId) {
+            return [
+                'success' => false,
+                'message' => 'Sensor B slot ' . $slot . ' is already linked to another user.',
+            ];
+        }
+
+        try {
+            $statement = $this->conn->prepare(
+                "UPDATE fingerprints
+                 SET shared_door_slot = :shared_door_slot
+                 WHERE fingerprint_id = :fingerprint_id"
+            );
+            $statement->bindValue(':shared_door_slot', $slot, PDO::PARAM_INT);
+            $statement->bindValue(':fingerprint_id', $fingerprintId, PDO::PARAM_INT);
+            $statement->execute();
+        } catch (PDOException $error) {
+            return [
+                'success' => false,
+                'message' => 'Sensor B slot ' . $slot . ' is already linked to another user.',
+            ];
+        }
+
+        $updatedRecord = $this->getById($fingerprintId);
+
+        if (!$updatedRecord) {
+            return [
+                'success' => false,
+                'message' => 'Fingerprint record not found.',
+            ];
+        }
+
+        if ((int) ($updatedRecord['shared_door_slot'] ?? 0) !== $slot) {
+            return [
+                'success' => false,
+                'message' => 'Sensor B slot ' . $slot . ' could not be linked to this user.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Sensor B slot linked to the user.',
+        ];
     }
 
     public function markDoorSyncPending(int $fingerprintId): bool

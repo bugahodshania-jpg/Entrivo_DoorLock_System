@@ -1,0 +1,932 @@
+.user-portal-page .dashboard-log-status-success {
+  background: #ecfdf3;
+  color: #0c7a43;
+}
+
+/* Keep dashboard grid rows content-sized instead of stretching to fill the viewport. */
+.user-portal-page.admin-dashboard {
+  align-content: start;
+}
+
+.user-portal-page.access-logs-page.admin-dashboard {
+  gap: 16px;
+}
+
+.user-portal-page.access-logs-page .access-logs-summary-grid {
+  align-items: stretch;
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+.user-portal-page.access-logs-page .access-logs-summary-grid .dashboard-summary-card {
+  min-height: 82px;
+  padding: 14px 42px 14px 14px;
+}
+
+.user-portal-page.access-logs-page .dashboard-log-status-kind-regular {
+  background: #edf2ef;
+  color: #243d34;
+}
+
+.user-portal-page.access-logs-page .dashboard-log-status-kind-override {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.user-portal-page.access-logs-page .user-access-logs-table-wrap {
+  margin-top: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table {
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th,
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td {
+  overflow: hidden;
+  padding-left: 0;
+  padding-right: 12px;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:last-child,
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:last-child {
+  padding-right: 0;
+}
+
+/* Date */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(1),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(1) {
+  padding-left: 16px;
+  width: 12%;
+}
+
+/* Time */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(2),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(2) {
+  width: 10%;
+}
+
+/* Method */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(3),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(3) {
+  width: 12%;
+}
+
+/* Access Type */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(4),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(4) {
+  width: 12%;
+}
+
+/* Schedule Type (Regular / Override) */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(5),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(5) {
+  width: 11%;
+}
+
+/* Schedule window */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(6),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(6) {
+  width: 26%;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Status */
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table th:nth-child(7),
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td:nth-child(7) {
+  width: 10%;
+}
+
+.user-portal-page.access-logs-page .dashboard-recent-table.user-access-logs-table td .dashboard-log-status {
+  max-width: 100%;
+}
+
+.user-portal-page .dashboard-log-status-failed {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.user-portal-page .dashboard-log-status-pending,
+.user-portal-page .dashboard-log-status-approved,
+.user-portal-page .dashboard-log-status-overridden,
+.user-portal-page .dashboard-log-status-completed,
+.user-portal-page .dashboard-log-status-cancelled,
+.user-portal-page .dashboard-log-status-expired {
+  background: #f3f4f6;
+  color: #374151;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  text-transform: capitalize;
+}
+
+.user-override-page .dashboard-log-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  min-width: 76px;
+  justify-content: center;
+  padding: 6px 10px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.user-override-page .dashboard-log-status-pending {
+  background: #faf3dc;
+  color: #a16207;
+}
+
+.user-override-page .dashboard-log-status-upcoming {
+  background: #e9efeb;
+  color: #4b6358;
+}
+
+.user-override-page .dashboard-log-status-active {
+  background: #e6f6ec;
+  color: #166534;
+}
+
+.user-override-page .dashboard-log-status-done {
+  background: #eef0f2;
+  color: #6b7280;
+}
+
+.user-override-history-card .dashboard-recent-table td .dashboard-log-status {
+  margin-top: 0;
+}
+
+.user-portal-page {
+  min-height: calc(100vh - 88px);
+}
+
+.user-portal-page .user-dashboard-access-table {
+  min-width: 480px;
+}
+
+.user-portal-page .user-dashboard-access-table th:nth-child(1),
+.user-portal-page .user-dashboard-access-table td:nth-child(1),
+.user-portal-page .user-dashboard-access-table th:nth-child(2),
+.user-portal-page .user-dashboard-access-table td:nth-child(2),
+.user-portal-page .user-dashboard-access-table th:nth-child(3),
+.user-portal-page .user-dashboard-access-table td:nth-child(3),
+.user-portal-page .user-dashboard-access-table th:nth-child(4),
+.user-portal-page .user-dashboard-access-table td:nth-child(4) {
+  width: 25%;
+}
+
+.user-portal-notice,
+.user-portal-error {
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+}
+
+.user-portal-notice {
+  background: #ecfdf3;
+  color: #0c7a43;
+}
+
+.user-portal-error,
+.user-portal-field-error {
+  color: #b42318;
+}
+
+.user-portal-error {
+  background: #fef3f2;
+}
+
+.user-portal-toast-stack {
+  display: grid;
+  gap: 12px;
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  width: min(380px, calc(100vw - 24px));
+  z-index: 95;
+}
+
+.user-portal-toast {
+  align-items: flex-start;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  box-shadow: 0 18px 34px rgba(10, 25, 18, 0.14);
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.user-portal-toast-success {
+  background: #fbfdfc;
+  border-color: #d7e8de;
+}
+
+.user-portal-toast-error {
+  background: #fffbfb;
+  border-color: #f0d7d7;
+}
+
+.user-portal-toast-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-portal-toast-copy strong {
+  color: #10251d;
+  display: block;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.user-portal-toast-error .user-portal-toast-copy strong {
+  color: #911f1f;
+}
+
+.user-portal-toast-copy p {
+  color: #4f6258;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.user-portal-toast-error .user-portal-toast-copy p {
+  color: #8f3a3a;
+}
+
+.user-portal-toast-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #60716a;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 2px;
+}
+
+.user-portal-toast-close:hover {
+  background: rgba(16, 37, 29, 0.08);
+  color: #10251d;
+}
+
+.user-portal-field-error {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.user-override-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+}
+
+.user-override-page-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  align-items: start;
+}
+
+.user-override-form-card {
+  max-width: 340px;
+  padding-left: 20px;
+  padding-right: 20px;
+  width: 100%;
+}
+
+.user-override-form-card .dashboard-panel-header,
+.user-override-history-card .dashboard-panel-header {
+  align-items: flex-start;
+}
+
+.user-override-form-card .dashboard-panel-header h2,
+.user-override-history-card .dashboard-panel-header h2 {
+  margin: 0;
+}
+
+.user-override-form-card .dashboard-panel-header p,
+.user-override-history-card .dashboard-panel-header p {
+  color: #60716a;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.user-override-form-card .dashboard-panel-header .user-override-form-icon {
+  align-items: center;
+  background: #f4faf6;
+  border: 1px solid #dce8e1;
+  border-radius: 8px;
+  color: #0c4b2d;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0;
+  font-weight: 400;
+  height: 36px;
+  justify-content: center;
+  line-height: 0;
+  width: 36px;
+}
+
+.user-override-form-card .dashboard-panel-header .user-override-form-icon svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.user-override-form {
+  display: grid;
+  gap: 14px;
+  padding: 0 0 8px;
+}
+
+.user-override-form .schedules-form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+}
+
+.user-override-form .schedules-form-row {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+}
+
+.user-override-form .schedules-field input,
+.user-override-form .schedules-field textarea {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.user-override-form .schedules-form-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.user-override-form .schedules-primary-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.user-override-toolbar {
+  margin: 0 0 6px;
+  padding-left: 0;
+}
+
+.user-override-history-card .dashboard-panel-header {
+  margin-bottom: 18px;
+}
+
+.user-override-history-card .schedules-table-filters.user-override-toolbar {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.user-override-history-card .dashboard-recent-table.user-override-table {
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* Reason: longest free-text values */
+.user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(1),
+.user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(1) {
+  padding-left: 16px;
+  width: 38%;
+}
+
+/* Access window: date + time range (e.g. 08:00 AM - 05:00 PM) */
+.user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(2),
+.user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(2) {
+  width: 22%;
+  min-width: 9.5rem;
+}
+
+/* Requested: date + shorter time */
+.user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(3),
+.user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(3) {
+  width: 16%;
+  min-width: 7.5rem;
+}
+
+/* Status: short badge labels */
+.user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(4),
+.user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(4) {
+  width: 7.5rem;
+  max-width: 8.5rem;
+}
+
+/* Action: icon menu only */
+.user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(5),
+.user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(5) {
+  width: 4.5rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.user-override-history-card .dashboard-recent-table.user-override-table th:last-child,
+.user-override-history-card .dashboard-recent-table.user-override-table td:last-child {
+  padding-right: 0;
+  text-align: center;
+}
+
+.user-override-history-card .dashboard-recent-table td:last-child .row-action-menu-cell {
+  display: inline-flex;
+  justify-content: center;
+  margin-inline: auto;
+  width: 100%;
+}
+
+.user-override-cancel-copy {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 18px;
+}
+
+.user-override-cancel-copy strong {
+  color: #243d34;
+  font-size: 14px;
+}
+
+.user-override-cancel-copy span {
+  color: #7a8882;
+  font-size: 13px;
+}
+
+.user-override-cancel-button {
+  background: #b42318;
+  border-color: #b42318;
+}
+
+.user-override-history-card .dashboard-recent-table.user-override-table th,
+.user-override-history-card .dashboard-recent-table.user-override-table td {
+  padding-left: 0;
+  padding-right: 16px;
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.user-override-reason {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #243d34;
+  display: -webkit-box;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  line-clamp: 2;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.user-override-history-card .schedules-window-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-override-history-card .schedules-window-cell strong {
+  color: #3f4a55;
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-override-history-card .schedules-window-cell span {
+  color: #8a959e;
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-override-history-card .dashboard-recent-table td:nth-child(4) {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.user-override-history-card .dashboard-recent-table th:nth-child(4) {
+  text-align: center;
+}
+
+.user-override-history-card .dashboard-recent-table td:nth-child(4) .dashboard-log-status {
+  margin-inline: auto;
+}
+
+.user-override-history-card .activity-logs-pagination {
+  justify-content: space-between;
+  margin: 12px 0 0;
+  width: 100%;
+}
+
+.user-override-history-card .activity-logs-pagination > p {
+  margin-right: auto;
+  text-align: left;
+}
+
+.user-override-history-card .user-override-empty-state {
+  width: 100%;
+}
+
+.user-override-history-card .user-override-empty {
+  color: #7a8882;
+  font-size: 13px;
+  margin: 0;
+  padding: 36px 16px;
+  text-align: center;
+  width: 100%;
+}
+
+.user-form-full {
+  grid-column: 1 / -1;
+}
+
+.user-inline-filter {
+  background: #ffffff;
+  border: 1px solid #d7dee4;
+  border-radius: 4px;
+  color: #13251f;
+  font: inherit;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.user-override-list {
+  max-height: 520px;
+  overflow: auto;
+}
+
+.user-schedule-toolbar {
+  margin-bottom: 14px;
+}
+
+.user-schedule-filters {
+  align-items: center;
+}
+
+.user-schedule-filters .user-schedule-dates {
+  margin-left: auto;
+}
+
+@media (max-width: 980px) {
+  .user-schedule-filters .user-schedule-dates {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.user-portal-page .schedules-calendar-export.is-icon-only {
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+}
+
+.user-schedule-override-link {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.user-table-link {
+  color: #0c4b2d;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.user-table-link:hover {
+  text-decoration: underline;
+}
+
+.activity-logs-date-filter {
+  display: grid;
+  gap: 4px;
+}
+
+.activity-logs-date-filter span {
+  color: #60716a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.activity-logs-date-filter input,
+.activity-logs-date-filter select {
+  background: #ffffff;
+  border: 1px solid #d7dee4;
+  border-radius: 4px;
+  color: #13251f;
+  font: inherit;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.activity-logs-pagination {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.activity-logs-pagination button {
+  background: #ffffff;
+  border: 1px solid #d7dee4;
+  border-radius: 4px;
+  color: #13251f;
+  cursor: pointer;
+  font: inherit;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.schedules-page.user-portal-page .activity-logs-pagination button {
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 3px 10px;
+}
+
+.access-logs-page.user-portal-page .activity-logs-pagination button {
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 3px 10px;
+}
+
+.activity-logs-page.user-portal-page .activity-logs-pagination button {
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 3px 10px;
+}
+
+.user-portal-page.activity-logs-page .user-activity-logs-table-wrap {
+  margin-top: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table {
+  border-collapse: collapse;
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th,
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td {
+  border-bottom: 1px solid #f1f3f5;
+  padding-left: 0;
+  padding-right: 14px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:last-child,
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:last-child {
+  padding-right: 0;
+}
+
+/* Date — e.g. Sep 28, 2026 */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(1),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(1) {
+  padding-left: 16px;
+  width: 12%;
+}
+
+/* Time — e.g. 07:43 AM */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(2),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(2) {
+  width: 9%;
+}
+
+/* Activity badge — Login / Logout / Update */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(3),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(3) {
+  width: 10%;
+}
+
+/* Description — short sentences; take remaining flexible space */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(4),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(4) {
+  width: 31%;
+}
+
+.user-portal-page.activity-logs-page .user-activity-logs-description {
+  color: #3f4a55;
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status badge — Success / Failed */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(5),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(5) {
+  width: 9%;
+}
+
+/* Device — label + browser detail */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(6),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(6) {
+  width: 22%;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(6) strong {
+  color: #3f4a55;
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(6) span {
+  color: #8b95a1;
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Action — ⋮ menu */
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(7),
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(7) {
+  text-align: center;
+  width: 7%;
+}
+
+.user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(7) .row-action-menu-cell {
+  display: inline-flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Status badges */
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-success {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-failed {
+  background: #fbeaea;
+  color: #b93636;
+}
+
+/* Activity category color coding */
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-login {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-logout {
+  background: #eef2f7;
+  color: #475569;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-account {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-request {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-schedule {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-other {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.activity-logs-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.user-override-modal {
+  max-width: 640px;
+}
+
+.user-override-modal .schedules-modal-header {
+  margin-bottom: 20px;
+}
+
+.user-override-modal .schedules-modal-header p {
+  margin-bottom: 4px;
+  padding-bottom: 12px;
+}
+
+.user-portal-page .schedules-field textarea {
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: #13251f;
+  font: inherit;
+  font-size: 13px;
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.user-portal-page .schedules-field textarea:focus,
+.user-portal-page .schedules-field input:focus {
+  outline: 2px solid rgba(12, 122, 67, 0.2);
+  outline-offset: 1px;
+}
+
+.user-portal-page .schedules-field input:disabled,
+.user-portal-page .schedules-field input[readonly] {
+  background: #f5f7f6;
+  color: #5c6772;
+}
+
+.user-portal-page .schedules-secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.user-portal-page .schedules-modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button.user-table-link {
+  background: transparent;
+  border: 0;
+  color: #0c4b2d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0;
+  text-decoration: none;
+}
+
+button.user-table-link:hover {
+  text-decoration: underline;
+}
+
+.user-portal-page .schedules-calendar-event.is-mine strong {
+  color: #0c4b2d;
+}
+
+.user-portal-page .schedules-calendar-event.is-other strong {
+  color: #5c6772;
+}
+
+@media (max-width: 1100px) {
+  .user-override-layout,
+  .user-override-page-layout {
+    grid-template-columns: 1fr;
+  }
+}

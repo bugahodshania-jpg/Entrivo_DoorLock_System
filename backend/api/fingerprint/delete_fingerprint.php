@@ -65,6 +65,10 @@ try {
         'fingerprint_update',
         'You do not have permission to delete fingerprints. Ask a Super Admin to grant Update Fingerprints access.'
     );
+    (new UserPrivilegeService($pdo))->assertActorCanDeleteRecords(
+        $actorId,
+        'Admin accounts cannot delete fingerprint records.'
+    );
 
     $fingerprintModel = new Fingerprint();
     $existing = $fingerprintModel->getById($fingerprintId);
@@ -88,6 +92,18 @@ try {
         ]);
         exit;
     }
+
+    require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
+    (new ActivityLogService(entrivo_pdo()))->record(
+        $actorId,
+        'Delete',
+        'Deleted fingerprint #' . $fingerprintId
+            . ' for user #' . (int) ($existing['user_id'] ?? 0) . '.',
+        'Success',
+        isset($existing['user_id']) ? (int) $existing['user_id'] : null,
+        'fingerprint',
+        (string) $fingerprintId
+    );
 
     echo json_encode([
         'success' => true,
