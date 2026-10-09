@@ -29,6 +29,37 @@ const rfidStatusOptions = [
   { value: 'lost', label: 'Lost' },
 ];
 
+function latestScansByUid(scans) {
+  const latestByUid = new Map();
+
+  scans.forEach((scan) => {
+    const uid = String(scan.rfidUid || '').replace(/\s+/g, '').toUpperCase();
+
+    if (!uid) {
+      return;
+    }
+
+    const current = latestByUid.get(uid);
+
+    if (!current || Number(scan.id) > Number(current.id)) {
+      latestByUid.set(uid, scan);
+    }
+  });
+
+  return [...latestByUid.values()].sort((left, right) => Number(right.id) - Number(left.id));
+}
+
+function splitRegisteredAt(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(.*\d{4})\s+(\d{1,2}:\d{2}\s*[AP]M)$/i);
+
+  if (!match) {
+    return { date: text || '—', time: '' };
+  }
+
+  return { date: match[1], time: match[2] };
+}
+
 function formatStatusLabel(status) {
   if (status === 'blocked') {
     return 'Blocked';
@@ -171,11 +202,32 @@ export default function RFIDCards() {
   const [programFilter, setProgramFilter] = useState('all');
   const [openFilter, setOpenFilter] = useState('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [showEnrollmentScans, setShowEnrollmentScans] = useState(false);
+  const [enrollmentScans, setEnrollmentScans] = useState([]);
+  const [isScanLoading, setIsScanLoading] = useState(false);
+  const [scanErrorMessage, setScanErrorMessage] = useState('');
+  const [scanDateFrom, setScanDateFrom] = useState('');
+  const [scanDateTo, setScanDateTo] = useState('');
   const [viewCard, setViewCard] = useState(null);
   const [isViewPhotoExpanded, setIsViewPhotoExpanded] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [editError, setEditError] = useState('');
   const [isEditSaving, setIsEditSaving] = useState(false);
+
+  const loadEnrollmentScans = useCallback(async () => {
+    setIsScanLoading(true);
+
+    try {
+      const response = await axiosClient.get('/api/rfid_enrollment_scans.php');
+      setEnrollmentScans(response.data.scans || []);
+      setScanErrorMessage('');
+    } catch {
+      setEnrollmentScans([]);
+      setScanErrorMessage('Unable to load enrollment scans right now.');
+    } finally {
+      setIsScanLoading(false);
+    }
+  }, []);
 
   const loadRfidCards = useCallback(async () => {
     try {
@@ -222,7 +274,14 @@ export default function RFIDCards() {
     };
   }, []);
 
+  useEffect(() => {
+    if (showEnrollmentScans) {
+      loadEnrollmentScans();
+    }
+  }, [showEnrollmentScans, loadEnrollmentScans]);
+
   const columns = ['User', 'Student ID', 'College', 'Year Level', 'RFID UID', 'RFID Status', 'Registered at', 'Action'];
+  const scanColumns = ['RFID UID', 'Scanned at', 'Scanner', 'Status'];
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const collegeOptions = useMemo(() => countBy(rfidCards, 'college'), [rfidCards]);
   const collegeScopedCards = useMemo(
@@ -251,12 +310,41 @@ export default function RFIDCards() {
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
     });
   }, [collegeScopedCards, programFilter, normalizedSearchQuery]);
+  const visibleEnrollmentScans = useMemo(() => {
+    const datedScans = enrollmentScans.filter((scan) => {
+      if (scanDateFrom && String(scan.scannedOn || '') < scanDateFrom) {
+        return false;
+      }
+
+      if (scanDateTo && String(scan.scannedOn || '') > scanDateTo) {
+        return false;
+      }
+
+      return true;
+    });
+    const uniqueScans = latestScansByUid(datedScans);
+
+    if (!normalizedSearchQuery) {
+      return uniqueScans;
+    }
+
+    return uniqueScans.filter((scan) =>
+      [scan.rfidUid, scan.scannedAt, scan.deviceLabel, scan.registrationStatus]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery)),
+    );
+  }, [enrollmentScans, normalizedSearchQuery, scanDateFrom, scanDateTo]);
   const rowsPerPage = 6;
-  const totalPages = Math.max(1, Math.ceil(visibleRfidCards.length / rowsPerPage));
+  const listLength = showEnrollmentScans ? visibleEnrollmentScans.length : visibleRfidCards.length;
+  const totalPages = Math.max(1, Math.ceil(listLength / rowsPerPage));
   const paginatedRfidCards = useMemo(() => {
     const startIndex = (currentPage - 1) * rowsPerPage;
     return visibleRfidCards.slice(startIndex, startIndex + rowsPerPage);
   }, [currentPage, rowsPerPage, visibleRfidCards]);
+  const paginatedEnrollmentScans = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return visibleEnrollmentScans.slice(startIndex, startIndex + rowsPerPage);
+  }, [currentPage, rowsPerPage, visibleEnrollmentScans]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -266,7 +354,7 @@ export default function RFIDCards() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [collegeFilter, programFilter, normalizedSearchQuery]);
+  }, [collegeFilter, programFilter, normalizedSearchQuery, scanDateFrom, scanDateTo, showEnrollmentScans]);
 
   const totalStudents = useMemo(() => {
     return new Set(rfidCards.map((card) => card.userId)).size;
@@ -279,26 +367,49 @@ export default function RFIDCards() {
     () => rfidCards.filter((card) => card.status === 'inactive').length,
     [rfidCards],
   );
-  const summaryCards = [
-    {
-      label: 'Total Students',
-      value: totalStudents,
-      detail: 'With issued RFID card',
-      icon: Users,
-    },
-    {
-      label: 'Active RFID',
-      value: totalActiveRfid,
-      detail: 'Cards usable for access',
-      icon: CheckCircle2,
-    },
-    {
-      label: 'Inactive RFID',
-      value: totalInactiveRfid,
-      detail: 'Disabled cards',
-      icon: XCircle,
-    },
-  ];
+  const uniqueEnrollmentScans = useMemo(() => latestScansByUid(enrollmentScans), [enrollmentScans]);
+  const registeredUidCount = uniqueEnrollmentScans.filter((scan) => scan.registrationStatus === 'registered').length;
+  const summaryCards = showEnrollmentScans
+    ? [
+        {
+          label: 'Total UID Scanned',
+          value: uniqueEnrollmentScans.length,
+          detail: 'Unique UIDs in the scan list',
+          icon: Users,
+        },
+        {
+          label: 'Registered UID Now',
+          value: registeredUidCount,
+          detail: 'Already linked to a student card',
+          icon: CheckCircle2,
+        },
+        {
+          label: 'Unknown',
+          value: uniqueEnrollmentScans.length - registeredUidCount,
+          detail: 'Not registered yet',
+          icon: XCircle,
+        },
+      ]
+    : [
+        {
+          label: 'Total Students',
+          value: totalStudents,
+          detail: 'With issued RFID card',
+          icon: Users,
+        },
+        {
+          label: 'Active RFID',
+          value: totalActiveRfid,
+          detail: 'Cards usable for access',
+          icon: CheckCircle2,
+        },
+        {
+          label: 'Inactive RFID',
+          value: totalInactiveRfid,
+          detail: 'Disabled cards',
+          icon: XCircle,
+        },
+      ];
 
   const viewCardGroups = useMemo(() => {
     if (!viewCard) {
@@ -463,7 +574,7 @@ export default function RFIDCards() {
   return (
     <>
       <main className="admin-dashboard rfid-page" aria-label="Student RFID cards">
-        <section className="manage-users-summary-grid rfid-summary-grid" aria-label="RFID summary">
+        <section className="manage-users-summary-grid rfid-summary-grid" aria-label={showEnrollmentScans ? 'Enrollment scan summary' : 'RFID summary'}>
           {summaryCards.map(({ label, value, detail, icon: Icon }) => (
             <article className="dashboard-summary-card rfid-summary-card" key={label}>
               <div className="dashboard-summary-icon" aria-hidden="true">
@@ -471,7 +582,7 @@ export default function RFIDCards() {
               </div>
               <div className="dashboard-summary-copy">
                 <span className="dashboard-summary-label">{label}</span>
-                <strong>{isLoading ? '--' : value}</strong>
+                <strong>{(showEnrollmentScans ? isScanLoading : isLoading) ? '--' : value}</strong>
                 <small>{detail}</small>
               </div>
             </article>
@@ -481,34 +592,67 @@ export default function RFIDCards() {
         <section className="dashboard-recent-card rfid-card rfid-cards-card">
           <div className="dashboard-panel-header">
             <div>
-              <span>Student RFID Cards</span>
-              <p>Issued RFID cards linked to student profiles.</p>
+              <span>{showEnrollmentScans ? 'Scanned UID for Enrollment' : 'Student RFID Cards'}</span>
+              <p>
+                {showEnrollmentScans
+                  ? 'UIDs read by the enrollment scanner. These are not issued student cards.'
+                  : 'Issued RFID cards linked to student profiles.'}
+              </p>
             </div>
             <div className="rfid-header-actions">
-              <div className="rfid-search-stack">
+              <div className="rfid-header-links">
                 <button
                   type="button"
                   className="dashboard-text-link rfid-download-button"
                   onClick={() => setIsExportModalOpen(true)}
-                  disabled={isLoading || Boolean(errorMessage) || visibleRfidCards.length === 0}
+                  disabled={showEnrollmentScans || isLoading || Boolean(errorMessage) || visibleRfidCards.length === 0}
                 >
                   <Download size={16} aria-hidden="true" />
                   Download
                 </button>
-                <label className="rfid-search" aria-label="Search student RFID cards">
-                  <Search size={16} aria-hidden="true" />
-                  <input
-                    type="search"
-                    placeholder="Search user or RFID UID"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                  />
-                </label>
               </div>
             </div>
           </div>
 
           <div className="manage-users-role-filter rfid-filter-row">
+            {showEnrollmentScans && (
+              <div className="rfid-scan-dates">
+                <label>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={scanDateFrom}
+                    max={scanDateTo || undefined}
+                    onChange={(event) => setScanDateFrom(event.target.value)}
+                  />
+                </label>
+                <span className="rfid-scan-dates-divider" aria-hidden="true" />
+                <label>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={scanDateTo}
+                    min={scanDateFrom || undefined}
+                    onChange={(event) => setScanDateTo(event.target.value)}
+                  />
+                </label>
+                {scanDateFrom || scanDateTo ? (
+                  <button
+                    type="button"
+                    className="rfid-scan-dates-clear"
+                    aria-label="Clear dates"
+                    onClick={() => {
+                      setScanDateFrom('');
+                      setScanDateTo('');
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+            )}
+            {!showEnrollmentScans && (
+            <>
             <RfidFilterMenu
               id="rfid-college-filter"
               label="College filter"
@@ -540,19 +684,81 @@ export default function RFIDCards() {
                 setOpenFilter('');
               }}
             />
+            </>
+            )}
+            <div className="rfid-filter-tools">
+              <button
+                type="button"
+                className="dashboard-text-link rfid-scan-button"
+                onClick={() => setShowEnrollmentScans((current) => !current)}
+              >
+                {showEnrollmentScans ? 'Registered RFID' : 'Scanned UID for Enrollment'}
+              </button>
+              <label className="rfid-search" aria-label={showEnrollmentScans ? 'Search enrollment scans' : 'Search student RFID cards'}>
+                <Search size={16} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder={showEnrollmentScans ? 'Search scanned UID' : 'Search user or RFID UID'}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+              </label>
+            </div>
           </div>
 
           <div className="dashboard-recent-table-wrap rfid-table-wrap">
-            <table className="dashboard-recent-table rfid-table">
+            <table className={`dashboard-recent-table rfid-table${showEnrollmentScans ? ' rfid-scan-table' : ''}`}>
               <thead>
                 <tr>
-                  {columns.map((column) => (
+                  {(showEnrollmentScans ? scanColumns : columns).map((column) => (
                     <th key={column}>{column}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {isLoading && (
+                {showEnrollmentScans && isScanLoading && (
+                  <tr>
+                    <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
+                      Loading enrollment scans...
+                    </td>
+                  </tr>
+                )}
+
+                {showEnrollmentScans && !isScanLoading && scanErrorMessage && (
+                  <tr>
+                    <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
+                      {scanErrorMessage}
+                    </td>
+                  </tr>
+                )}
+
+                {showEnrollmentScans && !isScanLoading && !scanErrorMessage && visibleEnrollmentScans.length === 0 && (
+                  <tr>
+                    <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
+                      {normalizedSearchQuery || scanDateFrom || scanDateTo
+                        ? 'No enrollment scans match these filters.'
+                        : 'No enrollment scans yet.'}
+                    </td>
+                  </tr>
+                )}
+
+                {showEnrollmentScans &&
+                  !isScanLoading &&
+                  !scanErrorMessage &&
+                  paginatedEnrollmentScans.map((scan) => (
+                    <tr key={scan.id}>
+                      <td className="rfid-uid">{scan.rfidUid}</td>
+                      <td>{scan.scannedAt}</td>
+                      <td>{scan.deviceLabel}</td>
+                      <td>
+                        <span className={`dashboard-log-status rfid-status rfid-status-${scan.registrationStatus === 'registered' ? 'registered' : 'unknown'}`}>
+                          {scan.registrationStatus === 'registered' ? 'registered' : 'unknown'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+
+                {!showEnrollmentScans && isLoading && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
                       Loading student RFID cards...
@@ -560,7 +766,7 @@ export default function RFIDCards() {
                   </tr>
                 )}
 
-                {!isLoading && errorMessage && (
+                {!showEnrollmentScans && !isLoading && errorMessage && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
                       {errorMessage}
@@ -568,7 +774,7 @@ export default function RFIDCards() {
                   </tr>
                 )}
 
-                {!isLoading && !errorMessage && visibleRfidCards.length === 0 && (
+                {!showEnrollmentScans && !isLoading && !errorMessage && visibleRfidCards.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
                       {normalizedSearchQuery || collegeFilter !== 'all' || programFilter !== 'all'
@@ -578,9 +784,13 @@ export default function RFIDCards() {
                   </tr>
                 )}
 
-                {!isLoading &&
+                {!showEnrollmentScans &&
+                  !isLoading &&
                   !errorMessage &&
-                  paginatedRfidCards.map((card) => (
+                  paginatedRfidCards.map((card) => {
+                    const registeredAt = splitRegisteredAt(card.issuedAt);
+
+                    return (
                     <tr key={card.id}>
                       <td>
                         <strong>{card.name}</strong>
@@ -603,7 +813,10 @@ export default function RFIDCards() {
                           {card.status}
                         </span>
                       </td>
-                      <td>{card.issuedAt}</td>
+                      <td>
+                        <strong>{registeredAt.date}</strong>
+                        {registeredAt.time ? <span>{registeredAt.time}</span> : null}
+                      </td>
                       <td>
                         <RowActionMenu
                           label={`Actions for ${card.name}`}
@@ -622,16 +835,18 @@ export default function RFIDCards() {
                         />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>
 
-          {!isLoading && !errorMessage && visibleRfidCards.length > 0 && (
-            <div className="manage-users-pagination" aria-label="RFID cards pagination">
+          {((showEnrollmentScans && !isScanLoading && !scanErrorMessage && visibleEnrollmentScans.length > 0) ||
+            (!showEnrollmentScans && !isLoading && !errorMessage && visibleRfidCards.length > 0)) && (
+            <div className="manage-users-pagination" aria-label={showEnrollmentScans ? 'Enrollment scans pagination' : 'RFID cards pagination'}>
               <p>
                 Showing {(currentPage - 1) * rowsPerPage + 1}-
-                {Math.min(currentPage * rowsPerPage, visibleRfidCards.length)} of {visibleRfidCards.length}
+                {Math.min(currentPage * rowsPerPage, listLength)} of {listLength}
               </p>
               <div className="manage-users-pagination-controls">
                 <button

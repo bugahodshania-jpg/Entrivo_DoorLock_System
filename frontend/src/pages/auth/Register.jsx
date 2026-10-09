@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Camera, Eye, EyeOff, GraduationCap, IdCard, Info, KeyRound, Lock, MapPin, Menu, Shield, Trash2, Upload, UserRound, X } from 'lucide-react';
-import PixelWave from '../../components/PixelWave';
 import axiosClient from '../../api/axiosClient';
-import logo from '../../assets/images/entrivo_logo.png';
+import csuccLogo from '../../assets/images/csucc_logo.png';
+import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import schoolIdExample from '../../assets/images/csucc-school-id-example.jpg';
 import { getManilaDateStamp } from '../../utils/dateTime';
+import { clearRegistrationSession, registrationDraftKey, verifiedRfidKey, registrationResumeAction } from '../../utils/registrationSession';
 import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
 import '../../styles/superAdmin/dashboard.css';
@@ -95,7 +96,7 @@ const schoolEmailDomain = 'csucc.edu.ph';
 const contactNumberLength = 11;
 const stepFields = {
   1: ['first_name', 'middle_name', 'last_name', 'extension_name', 'sex', 'contact_number', 'date_of_birth', 'street_address', 'barangay', 'city_municipality', 'province', 'zip_code', 'country'],
-  2: ['school_id', 'college', 'program_department', 'year_level', 'section', 'school_id_photo'],
+  2: ['school_id', 'rfid_uid', 'college', 'program_department', 'year_level', 'section', 'school_id_photo'],
   3: ['email', 'username', 'password', 'confirm_password'],
   4: ['security_question_1', 'security_answer_1', 'security_question_2', 'security_answer_2', 'security_question_3', 'security_answer_3'],
 };
@@ -263,6 +264,7 @@ function validateRegistration(form, questions) {
   }
 
   const email = normalizeSchoolEmail(form.email);
+  if (!form.rfid_uid.trim()) errors.rfid_uid = 'A verified School ID UID is required.';
   if (!email) {
     errors.email = 'Email is required.';
   } else if (!email.endsWith(`@${schoolEmailDomain}`)) {
@@ -301,6 +303,8 @@ function validateRegistration(form, questions) {
 
   if (!form.username.trim()) {
     errors.username = 'Username is required.';
+  } else if (/\p{N}/u.test(form.username)) {
+    errors.username = 'Username cannot contain numbers.';
   } else if (/\s/.test(form.username)) {
     errors.username = 'Username cannot contain spaces.';
   } else if (!form.username.includes('.')) {
@@ -361,9 +365,6 @@ function firstInvalidStep(errors) {
   return steps.find((step) => stepFields[step.id].some((field) => errors[field]))?.id || 0;
 }
 
-const registrationDraftKey = 'entrivo_public_register_draft';
-const verifiedRfidKey = 'entrivo_verified_rfid_uid';
-
 function readVerifiedRfidUid() {
   try {
     return window.sessionStorage.getItem(verifiedRfidKey) || '';
@@ -380,6 +381,8 @@ function readRegistrationDraft() {
     questions: initialQuestions,
   };
 
+  if (!verifiedRfidUid) return fallback;
+
   try {
     const savedDraft = window.sessionStorage.getItem(registrationDraftKey);
 
@@ -388,6 +391,7 @@ function readRegistrationDraft() {
     }
 
     const parsedDraft = JSON.parse(savedDraft);
+    if (parsedDraft.form?.rfid_uid !== verifiedRfidUid) return fallback;
     const savedStep = Number(parsedDraft.step);
     const savedQuestions = Array.isArray(parsedDraft.questions) ? parsedDraft.questions : [];
 
@@ -419,6 +423,11 @@ export default function Register() {
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [visibleAnswers, setVisibleAnswers] = useState([false, false, false]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
+  const [availabilityErrors, setAvailabilityErrors] = useState({});
+  const latestAvailabilityErrorsRef = useRef({});
+  const currentFormRef = useRef(form);
+  currentFormRef.current = form;
   const [errorMessage, setErrorMessage] = useState('');
   const [createdAccount, setCreatedAccount] = useState(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -431,13 +440,56 @@ export default function Register() {
     !savedDraft.form.username
     || savedDraft.form.username === buildUsername(savedDraft.form.first_name, savedDraft.form.last_name),
   );
-  const fieldErrors = useMemo(() => validateRegistration(form, questions), [form, questions]);
+  const fieldErrors = useMemo(() => {
+    const errors = validateRegistration(form, questions);
+    for (const [field, result] of Object.entries(availabilityErrors)) {
+      const value = field === 'email' ? normalizeSchoolEmail(form[field]) : form[field];
+      if (result.value === value && result.message) errors[field] = result.message;
+    }
+    return errors;
+  }, [form, questions, availabilityErrors]);
+
+  async function checkAvailability(fields) {
+    const uniqueFields = fields.filter((field) => ['school_id', 'rfid_uid', 'username', 'email'].includes(field));
+    if (!uniqueFields.length) return true;
+    const fieldValue = (source, field) => field === 'email' ? normalizeSchoolEmail(source[field]) : source[field];
+    const values = Object.fromEntries(uniqueFields.map((field) => [field, fieldValue(form, field)]));
+    try {
+      const response = await axiosClient.post('/api/registration_availability.php', values);
+      if (uniqueFields.some((field) => fieldValue(currentFormRef.current, field) !== values[field])) return false;
+      const errors = response.data.errors || {};
+      latestAvailabilityErrorsRef.current = errors;
+      setAvailabilityErrors((current) => ({
+        ...current,
+        ...Object.fromEntries(uniqueFields.map((field) => [field, { value: values[field], message: errors[field] || '' }])),
+      }));
+      return !uniqueFields.some((field) => errors[field]);
+    } catch {
+      setErrorMessage('Unable to check whether these details are already in use. Please try again.');
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    if (!readVerifiedRfidUid()) {
+      window.location.replace('/?signup=1');
+    }
+    function handleRestoredPage(event) {
+      if (!event.persisted) return;
+      const action = registrationResumeAction(window.sessionStorage, currentFormRef.current.rfid_uid);
+      if (action === 'verify') window.location.replace('/?signup=1');
+      else if (action === 'reload') window.location.reload();
+    }
+    window.addEventListener('pageshow', handleRestoredPage);
+    return () => window.removeEventListener('pageshow', handleRestoredPage);
+  }, []);
   const programOptions = useMemo(() => getProgramOptions(form.college), [form.college]);
   const currentStep = steps[step - 1];
   const StepIcon = currentStep.icon;
 
   function updateField(field, value) {
     if (field === 'username') {
+      value = value.replace(/\p{N}/gu, '');
       usernameIsAutoRef.current = value === buildUsername(form.first_name, form.last_name);
     }
 
@@ -642,8 +694,7 @@ export default function Register() {
 
   useEffect(() => {
     if (createdAccount) {
-      window.sessionStorage.removeItem(registrationDraftKey);
-      window.sessionStorage.removeItem(verifiedRfidKey);
+      clearRegistrationSession(window.sessionStorage);
       return;
     }
 
@@ -678,7 +729,8 @@ export default function Register() {
     )));
   }
 
-  function goNext() {
+  async function goNext() {
+    if (isCheckingAvailability) return;
     const fields = stepFields[step];
     markFieldsTouched(fields);
 
@@ -687,7 +739,12 @@ export default function Register() {
     }
 
     setErrorMessage('');
-    setStep((current) => Math.min(steps.length, current + 1));
+    setIsCheckingAvailability(true);
+    try {
+      if (await checkAvailability(fields)) setStep((current) => Math.min(steps.length, current + 1));
+    } finally {
+      setIsCheckingAvailability(false);
+    }
   }
 
   function goBack() {
@@ -711,6 +768,11 @@ export default function Register() {
     setErrorMessage('');
 
     try {
+      if (!(await checkAvailability(['school_id', 'rfid_uid', 'username', 'email']))) {
+        const duplicateStep = firstInvalidStep(latestAvailabilityErrorsRef.current);
+        if (duplicateStep) setStep(duplicateStep);
+        return;
+      }
       const response = await axiosClient.post('/api/public_register.php', {
         ...form,
         email: normalizeSchoolEmail(form.email),
@@ -722,6 +784,15 @@ export default function Register() {
       });
       setCreatedAccount(response.data);
     } catch (error) {
+      const duplicateErrors = error.response?.data?.errors || {};
+      setAvailabilityErrors((current) => ({
+        ...current,
+        ...Object.fromEntries(Object.entries(duplicateErrors).map(([field, message]) => [field, {
+          value: field === 'email' ? normalizeSchoolEmail(form[field]) : form[field], message,
+        }])),
+      }));
+      const duplicateStep = firstInvalidStep(duplicateErrors);
+      if (duplicateStep) setStep(duplicateStep);
       setErrorMessage(error.response?.data?.message || 'Unable to create the account right now.');
     } finally {
       setIsSaving(false);
@@ -730,13 +801,21 @@ export default function Register() {
 
   return (
     <main className={`auth-page auth-page-register${menuOpen ? ' is-menu-open' : ''}`}>
-      <PixelWave variant="auth" className="auth-pixel-wave auth-pixel-wave-corner" />
-      <PixelWave variant="auth" className="auth-pixel-wave auth-pixel-wave-corner is-top-left" />
       <header className="home-header">
         <div className="home-header-inner">
           <a className="home-brand" href="/" aria-label="Entrivo home">
-            <img src={logo} alt="Entrivo logo" />
-            <span>Entrivo</span>
+            <span className="home-brand-marks">
+              <span className="home-logo-csu">
+                <img src={csuLogo} alt="" />
+              </span>
+              <span className="home-logo-csucc">
+                <img src={csuccLogo} alt="" />
+              </span>
+            </span>
+            <span className="home-brand-text">
+              <strong>Caraga State University</strong>
+              <small>Cabadbaran Campus</small>
+            </span>
           </a>
           <button
             type="button"
@@ -750,16 +829,18 @@ export default function Register() {
           </button>
           <div className={`home-header-right${menuOpen ? ' is-open' : ''}`} id="register-mobile-nav">
             <nav className="home-actions" aria-label="Primary">
-              <a className="home-link-button" href="/" onClick={() => setMenuOpen(false)}>
+              <a className="home-header-link" href="/" onClick={() => setMenuOpen(false)}>
                 Home
               </a>
-              <a className="home-primary-button" href="/login" onClick={() => setMenuOpen(false)}>
+              <a className="home-header-link is-gold" href="/login" onClick={() => setMenuOpen(false)}>
                 Sign in
               </a>
             </nav>
           </div>
         </div>
       </header>
+
+      <div className="auth-pattern-band" aria-hidden="true" />
 
       {createdAccount ? (
         <div className="public-register-success-screen">
@@ -786,7 +867,6 @@ export default function Register() {
         <div className="dashboard-recent-card register-user-card public-register-card">
           <div className="public-register-top">
             <div className="public-register-brand">
-              <img src={logo} alt="" />
               <div>
                 <h1 id="register-title">Create Your Account</h1>
                 <p>{currentStep.subtitle}</p>
@@ -1019,7 +1099,7 @@ export default function Register() {
                           aria-invalid={Boolean(getFieldError('school_id'))}
                           value={form.school_id}
                           onChange={(event) => updateField('school_id', normalizeSchoolId(event.target.value))}
-                          onBlur={() => markFieldsTouched(['school_id'])}
+                          onBlur={() => { markFieldsTouched(['school_id']); void checkAvailability(['school_id']); }}
                         />
                         <FieldError field="school_id" />
                       </label>
@@ -1087,16 +1167,15 @@ export default function Register() {
                         </select>
                         <FieldError field="section" />
                       </label>
-                      <div className="public-register-rfid-partition" role="separator">
-                        <span>RFID</span>
-                      </div>
                       <label>
                         <span>School ID. UID</span>
                         <input
                           readOnly
+                          aria-invalid={Boolean(getFieldError('rfid_uid'))}
                           value={form.rfid_uid}
                           placeholder="Verified school UID"
                         />
+                        <FieldError field="rfid_uid" />
                       </label>
                     </div>
 
@@ -1178,6 +1257,7 @@ export default function Register() {
                             onBlur={() => {
                               updateField('email', normalizeSchoolEmail(form.email));
                               markFieldsTouched(['email']);
+                              void checkAvailability(['email']);
                             }}
                           />
                           <FieldError field="email" />
@@ -1190,7 +1270,7 @@ export default function Register() {
                             aria-invalid={Boolean(getFieldError('username'))}
                             value={form.username}
                             onChange={(event) => updateField('username', event.target.value)}
-                            onBlur={() => markFieldsTouched(['username'])}
+                            onBlur={() => { markFieldsTouched(['username']); void checkAvailability(['username']); }}
                           />
                           <FieldError field="username" />
                         </label>
@@ -1374,8 +1454,8 @@ export default function Register() {
                 )}
                 <p>Step {step} of {steps.length}</p>
                 {step < steps.length ? (
-                  <button className="public-register-submit" type="button" onClick={goNext}>
-                    Next
+                  <button className="public-register-submit" type="button" onClick={goNext} disabled={isCheckingAvailability}>
+                    {isCheckingAvailability ? 'Checking...' : 'Next'}
                     <ArrowRight size={16} />
                   </button>
                 ) : (
@@ -1388,6 +1468,10 @@ export default function Register() {
         </div>
       </section>
       )}
+
+      <footer className="auth-site-footer">
+        <p>Entrivo · Caraga State University — Cabadbaran Campus</p>
+      </footer>
 
       {idPhotoAction ? (
         <div className="register-user-modal-backdrop" role="presentation">

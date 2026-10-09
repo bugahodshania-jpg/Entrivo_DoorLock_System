@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/RegistrationUniquenessService.php';
+
 class UserRegistrationService
 {
     private const SCHOOL_EMAIL_DOMAIN = 'csucc.edu.ph';
@@ -344,7 +346,11 @@ class UserRegistrationService
 
     public function registerPublicStudent(array $input): array
     {
+        (new RegistrationUniquenessService($this->pdo))->assertAvailable($input);
         $username = $this->requiredText($input, 'username', 'Username');
+        if (preg_match('/\p{N}/u', $username)) {
+            throw new InvalidArgumentException('Username cannot contain numbers.');
+        }
         $password = (string) ($input['password'] ?? '');
         $email = $this->normalizeEmail($this->requiredText($input, 'email', 'Email'));
         $firstName = $this->normalizeTitleText($this->requiredText($input, 'first_name', 'First name'));
@@ -425,6 +431,7 @@ class UserRegistrationService
             'school_id_photo' => $this->normalizeSchoolIdPhoto($input['school_id_photo'] ?? null),
         ];
 
+        $rfidUid = $this->requireScannedRfidUid($input['rfid_uid'] ?? null);
         $approvalDueAt = new DateTimeImmutable('+24 hours');
 
         try {
@@ -461,7 +468,7 @@ class UserRegistrationService
             $userId = (int) $this->pdo->lastInsertId();
             $this->insertProfile('student', $userId, $profile);
             $this->insertSecurityQuestions($userId, $securityQuestions);
-            $this->createRfidCard($userId, $input['rfid_uid'] ?? null);
+            $this->createRfidCard($userId, $rfidUid);
             $this->pdo->commit();
 
             return [
@@ -819,6 +826,28 @@ class UserRegistrationService
         }
 
         return $value;
+    }
+
+    private function requireScannedRfidUid(mixed $rfidUid): string
+    {
+        require_once __DIR__ . '/RfidScanService.php';
+
+        $scans = new RfidScanService($this->pdo);
+        $normalized = $scans->normalizeUid($rfidUid);
+
+        if (!$scans->isValidUid($normalized)) {
+            throw new InvalidArgumentException('Enter the RFID UID shown on the scanner.');
+        }
+
+        if ($scans->isRegistered($normalized)) {
+            throw new InvalidArgumentException('This UID is already registered.');
+        }
+
+        if ($scans->latestScan($normalized) === null) {
+            throw new InvalidArgumentException('This UID was not scanned yet. Scan your school ID at the RFID station, then enter the UID shown on the screen.');
+        }
+
+        return $normalized;
     }
 
     private function normalizeRfidUid(mixed $rfidUid): ?string

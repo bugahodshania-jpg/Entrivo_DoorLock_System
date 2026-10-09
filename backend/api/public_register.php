@@ -51,6 +51,9 @@ try {
         'message' => 'Your account was created and is pending approval. It will remain pending if it is not approved within 24 hours. If 24 hours pass and the account is still not approved, ask an administrator about the concern.',
         'user' => $savedUser,
     ]);
+} catch (RegistrationDuplicateException $error) {
+    http_response_code(409);
+    echo json_encode(['message' => $error->getMessage(), 'errors' => $error->fieldErrors]);
 } catch (InvalidArgumentException $error) {
     http_response_code(422);
     echo json_encode([
@@ -58,11 +61,16 @@ try {
     ]);
 } catch (PDOException $error) {
     $isDuplicate = ($error->errorInfo[1] ?? null) === 1062;
+    $fieldErrors = [];
+    if ($isDuplicate && isset($pdo, $input)) {
+        $fieldErrors = (new RegistrationUniquenessService($pdo))->check($input);
+    }
     http_response_code($isDuplicate ? 409 : 500);
     echo json_encode([
         'message' => $isDuplicate
-            ? 'Username, email, or school ID already exists.'
+            ? 'Username, email, school ID, or school ID UID already exists.'
             : 'Unable to create the account right now.',
+        'errors' => (object) $fieldErrors,
     ]);
 } catch (Throwable $error) {
     http_response_code(500);

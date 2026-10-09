@@ -12,7 +12,7 @@ export default function AdminDashboard({ user, onLogout }) {
             Signed in as {user?.username || 'admin'} with regular admin privileges.
           </span>
         </div>
-        <button type="button" onClick={onLogout}>
+        <button type="button" onClick={() => onLogout()}>
           Logout
         </button>
       </section>

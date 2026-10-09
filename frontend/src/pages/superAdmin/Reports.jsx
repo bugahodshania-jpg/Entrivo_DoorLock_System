@@ -69,8 +69,9 @@ function FilterMenu({ id, label, value, options, isOpen, onToggle, onSelect, men
 }
 
 const methodOrder = ['Fingerprint', 'RFID', 'Override'];
+const methodColors = { Fingerprint: '#0d4632', RFID: '#427956', Override: '#f0c423' };
 const roleOrder = ['Student', 'Instructor', 'Staff', 'Admin', 'Super Admin'];
-const roleColors = ['#1f5a4c', '#4e8274', '#7fa198', '#c8d5d0', '#a3b1ab'];
+const roleColors = ['#216c48', '#0d4632', '#427956', '#f0c423', '#b7cec0'];
 
 function activityDay(dateTime) {
   const match = String(dateTime || '').match(/^([A-Za-z]+ \d{1,2}, \d{4})/);
@@ -172,7 +173,7 @@ function AccessMethodChart({ rows }) {
         <div key={method.name}>
           <strong>{method.count}</strong>
           <span className="reports-method-track">
-            <span style={{ height: method.count === 0 ? '0%' : `${Math.max(8, (method.count / max) * 100)}%` }} />
+            <span style={{ background: methodColors[method.name], height: method.count === 0 ? '0%' : `${Math.max(8, (method.count / max) * 100)}%` }} />
           </span>
           <small>{method.name}</small>
         </div>

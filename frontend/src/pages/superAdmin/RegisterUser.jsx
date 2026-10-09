@@ -54,18 +54,20 @@ function readDraft(role) {
   }
 }
 
-export default function RegisterUser({ user: currentUser } = {}) {
+export default function RegisterUser({ user: currentUser, initialRole: selectedRole, onClose } = {}) {
   const confirmAction = useActionConfirm();
   const params = new URLSearchParams(window.location.search);
   const isLimitedAdmin = currentUser?.role === 'admin';
-  const requestedRole = normalizeInitialRole(params.get('role'));
+  const requestedRole = normalizeInitialRole(selectedRole ?? params.get('role'));
   const initialRole = isLimitedAdmin && adminBlockedRoles.has(requestedRole) ? 'student' : requestedRole;
   const availableRoles = isLimitedAdmin
     ? roleOptions.filter((option) => !adminBlockedRoles.has(option.value))
     : roleOptions;
   const [form, setForm] = useState(() => {
     const draft = readDraft(initialRole);
-    const draftRole = isLimitedAdmin && adminBlockedRoles.has(draft.role) ? 'student' : draft.role;
+    const draftRole = selectedRole != null
+      ? initialRole
+      : isLimitedAdmin && adminBlockedRoles.has(draft.role) ? 'student' : draft.role;
 
     return { ...draft, role: draftRole };
   });
@@ -202,6 +204,10 @@ export default function RegisterUser({ user: currentUser } = {}) {
 
   function leaveRegistration() {
     window.sessionStorage.removeItem(registrationDraftKey);
+    if (onClose) {
+      onClose(Boolean(savedUser));
+      return;
+    }
     window.location.assign(portalHref('/super-admin/manage-users'));
   }
 

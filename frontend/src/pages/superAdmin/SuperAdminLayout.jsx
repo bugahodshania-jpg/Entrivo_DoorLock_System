@@ -20,7 +20,7 @@ import {
   FileBarChart,
   ScrollText,
 } from 'lucide-react';
-import entrivoLogo from '../../assets/images/entrivo_logo.png';
+import UniversityBrand from '../../components/UniversityBrand';
 import { formatDateInManila } from '../../utils/dateTime';
 import { portalLayoutClassName, useCompactNav } from '../../hooks/useCompactNav';
 import { normalizePrivileges, PRIVILEGE_PATHS } from '../../utils/privileges';
@@ -136,7 +136,7 @@ function ProfileMenu({ className = '', onLogout, canOpenSettings = true }) {
         </a>
       ) : null}
       <div className="super-admin-profile-menu-divider" />
-      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={onLogout}>
+      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={() => onLogout()}>
         <LogOut size={16} strokeWidth={1.75} aria-hidden="true" />
         <span>Log Out</span>
       </button>
@@ -275,11 +275,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
       >
         <div className="super-admin-sidebar-brand">
           <a className="super-admin-logo" href={dashboardHref} aria-label="Entrivo dashboard">
-            <img className="super-admin-logo-mark" src={entrivoLogo} alt="" aria-hidden="true" />
-            <span className="super-admin-logo-text">
-              <strong>Entrivo</strong>
-              <small>Door Lock Access Control</small>
-            </span>
+            <UniversityBrand />
           </a>
           <button
             className="super-admin-sidebar-toggle"

@@ -12,7 +12,7 @@ import {
   ShieldAlert,
   User,
 } from 'lucide-react';
-import entrivoLogo from '../../assets/images/entrivo_logo.png';
+import UniversityBrand from '../../components/UniversityBrand';
 import { ActionConfirmProvider } from '../../components/ActionConfirm';
 import NotificationBell from '../../components/NotificationBell';
 import { formatDateInManila } from '../../utils/dateTime';
@@ -81,7 +81,7 @@ function ProfileMenu({ className = '', onLogout }) {
         <span>Security</span>
       </a>
       <div className="super-admin-profile-menu-divider" />
-      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={onLogout}>
+      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={() => onLogout()}>
         <LogOut size={16} aria-hidden="true" />
         <span>Log Out</span>
       </button>
@@ -177,11 +177,7 @@ export default function UserLayout({ children, user, onLogout }) {
       >
         <div className="super-admin-sidebar-brand">
           <a className="super-admin-logo" href="/user/dashboard" aria-label="Entrivo dashboard">
-            <img className="super-admin-logo-mark" src={entrivoLogo} alt="" aria-hidden="true" />
-            <span className="super-admin-logo-text">
-              <strong>Entrivo</strong>
-              <small>{roleLabel} Portal</small>
-            </span>
+            <UniversityBrand />
           </a>
           <button
             className="super-admin-sidebar-toggle"

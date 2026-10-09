@@ -212,6 +212,20 @@ CREATE TABLE `rfid_cards` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
+-- Table structure for table `rfid_scan_log`
+-- Every UID read by the enrollment RFID station, with the time it was scanned.
+--
+DROP TABLE IF EXISTS `rfid_scan_log`;
+CREATE TABLE `rfid_scan_log` (
+  `scan_id` int NOT NULL AUTO_INCREMENT,
+  `rfid_uid` varchar(30) NOT NULL,
+  `scanned_at` datetime NOT NULL,
+  `device_label` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`scan_id`),
+  KEY `idx_rfid_scan_uid_time` (`rfid_uid`, `scanned_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
 -- Table structure for table `schedule_edit_history`
 --
 DROP TABLE IF EXISTS `schedule_edit_history`;

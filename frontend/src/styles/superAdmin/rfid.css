@@ -682,15 +682,84 @@
   gap: 12px;
 }
 
-.rfid-search-stack {
-  align-items: flex-end;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .rfid-cards-card > .dashboard-panel-header {
   margin-bottom: 0;
+}
+
+.rfid-cards-card > .dashboard-panel-header p {
+  padding-bottom: 12px;
+}
+
+.rfid-filter-tools {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rfid-filter-tools .rfid-scan-button {
+  height: 30px;
+}
+
+.rfid-scan-dates {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe8e3;
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: inline-flex;
+  gap: 8px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px 0 12px;
+}
+
+.rfid-scan-dates label {
+  align-items: center;
+  color: #60716a;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.rfid-scan-dates input {
+  background: transparent;
+  border: 0;
+  color: #18372b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  height: 28px;
+  padding: 0;
+  width: 118px;
+}
+
+.rfid-scan-dates input:focus {
+  outline: none;
+}
+
+.rfid-scan-dates-divider {
+  background: #e1e7e4;
+  height: 16px;
+  width: 1px;
+}
+
+.rfid-scan-dates-clear {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #60716a;
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.rfid-scan-dates-clear:hover {
+  background: #f3f7f5;
 }
 
 .rfid-filter .manage-users-role-tab-trigger {
@@ -816,6 +885,48 @@
   width: 17%;
 }
 
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(1),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(1) {
+  padding-right: 24px;
+  width: 22.6%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(2),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(2) {
+  width: 8.6%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(3),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(3) {
+  padding-left: 32px;
+  width: 28%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(4),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(4) {
+  width: 8.6%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(5),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(5) {
+  width: 9.3%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(6),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(6) {
+  width: 7.4%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(7),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(7) {
+  width: 10%;
+}
+
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) th:nth-child(8),
+.rfid-cards-card .rfid-table:not(.rfid-scan-table) td:nth-child(8) {
+  width: 5.5%;
+}
+
 .rfid-table th:nth-child(2),
 .rfid-table td:nth-child(2) {
   width: 10%;
@@ -895,7 +1006,8 @@
   justify-content: center;
 }
 
-.rfid-status-active {
+.rfid-status-active,
+.rfid-status-registered {
   background: #e7f6ed;
   color: #0c7a43;
 }
@@ -910,14 +1022,66 @@
   color: #b93636;
 }
 
-.rfid-download-button {
+.rfid-status-unknown {
+  background: #f2f4f3;
+  color: #68766f;
+}
+
+.rfid-scan-table {
+  min-width: 760px;
+}
+
+.rfid-scan-table th:nth-child(1),
+.rfid-scan-table td:nth-child(1),
+.rfid-scan-table th:nth-child(2),
+.rfid-scan-table td:nth-child(2),
+.rfid-scan-table th:nth-child(3),
+.rfid-scan-table td:nth-child(3) {
+  text-align: left;
+  width: 26%;
+}
+
+.rfid-scan-table th:nth-child(4),
+.rfid-scan-table td:nth-child(4) {
+  text-align: left;
+  width: 22%;
+}
+
+.rfid-header-links {
+  align-items: flex-end;
+  display: inline-flex;
+  gap: 16px;
+}
+
+.rfid-download-button,
+.rfid-scan-button {
   align-items: center;
   background: transparent;
   border: 0;
+  box-sizing: border-box;
   cursor: pointer;
   display: inline-flex;
   gap: 6px;
-  padding: 0 0 9px;
+  height: 26px;
+  padding: 0;
+}
+
+.rfid-scan-button {
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 4px;
+  color: #ffffff;
+  justify-content: center;
+  min-width: 177px;
+  padding: 0 8px;
+  text-decoration: none;
+}
+
+.rfid-scan-button:hover {
+  background: #103e2b;
+  border-color: #103e2b;
+  color: #ffffff;
+  text-decoration: none;
 }
 
 .rfid-download-button:disabled {
@@ -932,14 +1096,21 @@
     width: 100%;
   }
 
-  .rfid-search-stack {
-    align-items: stretch;
+  .rfid-header-links {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .rfid-filter-tools {
+    margin-left: 0;
     width: 100%;
   }
 
-  .rfid-page:not(.pending-registrations-page) .rfid-search {
+  .rfid-filter-tools .rfid-search {
+    flex: 1 1 auto;
     max-width: none;
-    width: 100%;
+    min-width: 0;
+    width: auto;
   }
 
   .rfid-search input {
@@ -950,6 +1121,16 @@
   .rfid-filter-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .rfid-scan-dates {
+    max-width: 100%;
+    width: max-content;
+  }
+
+  .rfid-scan-dates input {
+    min-width: 0;
+    width: 108px;
   }
 
   .rfid-filter-row > .rfid-filter,

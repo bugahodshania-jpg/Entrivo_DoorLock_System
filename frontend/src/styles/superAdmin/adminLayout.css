@@ -13,9 +13,15 @@
 }
 
 .super-admin-sidebar {
+  --sidebar-bg: #08281c;
+  --sidebar-surface: #164b36;
+  --sidebar-text: #f4f6f1;
+  --sidebar-muted: #b7cec0;
+  --sidebar-gold: #f0c423;
   align-self: start;
-  background: #ffffff;
-  border-right: 1px solid #d9e2de;
+  background: var(--sidebar-bg);
+  border-right: 1px solid #24533e;
+  color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -1458,5 +1464,168 @@
 @media (max-width: 900px) {
   .super-admin-date-card {
     display: none;
+  }
+}
+
+/* Shared university branding and sidebar palette for every portal. */
+.dashboard-university-marks {
+  --logo-size: 32px;
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.dashboard-university-marks > span {
+  display: block;
+  flex-shrink: 0;
+  height: var(--logo-size);
+  overflow: hidden;
+  position: relative;
+  width: var(--logo-size);
+}
+
+.dashboard-university-marks .dashboard-logo-csu {
+  height: calc(var(--logo-size) * 1.14);
+}
+
+.dashboard-university-marks img {
+  display: block;
+  max-width: none;
+  position: absolute;
+}
+
+.dashboard-logo-csu img {
+  height: auto;
+  left: -7%;
+  top: -12%;
+  width: 114%;
+}
+
+.dashboard-logo-csucc img {
+  height: 155%;
+  left: -59%;
+  top: -27%;
+  width: 216%;
+}
+
+.super-admin-sidebar .super-admin-logo {
+  gap: 8px;
+  color: var(--sidebar-text);
+}
+
+.super-admin-sidebar .super-admin-logo-text strong {
+  color: var(--sidebar-text);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.super-admin-sidebar .super-admin-logo-text small {
+  color: var(--sidebar-muted);
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.super-admin-sidebar .super-admin-nav-heading {
+  color: var(--sidebar-muted);
+}
+
+.super-admin-sidebar .super-admin-nav-link,
+.super-admin-sidebar .super-admin-nav-link svg,
+.super-admin-sidebar .super-admin-profile-name,
+.super-admin-sidebar .super-admin-profile-settings {
+  color: var(--sidebar-text);
+}
+
+.super-admin-sidebar .super-admin-nav-link {
+  border-radius: 6px;
+}
+
+.super-admin-sidebar .super-admin-nav-link:hover,
+.super-admin-sidebar .super-admin-profile-settings:hover,
+.super-admin-sidebar .super-admin-profile-trigger:hover,
+.super-admin-sidebar .super-admin-profile-trigger[aria-expanded='true'] {
+  background: var(--sidebar-surface);
+  color: var(--sidebar-text);
+}
+
+.super-admin-layout .super-admin-sidebar .super-admin-nav-link.is-active {
+  background: var(--sidebar-surface);
+  border-radius: 0 6px 6px 0;
+  box-shadow: inset 3px 0 0 var(--sidebar-gold);
+  color: var(--sidebar-gold);
+}
+
+.super-admin-sidebar .super-admin-nav-link.is-active span,
+.super-admin-sidebar .super-admin-nav-link.is-active svg {
+  color: var(--sidebar-gold);
+}
+
+.super-admin-sidebar .super-admin-nav-link:hover svg {
+  color: var(--sidebar-gold);
+}
+
+.super-admin-layout .super-admin-sidebar .super-admin-sidebar-toggle {
+  background: var(--sidebar-surface);
+  border-color: #3b6b53;
+  color: var(--sidebar-text);
+}
+
+.super-admin-layout .super-admin-sidebar .super-admin-sidebar-toggle:hover {
+  border-color: var(--sidebar-gold);
+  color: var(--sidebar-gold);
+}
+
+.super-admin-sidebar .super-admin-profile {
+  border-top-color: #3b6b53;
+}
+
+.super-admin-sidebar .super-admin-profile-avatar {
+  background: var(--sidebar-surface);
+  color: var(--sidebar-gold);
+}
+
+.super-admin-sidebar .super-admin-profile-menu {
+  background: var(--sidebar-bg);
+  border-color: #3b6b53;
+}
+
+.super-admin-sidebar .super-admin-profile-menu-link,
+.super-admin-sidebar .super-admin-profile-menu-link svg {
+  color: var(--sidebar-text);
+}
+
+.super-admin-sidebar .super-admin-profile-menu-logout,
+.super-admin-sidebar .super-admin-profile-menu-logout svg {
+  color: #ffd0c8;
+}
+
+.super-admin-sidebar .super-admin-profile-menu-link:hover,
+.super-admin-sidebar .super-admin-profile-menu-logout:hover {
+  background: var(--sidebar-surface);
+}
+
+.super-admin-sidebar .super-admin-profile-menu-divider {
+  background: #3b6b53;
+}
+
+.super-admin-sidebar :is(a, button):focus-visible {
+  outline: 2px solid var(--sidebar-gold);
+  outline-offset: 2px;
+}
+
+.super-admin-layout.is-sidebar-collapsed .dashboard-university-marks {
+  --logo-size: 24px;
+  gap: 2px;
+}
+
+@media (min-width: 1280px) {
+  .super-admin-layout.is-sidebar-collapsed .super-admin-sidebar-brand:hover .dashboard-university-marks,
+  .super-admin-layout.is-sidebar-collapsed .super-admin-sidebar-brand:focus-within .dashboard-university-marks {
+    opacity: 0;
   }
 }

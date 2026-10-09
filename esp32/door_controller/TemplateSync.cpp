@@ -80,7 +80,8 @@ namespace
 
             if (quartetLength == 4)
             {
-                if (decodedLength + 3 > outputCapacity)
+                const size_t bytesInBlock = paddingCount >= 3 ? 0 : static_cast<size_t>(3 - paddingCount);
+                if (bytesInBlock == 0 || decodedLength + bytesInBlock > outputCapacity)
                 {
                     errorMessage = "Template data exceeds the supported output buffer size.";
                     return false;

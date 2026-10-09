@@ -14,8 +14,10 @@ namespace
     constexpr uint8_t SENSOR_PACKET_END_DATA = 0x08;
     constexpr uint8_t SENSOR_COMMAND_DOWNLOAD_TEMPLATE = 0x09;
     constexpr uint8_t SENSOR_CHAR_BUFFER_1 = 0x01;
-    constexpr size_t TEMPLATE_CHUNK_SIZE = 256;
     constexpr uint16_t ACK_TIMEOUT_MS = 4000;
+    constexpr size_t SENSOR_PACKET_BUFFER_BYTES = 280;
+
+    size_t g_sensorPacketBytes = 128;
 
     void clearFingerprintSerial()
     {
@@ -45,33 +47,40 @@ namespace
 
     bool writeRawPacket(uint8_t packetType, const uint8_t *payload, uint16_t payloadLength)
     {
-        const uint16_t packetLength = payloadLength + 2;
-        uint16_t checksum = packetType + (packetLength >> 8) + (packetLength & 0xFF);
-
-        FingerSerial.write(SENSOR_HEADER_HIGH);
-        FingerSerial.write(SENSOR_HEADER_LOW);
-
-        for (uint8_t index = 0; index < 4; ++index)
+        if (payloadLength > 256)
         {
-            FingerSerial.write(static_cast<uint8_t>(0xFF));
+            return false;
         }
 
-        FingerSerial.write(packetType);
-        FingerSerial.write(static_cast<uint8_t>(packetLength >> 8));
-        FingerSerial.write(static_cast<uint8_t>(packetLength & 0xFF));
+        uint8_t rawPacket[SENSOR_PACKET_BUFFER_BYTES] = {0};
+        const uint16_t packetLength = payloadLength + 2;
+        uint16_t checksum = packetType + (packetLength >> 8) + (packetLength & 0xFF);
+        size_t count = 0;
+
+        rawPacket[count++] = SENSOR_HEADER_HIGH;
+        rawPacket[count++] = SENSOR_HEADER_LOW;
+        rawPacket[count++] = 0xFF;
+        rawPacket[count++] = 0xFF;
+        rawPacket[count++] = 0xFF;
+        rawPacket[count++] = 0xFF;
+        rawPacket[count++] = packetType;
+        rawPacket[count++] = static_cast<uint8_t>(packetLength >> 8);
+        rawPacket[count++] = static_cast<uint8_t>(packetLength & 0xFF);
 
         for (uint16_t index = 0; index < payloadLength; ++index)
         {
-            const uint8_t value = payload[index];
-            FingerSerial.write(value);
-            checksum += value;
+            rawPacket[count++] = payload[index];
+            checksum += payload[index];
         }
 
-        FingerSerial.write(static_cast<uint8_t>(checksum >> 8));
-        FingerSerial.write(static_cast<uint8_t>(checksum & 0xFF));
-        FingerSerial.flush();
+        rawPacket[count++] = static_cast<uint8_t>(checksum >> 8);
+        rawPacket[count++] = static_cast<uint8_t>(checksum & 0xFF);
 
-        return true;
+        // The whole packet is queued, then the UART shifts it out without gaps.
+        // A gap makes the R307S drop the packet and send no confirmation.
+        const size_t written = FingerSerial.write(rawPacket, count);
+        FingerSerial.flush();
+        return written == count;
     }
 
     bool readAckPacket(uint8_t &confirmationCode, String &errorMessage, uint16_t timeoutMs = ACK_TIMEOUT_MS)
@@ -139,6 +148,77 @@ namespace
         return true;
     }
 
+    void printConfirmationCode(const char *label, uint8_t confirmationCode)
+    {
+        Serial.print(label);
+        Serial.println(confirmationCode, HEX);
+    }
+
+    bool readEarlyAck(uint8_t &confirmationCode, String &errorMessage)
+    {
+        constexpr uint16_t EARLY_ACK_TIMEOUT_MS = 600;
+        uint8_t firstByte = 0;
+
+        if (!readByteWithTimeout(firstByte, EARLY_ACK_TIMEOUT_MS))
+        {
+            return false;
+        }
+
+        uint8_t header[9] = {firstByte, 0, 0, 0, 0, 0, 0, 0, 0};
+        for (size_t index = 1; index < sizeof(header); ++index)
+        {
+            if (!readByteWithTimeout(header[index], ACK_TIMEOUT_MS))
+            {
+                errorMessage = "The sensor started a data-packet confirmation, but it did not finish.";
+                return false;
+            }
+        }
+
+        if (header[0] != SENSOR_HEADER_HIGH || header[1] != SENSOR_HEADER_LOW || header[6] != SENSOR_PACKET_ACK)
+        {
+            errorMessage = "The sensor sent an unexpected reply while receiving template data.";
+            confirmationCode = 0xFF;
+            return false;
+        }
+
+        const uint16_t packetLength = (static_cast<uint16_t>(header[7]) << 8) | header[8];
+        if (packetLength < 3)
+        {
+            errorMessage = "The sensor data-packet confirmation was too short.";
+            return false;
+        }
+
+        const uint16_t payloadLength = packetLength - 2;
+        uint8_t payload[16] = {0};
+        for (uint16_t index = 0; index < payloadLength; ++index)
+        {
+            uint8_t value = 0;
+            if (!readByteWithTimeout(value, ACK_TIMEOUT_MS))
+            {
+                errorMessage = "The sensor data-packet confirmation ended early.";
+                return false;
+            }
+
+            if (index < sizeof(payload))
+            {
+                payload[index] = value;
+            }
+        }
+
+        uint8_t checksumHigh = 0;
+        uint8_t checksumLow = 0;
+        if (!readByteWithTimeout(checksumHigh, ACK_TIMEOUT_MS) || !readByteWithTimeout(checksumLow, ACK_TIMEOUT_MS))
+        {
+            errorMessage = "The sensor data-packet confirmation checksum did not arrive.";
+            return false;
+        }
+
+        (void) checksumHigh;
+        (void) checksumLow;
+        confirmationCode = payload[0];
+        return true;
+    }
+
     String getSensorErrorMessage(uint8_t confirmationCode)
     {
         switch (confirmationCode)
@@ -179,6 +259,149 @@ namespace
         }
     }
 
+    bool confirmationMeansWrongPacketSize(bool gotCode, uint8_t confirmationCode)
+    {
+        if (!gotCode)
+        {
+            return true;
+        }
+
+        return confirmationCode == FINGERPRINT_PACKETRECIEVEERR || confirmationCode == FINGERPRINT_PACKETRESPONSEFAIL;
+    }
+
+    void recoverSensorAfterFailedDownload()
+    {
+        Serial.println("Waiting for the fingerprint sensor to leave the failed transfer.");
+        const unsigned long quietUntil = millis() + 800;
+        while (static_cast<long>(quietUntil - millis()) > 0)
+        {
+            while (FingerSerial.available() > 0)
+            {
+                FingerSerial.read();
+            }
+            delay(20);
+        }
+
+        const uint8_t readParametersCommand[] = {0x0F};
+        writeRawPacket(SENSOR_PACKET_COMMAND, readParametersCommand, sizeof(readParametersCommand));
+
+        uint8_t confirmationCode = 0;
+        String ignored;
+        readAckPacket(confirmationCode, ignored, 1500);
+        clearFingerprintSerial();
+    }
+
+    bool downloadTemplateAtPacketSize(
+        const uint8_t *templateBinary,
+        size_t templateLength,
+        size_t chunkSize,
+        String &errorMessage,
+        bool &sensorAcceptedDownload,
+        bool &wrongPacketSize
+    )
+    {
+        sensorAcceptedDownload = false;
+        wrongPacketSize = false;
+        clearFingerprintSerial();
+
+        const uint8_t commandPayload[] = {
+            SENSOR_COMMAND_DOWNLOAD_TEMPLATE,
+            SENSOR_CHAR_BUFFER_1
+        };
+
+        if (!writeRawPacket(SENSOR_PACKET_COMMAND, commandPayload, sizeof(commandPayload)))
+        {
+            errorMessage = "Could not send the template download command.";
+            wrongPacketSize = true;
+            return false;
+        }
+
+        uint8_t confirmationCode = FINGERPRINT_PACKETRECIEVEERR;
+        if (!readAckPacket(confirmationCode, errorMessage))
+        {
+            errorMessage = "Timed out waiting for the sensor to accept the template download.";
+            wrongPacketSize = true;
+            return false;
+        }
+
+        sensorAcceptedDownload = true;
+        if (confirmationCode != FINGERPRINT_OK)
+        {
+            printConfirmationCode("Template download was refused with code: 0x", confirmationCode);
+            errorMessage = getSensorErrorMessage(confirmationCode);
+            wrongPacketSize = confirmationMeansWrongPacketSize(true, confirmationCode);
+            return false;
+        }
+
+        printConfirmationCode("Template download accepted with code: 0x", confirmationCode);
+        Serial.print("Uploading template in ");
+        Serial.print(chunkSize);
+        Serial.println("-byte packets.");
+        delay(20);
+
+        for (size_t offset = 0; offset < templateLength; offset += chunkSize)
+        {
+            const size_t remaining = templateLength - offset;
+            const size_t thisChunk = remaining < chunkSize ? remaining : chunkSize;
+            const bool lastPacket = (offset + thisChunk) >= templateLength;
+
+            if (!writeRawPacket(
+                    lastPacket ? SENSOR_PACKET_END_DATA : SENSOR_PACKET_DATA,
+                    templateBinary + offset,
+                    static_cast<uint16_t>(thisChunk)))
+            {
+                errorMessage = "Could not send a template data packet.";
+                wrongPacketSize = true;
+                return false;
+            }
+
+            if (lastPacket)
+            {
+                continue;
+            }
+
+            uint8_t earlyCode = 0;
+            String earlyError;
+            if (!readEarlyAck(earlyCode, earlyError))
+            {
+                if (earlyError.length() > 0)
+                {
+                    errorMessage = earlyError;
+                    wrongPacketSize = true;
+                    return false;
+                }
+
+                continue;
+            }
+
+            printConfirmationCode("Data packet confirmation code: 0x", earlyCode);
+            if (earlyCode != FINGERPRINT_OK)
+            {
+                errorMessage = getSensorErrorMessage(earlyCode);
+                wrongPacketSize = confirmationMeansWrongPacketSize(true, earlyCode);
+                return false;
+            }
+        }
+
+        if (!readAckPacket(confirmationCode, errorMessage, 2000))
+        {
+            errorMessage = "Timed out waiting for the sensor to confirm the template data.";
+            wrongPacketSize = true;
+            return false;
+        }
+
+        printConfirmationCode("Template download confirmation code: 0x", confirmationCode);
+        if (confirmationCode != FINGERPRINT_OK)
+        {
+            errorMessage = getSensorErrorMessage(confirmationCode);
+            wrongPacketSize = confirmationMeansWrongPacketSize(true, confirmationCode);
+            return false;
+        }
+
+        g_sensorPacketBytes = chunkSize;
+        return true;
+    }
+
     bool uploadTemplateToCharBuffer1(const uint8_t *templateBinary, size_t templateLength, String &errorMessage)
     {
         if (templateBinary == nullptr || templateLength != EXPECTED_TEMPLATE_BYTES)
@@ -187,51 +410,97 @@ namespace
             return false;
         }
 
-        clearFingerprintSerial();
+        size_t packetSizes[4];
+        size_t packetSizeCount = 0;
+        const size_t candidates[] = {g_sensorPacketBytes, static_cast<size_t>(128), static_cast<size_t>(256), static_cast<size_t>(64)};
 
-        const uint8_t commandPayload[] = {
-            SENSOR_COMMAND_DOWNLOAD_TEMPLATE,
-            SENSOR_CHAR_BUFFER_1
-        };
-
-        writeRawPacket(SENSOR_PACKET_COMMAND, commandPayload, sizeof(commandPayload));
-
-        uint8_t confirmationCode = FINGERPRINT_PACKETRECIEVEERR;
-        if (!readAckPacket(confirmationCode, errorMessage))
+        for (size_t index = 0; index < sizeof(candidates) / sizeof(candidates[0]); ++index)
         {
-            return false;
+            const size_t candidate = candidates[index];
+            if (candidate == 0 || (templateLength % candidate) != 0)
+            {
+                continue;
+            }
+
+            bool alreadyListed = false;
+            for (size_t listed = 0; listed < packetSizeCount; ++listed)
+            {
+                if (packetSizes[listed] == candidate)
+                {
+                    alreadyListed = true;
+                    break;
+                }
+            }
+
+            if (!alreadyListed && packetSizeCount < sizeof(packetSizes) / sizeof(packetSizes[0]))
+            {
+                packetSizes[packetSizeCount++] = candidate;
+            }
         }
 
-        if (confirmationCode != FINGERPRINT_OK)
+        for (size_t index = 0; index < packetSizeCount; ++index)
         {
-            errorMessage = getSensorErrorMessage(confirmationCode);
-            return false;
+            if (index > 0)
+            {
+                Serial.print("The sensor did not confirm the previous packet size. Trying ");
+                Serial.print(packetSizes[index]);
+                Serial.println("-byte packets.");
+                recoverSensorAfterFailedDownload();
+            }
+
+            bool sensorAcceptedDownload = false;
+            bool wrongPacketSize = false;
+            if (downloadTemplateAtPacketSize(
+                    templateBinary,
+                    templateLength,
+                    packetSizes[index],
+                    errorMessage,
+                    sensorAcceptedDownload,
+                    wrongPacketSize))
+            {
+                return true;
+            }
+
+            if (!wrongPacketSize)
+            {
+                return false;
+            }
+
+            if (!sensorAcceptedDownload && index == 0)
+            {
+                recoverSensorAfterFailedDownload();
+                if (downloadTemplateAtPacketSize(
+                        templateBinary,
+                        templateLength,
+                        packetSizes[index],
+                        errorMessage,
+                        sensorAcceptedDownload,
+                        wrongPacketSize))
+                {
+                    return true;
+                }
+
+                if (!wrongPacketSize || !sensorAcceptedDownload)
+                {
+                    return false;
+                }
+            }
         }
 
-        writeRawPacket(SENSOR_PACKET_DATA, templateBinary, TEMPLATE_CHUNK_SIZE);
-        writeRawPacket(
-            SENSOR_PACKET_END_DATA,
-            templateBinary + TEMPLATE_CHUNK_SIZE,
-            TEMPLATE_CHUNK_SIZE
-        );
-
-        if (!readAckPacket(confirmationCode, errorMessage, 10000))
-        {
-            return false;
-        }
-
-        if (confirmationCode != FINGERPRINT_OK)
-        {
-            errorMessage = getSensorErrorMessage(confirmationCode);
-            return false;
-        }
-
-        return true;
+        return false;
     }
 }
 
 bool initFingerprint()
 {
+    // A data packet is longer than the UART hardware FIFO. Queue the whole
+    // packet so Wi-Fi cannot open a gap in the middle of it.
+    if (!FingerSerial)
+    {
+        FingerSerial.setRxBufferSize(1024);
+        FingerSerial.setTxBufferSize(512);
+    }
+
     FingerSerial.begin(
         FP_BAUDRATE,
         SERIAL_8N1,
@@ -240,6 +509,15 @@ bool initFingerprint()
     );
 
     finger.begin(FP_BAUDRATE);
+
+    // The library calls begin() again without pins and restarts this UART.
+    // Put the sensor back on GPIO 32 and GPIO 33 before the password check.
+    FingerSerial.begin(
+        FP_BAUDRATE,
+        SERIAL_8N1,
+        FP_RX_PIN,
+        FP_TX_PIN
+    );
 
     Serial.println();
     Serial.println("Initializing Fingerprint...");
@@ -250,13 +528,19 @@ bool initFingerprint()
         return false;
     }
 
-    finger.getParameters();
-    const uint8_t packetSizeStatus = finger.setPacketSize(FINGERPRINT_PACKET_SIZE_256);
-
-    if (packetSizeStatus != FINGERPRINT_OK)
+    if (finger.getParameters() == FINGERPRINT_OK &&
+        (finger.packet_len == 32 || finger.packet_len == 64 || finger.packet_len == 128 || finger.packet_len == 256))
     {
-        Serial.println("Warning: could not switch the fingerprint sensor packet size to 256 bytes.");
+        g_sensorPacketBytes = finger.packet_len;
     }
+    else
+    {
+        g_sensorPacketBytes = 128;
+        Serial.println("Warning: could not read the fingerprint packet size. Using 128 bytes.");
+    }
+
+    Serial.print("Fingerprint packet size: ");
+    Serial.println(g_sensorPacketBytes);
 
     Serial.println("Fingerprint Sensor Connected");
     return true;

@@ -99,8 +99,6 @@ const fingerprintSyncFilterOptions = [
   { value: 'all', label: 'All sync statuses' },
   { value: 'synced', label: 'Synced' },
   { value: 'not_synced', label: 'Not Synced' },
-  { value: 'partial', label: 'Partial' },
-  { value: 'failed', label: 'Failed' },
 ];
 
 const initialFingerprints = {
@@ -142,30 +140,11 @@ function getFingerprintSyncStatusKey(fingerprint) {
     .trim()
     .toLowerCase();
 
-  if (syncStatus === 'synced') {
-    return 'synced';
-  }
-
-  if (syncStatus === 'partial') {
-    return 'partial';
-  }
-
-  if (syncStatus === 'failed') {
-    return 'failed';
-  }
-
-  return 'not_synced';
+  return syncStatus === 'synced' ? 'synced' : 'not_synced';
 }
 
 function getFingerprintSyncStatusLabel(fingerprint) {
-  const labels = {
-    synced: 'Synced',
-    not_synced: 'Not Synced',
-    partial: 'Partial',
-    failed: 'Failed',
-  };
-
-  return labels[getFingerprintSyncStatusKey(fingerprint)] || 'Not Synced';
+  return getFingerprintSyncStatusKey(fingerprint) === 'synced' ? 'Synced' : 'Not Synced';
 }
 
 function filterFingerprintsByEnrollment(fingerprints, enrollmentFilter) {
@@ -1446,14 +1425,16 @@ export default function Fingerprint({ user: currentUser } = {}) {
     }
   }
 
-  async function handleQueueTemplateSync(fingerprint, { showStatusModal = false } = {}) {
+  async function handleQueueTemplateSync(fingerprint, { showStatusModal = false, retry = false } = {}) {
     if (!fingerprint) {
       return;
     }
 
     const confirmed = await confirmAction({
-      title: 'Sync fingerprint',
-      message: 'Are you sure you want to sync this fingerprint?',
+      title: retry ? 'Sync again' : 'Sync fingerprint',
+      message: retry
+        ? 'Are you sure you want to sync this fingerprint to Sensor B again?'
+        : 'Are you sure you want to sync this fingerprint?',
     });
     if (!confirmed) {
       return;
@@ -2590,11 +2571,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
     } = {},
   ) {
     const isExpandable = isParentRow && additionalFingerprintCount > 0;
-    const isSensorBSyncPending =
-      fingerprint.hasTemplateData &&
-      String(fingerprint.doorSyncStatus || '')
-        .trim()
-        .toLowerCase() === 'pending';
+    const doorSyncStatus = String(fingerprint.doorSyncStatus || '')
+      .trim()
+      .toLowerCase();
+    const isSensorBSyncPending = fingerprint.hasTemplateData && doorSyncStatus === 'pending';
+    const isSensorBSyncFailed = fingerprint.hasTemplateData && doorSyncStatus === 'failed';
     const enrolledAtParts = formatEnrolledAtParts(
       fingerprint.enrolledAt || fingerprint.registeredAt,
       fingerprint,
@@ -2687,6 +2668,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 hidden: !isSensorBSyncPending,
                 disabled: activeSyncActionId === fingerprint.id,
                 onClick: () => handleQueueTemplateSync(fingerprint, { showStatusModal: true }),
+              },
+              {
+                label: activeSyncActionId === fingerprint.id ? 'Syncing...' : 'Sync again',
+                icon: RotateCcw,
+                hidden: !isSensorBSyncFailed,
+                disabled: activeSyncActionId === fingerprint.id,
+                onClick: () => handleQueueTemplateSync(fingerprint, { showStatusModal: true, retry: true }),
               },
               {
                 label: 'New fingerprint',

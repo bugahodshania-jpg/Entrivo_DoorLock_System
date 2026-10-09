@@ -24,9 +24,10 @@ import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
+import RegisterUser from './RegisterUser';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
-import { ROLE_PRIVILEGE_DEFAULTS, canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
+import { ROLE_PRIVILEGE_DEFAULTS, canDeleteRecords, userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -423,6 +424,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const roleFilterMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
   const [activeTab, setActiveTab] = useState('all');
+  const [registrationRole, setRegistrationRole] = useState(null);
   const [activeStatusFilter, setActiveStatusFilter] = useState('all');
   const [isRoleFilterMenuOpen, setIsRoleFilterMenuOpen] = useState(false);
   const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
@@ -1437,18 +1439,20 @@ export default function ManageUsers({ user: currentUser } = {}) {
       return;
     }
 
-    if (activeTabConfig.key === 'all') {
-      window.location.assign(portalHref('/super-admin/register-user'));
-      return;
-    }
+    setRegistrationRole(activeTabConfig.key === 'super_admins'
+      ? 'super_admin'
+      : activeTabConfig.key === 'all' ? 'faculty' : activeTabConfig.key);
+  }
 
-    if (activeTabConfig.key === 'super_admins') {
-      window.location.assign(portalHref('/super-admin/register-user?role=super_admin'));
-      return;
+  async function closeRegistration(wasCreated) {
+    setRegistrationRole(null);
+    if (wasCreated) {
+      try {
+        await reloadUsers();
+      } catch {
+        setErrorMessage('The account was created, but the user list could not be refreshed. Reload the page to see it.');
+      }
     }
-
-    const role = encodeURIComponent(activeTabConfig.key);
-    window.location.assign(portalHref(`/super-admin/register-user?role=${role}`));
   }
 
   const canRegisterCurrentTab =
@@ -1456,6 +1460,10 @@ export default function ManageUsers({ user: currentUser } = {}) {
 
   return (
     <>
+    {registrationRole !== null ? createPortal(
+      <RegisterUser user={currentUser} initialRole={registrationRole} onClose={closeRegistration} />,
+      document.body,
+    ) : null}
     <main className="admin-dashboard manage-users" aria-label="Manage users">
       <section className="manage-users-summary-grid" aria-label="User summary">
         {summaryCards.map(({ label, value, detail, icon: Icon }) => (

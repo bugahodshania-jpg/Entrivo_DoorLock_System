@@ -1,71 +1,94 @@
 import { useEffect, useState } from 'react';
-import {
-  ArrowRight,
-  CalendarCheck2,
-  CheckCircle2,
-  Fingerprint,
-  Menu,
-  ShieldCheck,
-  Waves,
-  X,
-} from 'lucide-react';
+import { ArrowRight, Menu, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
-import logo from '../../assets/images/entrivo_logo.png';
-import PixelWave from '../../components/PixelWave';
+import PublicFooter from '../../components/PublicFooter';
+import campusBuilding from '../../assets/images/csucc_noback.png';
+import campusOutline from '../../assets/images/outline_csucc.png';
+import csuccLogo from '../../assets/images/csucc_logo.png';
+import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
+import cbaLogo from '../../assets/images/CBA_logo.png';
+import ceitLogo from '../../assets/images/CEIT_logo.png';
+import citteLogo from '../../assets/images/CITTE_logo.png';
+import cthmLogo from '../../assets/images/CTHM_logo4.png';
 import '../../styles/home/home.css';
 
 const navItems = [
+  { label: 'Home', href: '#top' },
   { label: 'Features', href: '#features' },
   { label: 'How it works', href: '#workflow' },
   { label: 'About', href: '#about' },
 ];
 
+const collegeLogos = [
+  { name: 'CBA', image: cbaLogo },
+  { name: 'CEIT', image: ceitLogo },
+  { name: 'CITTE', image: citteLogo },
+  { name: 'CTHM', image: cthmLogo },
+];
+
 const highlights = [
   {
-    icon: ShieldCheck,
-    title: 'Smarter access control',
-    description: 'Keep classrooms, offices, and restricted areas protected with role-based entry management.',
+    title: 'Access Control',
+    description: 'Keep classrooms and laboratories secure with door access based on assigned schedules.',
+    href: '#workflow',
   },
   {
-    icon: Fingerprint,
-    title: 'Fingerprint-ready workflows',
-    description: 'Support secure biometric enrollment and template synchronization for connected door devices.',
+    title: 'Fingerprint Enrollment',
+    description: 'Enroll biometrics and synchronize approved templates with connected door devices.',
+    href: '#workflow',
   },
   {
-    icon: CalendarCheck2,
-    title: 'Attendance and scheduling',
-    description: 'Monitor attendance records and align access with class or staff schedules in one system.',
+    title: 'Attendance & Schedules',
+    description: 'Record arrivals and align door access with class and staff schedules.',
+    href: '#workflow',
+  },
+  {
+    title: 'School ID Access',
+    description: 'Approved students can use their CSUCC school ID to enter classrooms and laboratories during assigned schedules.',
+    href: '#workflow',
   },
 ];
 
 const workflowSteps = [
   {
     title: 'Register people and roles',
-    description: 'Create user identities, assign access levels, and organize accounts for staff, students, and admins.',
+    description: 'Create identities, assign access levels, and organize accounts for students, staff, and admins.',
   },
   {
     title: 'Link credentials and devices',
-    description: 'Support fingerprint and RFID-ready workflows so entry methods stay connected to the right person.',
+    description: 'Connect fingerprint and RFID workflows so each entry method stays tied to the right person.',
   },
   {
     title: 'Control and monitor entry',
-    description: 'Apply schedules, review attendance, and manage secure access events from one dashboard.',
+    description: 'Apply schedules, review attendance, and follow secure access events from one dashboard.',
   },
-];
-
-const metrics = [
-  { value: '24/7', label: 'Access visibility' },
-  { value: '512B', label: 'Fingerprint template ready' },
-  { value: 'Role-based', label: 'Admin control' },
 ];
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('');
-  const [enrollmentPrompt, setEnrollmentPrompt] = useState('');
+  const [activeSection, setActiveSection] = useState('top');
+  const [enrollmentPrompt, setEnrollmentPrompt] = useState(() => (
+    new URLSearchParams(window.location.search).get('signup') === '1' ? 'notice' : ''
+  ));
   const [rfidUid, setRfidUid] = useState('');
   const [rfidError, setRfidError] = useState('');
   const [isVerifyingRfid, setIsVerifyingRfid] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('signup') !== '1') {
+      return;
+    }
+
+    setEnrollmentPrompt('notice');
+    params.delete('signup');
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+    );
+  }, []);
 
   useEffect(() => {
     const animatedElements = document.querySelectorAll('[data-reveal]');
@@ -85,7 +108,7 @@ export default function Home() {
       },
       {
         threshold: 0.2,
-      }
+      },
     );
 
     animatedElements.forEach((element) => observer.observe(element));
@@ -123,7 +146,7 @@ export default function Home() {
       {
         rootMargin: '-30% 0px -50% 0px',
         threshold: [0.15, 0.35, 0.6],
-      }
+      },
     );
 
     sections.forEach((section) => sectionObserver.observe(section));
@@ -211,9 +234,19 @@ export default function Home() {
     <main className={`home-page${menuOpen ? ' is-menu-open' : ''}`}>
       <header className="home-header">
         <div className="home-header-inner">
-          <a className="home-brand" href="/" aria-label="Entrivo home">
-            <img src={logo} alt="Entrivo logo" />
-            <span>Entrivo</span>
+          <a className="home-brand" href="#top" aria-label="Entrivo home" onClick={() => handleNavClick('#top')}>
+            <span className="home-brand-marks">
+              <span className="home-logo-csu">
+                <img src={csuLogo} alt="" />
+              </span>
+              <span className="home-logo-csucc">
+                <img src={csuccLogo} alt="" />
+              </span>
+            </span>
+            <span className="home-brand-text">
+              <strong>Caraga State University</strong>
+              <small>Cabadbaran Campus</small>
+            </span>
           </a>
 
           <button
@@ -228,7 +261,7 @@ export default function Home() {
           </button>
 
           <div className={`home-header-right${menuOpen ? ' is-open' : ''}`} id="home-mobile-nav">
-            <nav className="home-nav" aria-label="Section navigation">
+            <nav className="home-nav" aria-label="Main navigation">
               {navItems.map((item) => {
                 const sectionId = item.href.replace('#', '');
                 const isActive = activeSection === sectionId;
@@ -245,13 +278,14 @@ export default function Home() {
                   </a>
                 );
               })}
+              <a href="/faqs" onClick={closeMenu}>FAQs</a>
             </nav>
 
             <nav className="home-actions" aria-label="Primary">
-              <a className="home-link-button" href="/login" onClick={closeMenu}>
+              <a className="home-header-link" href="/login" onClick={closeMenu}>
                 Sign in
               </a>
-              <button className="home-primary-button" type="button" onClick={openSchoolIdModal}>
+              <button className="home-header-link is-gold" type="button" onClick={openSchoolIdModal}>
                 Sign up
               </button>
             </nav>
@@ -259,61 +293,86 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="home-hero" data-reveal>
-        <div className="home-hero-copy">
-          <p className="home-eyebrow">Secure Access Management</p>
-          <h1>Modern door control, attendance, and identity workflows in one place.</h1>
-          <p className="home-description">
-            Entrivo helps schools and organizations manage secure entry, biometric enrollment, and user access
-            with a clean system experience.
-          </p>
+      <section className="home-hero" id="top">
+        <div className="home-hero-band" aria-hidden="true" />
+        <img className="home-hero-seal" src={csuccLogo} alt="" aria-hidden="true" />
+        <div className="home-hero-stripes" aria-hidden="true">
+          <span />
+          <span className="home-hero-stripe-green" />
+        </div>
+        <div className="home-hero-inner">
+          <div className="home-hero-copy">
+            <p className="home-eyebrow">Entrivo</p>
+            <h1>Room Access Control</h1>
+            <p className="home-tagline">Secure · Attend · Serve</p>
+            <p className="home-description">
+              The door lock system for Caraga State University — Cabadbaran Campus. Manage secure entry,
+              biometric enrollment, and attendance in one place.
+            </p>
+            <div className="home-hero-actions">
+              <a className="home-gold-button" href="/login">
+                Sign in
+                <ArrowRight size={18} />
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="home-hero-visual">
+          <img src={campusBuilding} alt="Caraga State University Cabadbaran Campus building" />
+        </div>
+      </section>
 
-          <div className="home-hero-actions">
-            <a className="home-primary-button" href="/login">
-              Sign in
-            </a>
-            <a className="home-secondary-link" href="/register">
-              Create account request
-              <ArrowRight size={18} />
+      <section className="home-featured" id="features">
+        <div className="home-featured-inner">
+          <div className="home-featured-intro" data-reveal>
+            <p className="home-kicker"><span /> Featured</p>
+            <h2>Discover Entrivo at Cabadbaran Campus</h2>
+            <p>
+              From secure door access to attendance and campus schedules, Entrivo is where entry for students,
+              staff, and administrators stays organized.
+            </p>
+            <a className="home-dark-button" href="#workflow">
+              Learn more
+              <ArrowRight size={16} />
             </a>
           </div>
 
-          <div className="home-hero-metrics" aria-label="Platform highlights">
-            {metrics.map((metric) => (
-              <div className="home-metric" key={metric.label}>
-                <strong>{metric.value}</strong>
-                <span>{metric.label}</span>
-              </div>
+          <div className="home-featured-grid">
+            {highlights.map((item) => (
+              <article className="home-feature-card" data-reveal key={item.title}>
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
+              </article>
             ))}
           </div>
         </div>
-
-
       </section>
 
-      <section className="home-highlights" id="features" aria-label="Highlights">
-        {highlights.map(({ icon: Icon, title, description }) => (
-          <article className="home-highlight-card" data-reveal key={title}>
-            <span className="home-highlight-icon">
-              <Icon size={22} />
-            </span>
-            <h2>{title}</h2>
-            <p>{description}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="home-band" id="workflow" data-reveal>
-        <div className="home-band-visual">
-          <div className="home-section-heading">
-            <p className="home-eyebrow">How it works</p>
-            <h2>Built to keep access simple for people and secure for administrators.</h2>
+      <section className="home-steps" id="workflow">
+        <div className="home-steps-inner">
+          <div className="home-steps-header">
+            <div className="home-steps-heading" data-reveal>
+              <p className="home-kicker"><span /> How it works</p>
+              <h2>Secure and organized room access.</h2>
+            </div>
+            <img
+              className="home-steps-outline"
+              src={campusOutline}
+              alt="Outline of the Caraga State University Cabadbaran Campus building"
+              loading="lazy"
+            />
+            <ul className="home-college-logos" aria-label="Campus colleges">
+              {collegeLogos.map((college) => (
+                <li key={college.name}>
+                  <img src={college.image} alt={`${college.name} logo`} loading="lazy" />
+                </li>
+              ))}
+            </ul>
           </div>
-
-          <div className="home-workflow">
+          <div className="home-steps-grid">
             {workflowSteps.map((step, index) => (
-              <article className="home-workflow-card" key={step.title}>
-                <span className="home-step-number">0{index + 1}</span>
+              <article className="home-step" data-reveal key={step.title}>
+                <span>0{index + 1}</span>
                 <h3>{step.title}</h3>
                 <p>{step.description}</p>
               </article>
@@ -322,65 +381,30 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="home-about" id="about">
-        <div className="home-about-card" data-reveal>
-          <span className="home-about-icon">
-            <Waves size={22} />
-          </span>
-          <h2>Clean interface, operational focus</h2>
-          <p>
-            The homepage is designed to feel lighter and more polished while still matching the system&apos;s
-            access-control identity.
-          </p>
+      <section className="home-banner" id="about" data-reveal>
+        <img className="home-banner-csu" src={csuLogo} alt="" aria-hidden="true" />
+        <div className="home-banner-stripes" aria-hidden="true">
+          <span />
+          <span />
         </div>
-
-        <div className="home-about-card" data-reveal>
-          <span className="home-about-icon">
-            <CheckCircle2 size={22} />
-          </span>
-          <h2>Ready for real workflow expansion</h2>
-          <p>
-            This layout leaves room for future sections like live statistics, testimonials, campus maps, or device
-            status summaries.
-          </p>
-        </div>
-      </section>
-
-      <section className="home-cta" data-reveal>
-        <PixelWave variant="cta" className="home-cta-pixel-wave" />
-        <div className="home-cta-copy">
-          <p className="home-eyebrow">Get started</p>
-          <h2>Access your dashboard or request a new account.</h2>
-        </div>
-
-        <div className="home-cta-actions">
-          <a className="home-primary-button" href="/login">
-            Sign in
-          </a>
-          <a className="home-link-button" href="/register">
-            Sign up
-          </a>
-        </div>
-      </section>
-
-      <footer className="home-footer">
-        <div className="home-footer-brand">
-          <img src={logo} alt="Entrivo logo" />
+        <div className="home-banner-inner">
           <div>
-            <strong>Entrivo</strong>
-            <p>Secure access, attendance, and identity management.</p>
+            <p className="home-banner-line">Building a brighter future</p>
+            <p className="home-banner-gold">Together</p>
+          </div>
+          <div className="home-banner-actions">
+            <a className="home-gold-button" href="/login">
+              Sign in
+              <ArrowRight size={18} />
+            </a>
+            <button className="home-banner-ghost" type="button" onClick={openSchoolIdModal}>
+              Sign up
+            </button>
           </div>
         </div>
+      </section>
 
-        <nav className="home-footer-links" aria-label="Footer">
-          {navItems.map((item) => (
-            <a key={item.href} href={item.href}>
-              {item.label}
-            </a>
-          ))}
-          <a href="/login">Sign in</a>
-        </nav>
-      </footer>
+      <PublicFooter isHome />
 
       {enrollmentPrompt ? (
         <div className="home-school-id-backdrop" role="presentation">

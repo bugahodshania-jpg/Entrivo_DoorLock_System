@@ -427,12 +427,12 @@
 }
 
 .reports-method-chart strong {
-  color: #415249;
+  color: #08281c;
   font-size: 12px;
 }
 
 .reports-method-track {
-  background: #eef3f1;
+  background: #edf3e9;
   border-radius: 4px 4px 0 0;
   display: flex;
   flex-direction: column;
@@ -444,7 +444,7 @@
 }
 
 .reports-method-track span {
-  background: #7fa39a;
+  background: #0d4632;
   border-radius: 4px 4px 0 0;
   display: block;
   min-height: 0;
@@ -452,7 +452,7 @@
 }
 
 .reports-method-chart small {
-  color: #60716a;
+  color: #3b5b47;
   font-size: 12px;
 }
 
@@ -483,14 +483,14 @@
 
 .reports-role-pie text {
   dominant-baseline: central;
-  fill: #ffffff;
+  fill: #f4f6f1;
   font-size: 11px;
   font-weight: 600;
   text-anchor: middle;
 }
 
 .reports-role-pie text.is-dark {
-  fill: #2f4a40;
+  fill: #08281c;
 }
 
 .reports-role-chart ul {
@@ -516,7 +516,7 @@
 }
 
 .reports-role-chart li span {
-  color: #24352e;
+  color: #08281c;
   display: flex;
   flex-direction: column;
   font-size: 13px;
@@ -525,7 +525,7 @@
 }
 
 .reports-role-chart li strong {
-  color: #60716a;
+  color: #3b5b47;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;

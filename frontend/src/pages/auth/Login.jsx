@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
-import logo from '../../assets/images/entrivo_logo.png';
-import PixelWave from '../../components/PixelWave';
+import csuccLogo from '../../assets/images/csucc_logo.png';
+import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import FirstLoginSetup from './FirstLoginSetup';
 import PasswordReset, { readPasswordResetSession } from './PasswordReset';
 import { firstAllowedPortalPath, firstAllowedSuperAdminPath } from '../../utils/privileges';
@@ -165,19 +165,13 @@ export default function Login() {
   useEffect(() => {
     const previousHtmlOverflow = document.documentElement.style.overflow;
     const previousBodyOverflow = document.body.style.overflow;
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = menuOpen ? 'hidden' : '';
 
     return () => {
       document.documentElement.style.overflow = previousHtmlOverflow;
       document.body.style.overflow = previousBodyOverflow;
     };
-  }, []);
-
-  useEffect(() => {
-    if (menuOpen) {
-      document.body.style.overflow = 'hidden';
-    }
   }, [menuOpen]);
 
   const closeMenu = () => setMenuOpen(false);
@@ -376,14 +370,22 @@ export default function Login() {
   };
 
   return (
-    <main className={`auth-page auth-page-split${menuOpen ? ' is-menu-open' : ''}`}>
-      <PixelWave variant="auth" className="auth-pixel-wave" />
-
+    <main className={`auth-page auth-page-split auth-page-login${menuOpen ? ' is-menu-open' : ''}`}>
       <header className="home-header">
         <div className="home-header-inner">
           <a className="home-brand" href="/" aria-label="Entrivo home">
-            <img src={logo} alt="Entrivo logo" />
-            <span>Entrivo</span>
+            <span className="home-brand-marks">
+              <span className="home-logo-csu">
+                <img src={csuLogo} alt="" />
+              </span>
+              <span className="home-logo-csucc">
+                <img src={csuccLogo} alt="" />
+              </span>
+            </span>
+            <span className="home-brand-text">
+              <strong>Caraga State University</strong>
+              <small>Cabadbaran Campus</small>
+            </span>
           </a>
 
           <button
@@ -399,16 +401,18 @@ export default function Login() {
 
           <div className={`home-header-right${menuOpen ? ' is-open' : ''}`} id="auth-mobile-nav">
             <nav className="home-actions" aria-label="Primary">
-              <a className="home-link-button" href="/" onClick={closeMenu}>
+              <a className="home-header-link" href="/" onClick={closeMenu}>
                 Home
               </a>
-              <a className="home-primary-button" href="/register" onClick={closeMenu}>
+              <a className="home-header-link is-gold" href="/?signup=1" onClick={closeMenu}>
                 Sign up
               </a>
             </nav>
           </div>
         </div>
       </header>
+
+      <div className="auth-pattern-band" aria-hidden="true" />
 
       <div className="auth-shell">
         <aside className="auth-showcase" aria-label="Entrivo highlights">
@@ -563,7 +567,7 @@ export default function Login() {
 
             <div className="auth-footer">
               <p className="auth-register-note">
-                Don&apos;t have an account? <a href="/register">Sign up</a>
+                Don&apos;t have an account? <a href="/?signup=1">Sign up</a>
               </p>
 
               {showForgotPassword ? (
@@ -583,6 +587,11 @@ export default function Login() {
           </form>
         </section>
       </div>
+
+      <footer className="auth-site-footer">
+        <p>Entrivo · Caraga State University — Cabadbaran Campus</p>
+      </footer>
+
       {resetOpen ? <PasswordReset onClose={() => setResetOpen(false)} /> : null}
       {firstLogin ? (
         <FirstLoginSetup

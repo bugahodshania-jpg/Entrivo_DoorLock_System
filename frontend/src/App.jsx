@@ -1,9 +1,12 @@
 import './styles/global/global.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { clearRegistrationOutsidePage, verifiedRfidKey } from './utils/registrationSession';
+import { saveLoginNotice } from './utils/loginNotice';
 import AdminLayout from './pages/admin/AdminLayout.jsx';
 import Register from './pages/auth/Register.jsx';
 import Login from './pages/auth/Login.jsx';
 import Home from './pages/shared/Home.jsx';
+import Faqs from './pages/shared/Faqs.jsx';
 import NotFound from './pages/shared/NotFound.jsx';
 import AccessLogs from './pages/superAdmin/AccessLogs.jsx';
 import ActivityLogs from './pages/superAdmin/ActivityLogs.jsx';
@@ -121,9 +124,7 @@ function logout(reasonMessage = '') {
   window.localStorage.removeItem('entrivo_user');
   window.sessionStorage.removeItem('entrivo_user');
 
-  if (reasonMessage) {
-    window.sessionStorage.setItem('entrivo_login_notice', reasonMessage);
-  }
+  saveLoginNotice(window.sessionStorage, reasonMessage);
 
   window.location.assign('/login');
 }
@@ -131,6 +132,31 @@ function logout(reasonMessage = '') {
 export default function App() {
   const path = window.location.pathname;
   const [user, setUser] = useState(() => getStoredUser());
+
+  useLayoutEffect(() => {
+    const clearOutsideRegistration = () => {
+      clearRegistrationOutsidePage(window.location.pathname, window.sessionStorage);
+    };
+    clearOutsideRegistration();
+    // A page restored with Back/Forward may not remount its React components.
+    window.addEventListener('pageshow', clearOutsideRegistration);
+
+    function clearOnExitLink(event) {
+      if (window.location.pathname !== '/register' || event.defaultPrevented
+        || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.origin === window.location.origin) {
+        clearRegistrationOutsidePage(destination.pathname, window.sessionStorage);
+      }
+    }
+    document.addEventListener('click', clearOnExitLink);
+    return () => {
+      window.removeEventListener('pageshow', clearOutsideRegistration);
+      document.removeEventListener('click', clearOnExitLink);
+    };
+  }, [path]);
 
   useEffect(() => {
     if (!user?.id || path === '/' || path === '/login' || path === '/register') {
@@ -224,7 +250,15 @@ export default function App() {
     return <Login />;
   }
 
+  if (path === '/faqs') {
+    return <Faqs />;
+  }
+
   if (path === '/register') {
+    if (!window.sessionStorage.getItem(verifiedRfidKey)) {
+      window.location.replace('/?signup=1');
+      return null;
+    }
     return <Register />;
   }
 

@@ -1,6 +1,7 @@
 <?php
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/RfidScanService.php';
 
 header('Content-Type: application/json');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -21,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
-$rfidUid = strtoupper(preg_replace('/\s+/', '', (string) ($input['rfid_uid'] ?? '')));
+$service = new RfidScanService(entrivo_pdo());
+$rfidUid = $service->normalizeUid(is_array($input) ? ($input['rfid_uid'] ?? '') : '');
 
 if ($rfidUid === '') {
     http_response_code(422);
@@ -29,28 +31,32 @@ if ($rfidUid === '') {
     exit;
 }
 
-if (strlen($rfidUid) > 30 || !preg_match('/^[A-Z0-9]+$/', $rfidUid)) {
+if (!$service->isValidUid($rfidUid)) {
     http_response_code(422);
     echo json_encode(['message' => 'The UID must match the scanner exactly.']);
     exit;
 }
 
 try {
-    $pdo = entrivo_pdo();
-    $statement = $pdo->prepare(
-        'SELECT card_id FROM rfid_cards WHERE rfid_uid = :rfid_uid LIMIT 1'
-    );
-    $statement->execute(['rfid_uid' => $rfidUid]);
-
-    if ($statement->fetch()) {
+    if ($service->isRegistered($rfidUid)) {
         http_response_code(409);
         echo json_encode(['message' => 'This UID is already registered.']);
+        exit;
+    }
+
+    $scan = $service->latestScan($rfidUid);
+    if ($scan === null) {
+        http_response_code(422);
+        echo json_encode([
+            'message' => 'This UID was not scanned yet. Scan your school ID at the RFID station, then enter the UID shown on the screen.',
+        ]);
         exit;
     }
 
     echo json_encode([
         'verified' => true,
         'rfid_uid' => $rfidUid,
+        'scanned_at' => $scan['scanned_at'],
     ]);
 } catch (Throwable $error) {
     http_response_code(500);
