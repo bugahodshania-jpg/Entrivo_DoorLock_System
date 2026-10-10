@@ -608,7 +608,14 @@ export default function RFIDCards() {
                   disabled={showEnrollmentScans || isLoading || Boolean(errorMessage) || visibleRfidCards.length === 0}
                 >
                   <Download size={16} aria-hidden="true" />
-                  Download
+                  Export
+                </button>
+                <button
+                  type="button"
+                  className="dashboard-text-link rfid-scan-button rfid-header-scan-button"
+                  onClick={() => setShowEnrollmentScans((current) => !current)}
+                >
+                  {showEnrollmentScans ? 'Registered RFID' : 'Scanned UID for Enrollment'}
                 </button>
               </div>
             </div>

@@ -31,8 +31,11 @@ const navSections = [
       { label: 'My Schedule', href: '/user/my-schedule', icon: CalendarClock },
       { label: 'Request Override', href: '/user/request-override', icon: ShieldAlert },
       { label: 'Access Logs', href: '/user/access-logs', icon: Activity },
-      { label: 'Activity Logs', href: '/user/activity-logs', icon: ScrollText },
     ],
+  },
+  {
+    heading: 'Activity',
+    links: [{ label: 'Activity Logs', href: '/user/activity-logs', icon: ScrollText }],
   },
   {
     heading: 'Account',

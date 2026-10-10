@@ -352,7 +352,7 @@ export default function SuperAdminDashboard() {
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules')}>
+              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules?tab=all&status=overridden')}>
                 View All Overrides
               </a>
             </aside>
@@ -446,7 +446,7 @@ export default function SuperAdminDashboard() {
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules')}>
+              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules?tab=all&status=approved')}>
                 View All Schedule
               </a>
             </aside>

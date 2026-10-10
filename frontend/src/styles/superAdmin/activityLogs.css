@@ -253,7 +253,8 @@
 .activity-logs-page .activity-logs-table th:nth-child(1),
 .activity-logs-page .activity-logs-table td:nth-child(1) {
   padding-left: 16px;
-  width: 11%;
+  padding-right: 32px;
+  width: 15%;
 }
 
 .activity-logs-page .activity-logs-table th:nth-child(2),
@@ -308,28 +309,7 @@
 .activity-logs-user {
   align-items: center;
   display: flex;
-  gap: 10px;
   min-width: 0;
-}
-
-.activity-logs-page .activity-logs-table .activity-logs-avatar {
-  align-items: center;
-  background: #f3faf6;
-  border: 1px solid #d7e2dc;
-  border-radius: 50%;
-  color: #0c4b2d;
-  display: inline-flex;
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 700;
-  height: 30px;
-  justify-content: center;
-  line-height: 1;
-  margin: 0;
-  margin-top: 0;
-  padding: 0;
-  text-align: center;
-  width: 30px;
 }
 
 .activity-logs-user strong {
@@ -494,6 +474,29 @@
     flex-basis: 100%;
     margin-left: 0;
     max-width: none;
+    width: 100%;
+  }
+
+  .activity-logs-page .activity-logs-toolbar-filters {
+    width: 100%;
+  }
+
+  .activity-logs-page .activity-logs-dates {
+    display: flex;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .activity-logs-page .activity-logs-dates label {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .activity-logs-page .activity-logs-dates input {
+    flex: 1 1 auto;
+    max-width: 100%;
+    min-width: 0;
     width: 100%;
   }
 

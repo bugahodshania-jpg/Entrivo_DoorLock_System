@@ -1506,7 +1506,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                 disabled={isLoading || Boolean(errorMessage) || visibleUsers.length === 0}
               >
                 <Download size={16} aria-hidden="true" />
-                Download
+                Export
               </button>
               <label className="manage-users-search" aria-label="Search users">
                 <Search size={16} aria-hidden="true" />

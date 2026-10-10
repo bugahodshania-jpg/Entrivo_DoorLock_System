@@ -469,12 +469,14 @@
 }
 
 .notification-menu-header {
-  border-bottom: 1px solid #eef1f4;
+  background: #0c4b2d;
+  border-bottom: 1px solid #08281c;
+  border-radius: 3px 3px 0 0;
   padding: 12px 14px 10px;
 }
 
 .notification-menu-header strong {
-  color: #10251d;
+  color: #ffffff;
   display: block;
   font-size: 14px;
   font-weight: 700;
@@ -482,7 +484,7 @@
 }
 
 .notification-menu-header span {
-  color: #60716a;
+  color: #d7e8df;
   display: block;
   font-size: 12px;
   font-weight: 500;
@@ -1464,6 +1466,25 @@
 @media (max-width: 900px) {
   .super-admin-date-card {
     display: none;
+  }
+
+  .notification-menu {
+    left: 16px;
+    position: fixed;
+    right: 16px;
+    top: 73px;
+    width: auto;
+  }
+
+  .notification-menu-header,
+  .notification-menu-status,
+  .notification-menu-all {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .notification-menu-item-button {
+    padding: 8px 16px;
   }
 }
 

@@ -471,6 +471,28 @@
   }
 }
 
+@media (max-width: 900px) {
+  .access-logs-page .access-logs-dates {
+    display: flex;
+    justify-self: stretch;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .access-logs-page .access-logs-dates label {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .access-logs-page .access-logs-dates input {
+    flex: 1 1 auto;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 @media (max-width: 640px) {
   .access-logs-toolbar-filters {
     grid-template-columns: minmax(0, 1fr);

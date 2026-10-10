@@ -1554,6 +1554,31 @@
   }
 }
 
+@media (max-width: 900px) {
+  .schedules-page .schedules-header-actions {
+    justify-content: flex-end;
+    margin-left: auto;
+    width: 100%;
+  }
+
+  .schedules-layout.is-calendar-expanded,
+  .schedules-layout.is-calendar-expanded .schedules-calendar-card,
+  .schedules-layout.is-calendar-expanded .schedules-calendar {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .schedules-layout.is-calendar-expanded .schedules-calendar-grid {
+    grid-template-columns: repeat(7, 176px);
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 @media (max-width: 768px) {
   .schedules-layout {
     gap: 16px;

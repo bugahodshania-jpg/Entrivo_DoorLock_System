@@ -4,7 +4,6 @@ import { useActionConfirm } from '../../components/ActionConfirm';
 import {
   Activity,
   ArrowLeft,
-  Ban,
   BriefcaseBusiness,
   Check,
   CheckCircle2,
@@ -30,7 +29,7 @@ import {
 import axiosClient from '../../api/axiosClient';
 import RowActionMenu from '../../components/RowActionMenu';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
-import { formatDateTimeInManila } from '../../utils/dateTime';
+import { formatDateTimeInManila, parseManilaDateTime } from '../../utils/dateTime';
 import { canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
@@ -47,6 +46,10 @@ const fingerprintTableColumns = [
   'Sync Status',
   'Action',
 ];
+
+const fingerprintLargeScreenQuery = '(min-width: 901px)';
+const fingerprintMobileEnrollmentMessage =
+  'Fingerprint enrollment, updates, and synchronization are available on a desktop or laptop only. Please continue from a larger screen.';
 
 const fingerprintTabs = [
   {
@@ -616,6 +619,23 @@ function formatJobTimestamp(value) {
   return formatted === '—' ? value : formatted;
 }
 
+const SYNC_RETRY_WINDOW_MS = 60 * 60 * 1000;
+
+function canRetrySyncJob(job) {
+  if (!job?.can_retry) {
+    return false;
+  }
+
+  const timestamp = job.updated_at || job.processing_at || job.queued_at;
+  const occurredAt = parseManilaDateTime(timestamp).getTime();
+
+  if (Number.isNaN(occurredAt)) {
+    return false;
+  }
+
+  return Date.now() - occurredAt <= SYNC_RETRY_WINDOW_MS;
+}
+
 function formatTemplateBytes(value) {
   const bytes = Number(value) || 0;
 
@@ -717,6 +737,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [isFingerNameMenuOpen, setIsFingerNameMenuOpen] = useState(false);
   const [viewFingerprint, setViewFingerprint] = useState(null);
   const [viewJob, setViewJob] = useState(null);
+  const [isLargeFingerprintScreen, setIsLargeFingerprintScreen] = useState(() =>
+    window.matchMedia(fingerprintLargeScreenQuery).matches,
+  );
   const [isDeletingFingerprintId, setIsDeletingFingerprintId] = useState(null);
   const fingerNameMenuRef = useRef(null);
   const autoEnrollHandledRef = useRef(false);
@@ -743,6 +766,25 @@ export default function Fingerprint({ user: currentUser } = {}) {
   useEffect(() => {
     loadFingerprints();
   }, [loadFingerprints]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(fingerprintLargeScreenQuery);
+    const syncScreen = () => setIsLargeFingerprintScreen(mediaQuery.matches);
+
+    syncScreen();
+    mediaQuery.addEventListener('change', syncScreen);
+    return () => mediaQuery.removeEventListener('change', syncScreen);
+  }, []);
+
+  useEffect(() => {
+    if (isLargeFingerprintScreen) {
+      return;
+    }
+
+    setSelectedFingerprint(null);
+    setSelectedEnrollmentMode('update');
+    setSyncPromptFingerprint(null);
+  }, [isLargeFingerprintScreen]);
 
   const loadEnrollmentJobs = useCallback(async () => {
     try {
@@ -1102,6 +1144,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }
 
   async function openEnrollmentModal(fingerprint, mode = fingerprint.status === 'active' ? 'update' : 'enroll') {
+    if (!isLargeFingerprintScreen) {
+      pushToast(fingerprintMobileEnrollmentMessage, 'error');
+      return;
+    }
+
     if (mode === 'update' && !canUpdateFingerprints) {
       pushToast(
         'You do not have permission to update fingerprints. Ask a Super Admin to grant Update Fingerprints access.',
@@ -1109,13 +1156,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
       );
       return;
     }
-    if (mode !== 'add') {
-      const resumed = await openExistingEnrollmentProgress(fingerprint, fingerprint.fingerName, {
-        notify: false,
-      });
-      if (resumed) {
-        return;
-      }
+
+    const resumed = await openExistingEnrollmentProgress(
+      fingerprint,
+      mode === 'add' ? '' : fingerprint.fingerName,
+      { notify: true },
+    );
+    if (resumed) {
+      return;
     }
 
     const availableFingerNames =
@@ -1206,18 +1254,44 @@ export default function Fingerprint({ user: currentUser } = {}) {
     setTrackedEnrollmentProgress(null);
   }
 
+  function openLiveEnrollmentProgress(job) {
+    const isLive = job?.is_live ?? ['waiting', 'processing'].includes(job?.status);
+
+    if (!job || !isLive) {
+      return;
+    }
+
+    setTrackedEnrollmentProgress({
+      jobId: Number(job.job_id) || null,
+      userId: job.user_id,
+      userName: job.user_name,
+      fingerName: job.finger_name,
+      deviceId: Number(job.enrollment_device_id) || 1,
+      mode: 'update',
+    });
+    setPendingAutoUploadContext({
+      jobId: Number(job.job_id) || null,
+      userId: job.user_id,
+      fingerprintId: Number(job.fingerprint_id) || null,
+      fingerName: job.finger_name,
+      mode: 'update',
+    });
+    setErrorMessage('');
+  }
+
   async function openExistingEnrollmentProgress(enrollmentTarget, requestedFingerName, { notify = true } = {}) {
     const latestJobs = await loadEnrollmentJobs();
     const matchingJob =
       latestJobs.find(
         (job) =>
-          job.user_id === enrollmentTarget.userId &&
+          Number(job.user_id) === Number(enrollmentTarget.userId) &&
+          requestedFingerName &&
           job.finger_name === requestedFingerName &&
           ['waiting', 'processing'].includes(job.status),
       ) ||
       latestJobs.find(
         (job) =>
-          job.user_id === enrollmentTarget.userId &&
+          Number(job.user_id) === Number(enrollmentTarget.userId) &&
           ['waiting', 'processing'].includes(job.status),
       );
 
@@ -1255,6 +1329,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }
 
   async function handleEnrollmentAction() {
+    if (!isLargeFingerprintScreen) {
+      setErrorMessage(fingerprintMobileEnrollmentMessage);
+      return;
+    }
+
     if (!selectedFingerprint) {
       return;
     }
@@ -1426,6 +1505,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }
 
   async function handleQueueTemplateSync(fingerprint, { showStatusModal = false, retry = false } = {}) {
+    if (!isLargeFingerprintScreen) {
+      pushToast(fingerprintMobileEnrollmentMessage, 'error');
+      return;
+    }
+
     if (!fingerprint) {
       return;
     }
@@ -1491,6 +1575,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }
 
   async function handleRetrySyncJob(job) {
+    if (!isLargeFingerprintScreen || !canRetrySyncJob(job)) {
+      if (!isLargeFingerprintScreen) {
+        pushToast(fingerprintMobileEnrollmentMessage, 'error');
+      }
+      return;
+    }
+
     const confirmed = await confirmAction({
       title: 'Retry sync',
       message: 'Are you sure you want to retry this sync?',
@@ -1689,7 +1780,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
       );
       await loadFingerprints();
       await loadEnrollmentJobs();
-      setSyncPromptFingerprint(uploadedFingerprint);
+      if (isLargeFingerprintScreen) {
+        setSyncPromptFingerprint(uploadedFingerprint);
+      }
     } catch (error) {
       setTemplateErrorMessage(
         error.response?.data?.message || 'Unable to upload that template right now.',
@@ -2659,27 +2752,29 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 label: activeActionId === fingerprint.id ? 'Starting...' : getFingerprintActionLabel(fingerprint),
                 icon: FingerprintIcon,
                 disabled: activeActionId === fingerprint.id,
-                hidden: fingerprint.status === 'active' && !canUpdateFingerprints,
+                hidden:
+                  !isLargeFingerprintScreen ||
+                  (fingerprint.status === 'active' && !canUpdateFingerprints),
                 onClick: () => openEnrollmentModal(fingerprint),
               },
               {
                 label: activeSyncActionId === fingerprint.id ? 'Syncing...' : 'Sync',
                 icon: RotateCcw,
-                hidden: !isSensorBSyncPending,
+                hidden: !isLargeFingerprintScreen || !isSensorBSyncPending,
                 disabled: activeSyncActionId === fingerprint.id,
                 onClick: () => handleQueueTemplateSync(fingerprint, { showStatusModal: true }),
               },
               {
                 label: activeSyncActionId === fingerprint.id ? 'Syncing...' : 'Sync again',
                 icon: RotateCcw,
-                hidden: !isSensorBSyncFailed,
+                hidden: !isLargeFingerprintScreen || !isSensorBSyncFailed,
                 disabled: activeSyncActionId === fingerprint.id,
                 onClick: () => handleQueueTemplateSync(fingerprint, { showStatusModal: true, retry: true }),
               },
               {
                 label: 'New fingerprint',
                 icon: Plus,
-                hidden: !shouldShowAddFingerprintAction(fingerprint),
+                hidden: !isLargeFingerprintScreen || !shouldShowAddFingerprintAction(fingerprint),
                 disabled: activeActionId === fingerprint.id,
                 onClick: () => openEnrollmentModal(fingerprint, 'add'),
               },
@@ -3039,6 +3134,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 </label>
               </div>
             </div>
+
+            {!isLargeFingerprintScreen ? (
+              <p className="fingerprint-inline-message fingerprint-mobile-enrollment-note" role="status">
+                {fingerprintMobileEnrollmentMessage}
+              </p>
+            ) : null}
 
             <div className="manage-users-role-filter fingerprint-table-filters">
               <div
@@ -3439,8 +3540,20 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     </div>
                   </div>
 
-                  {(spotlightJob.can_retry || spotlightJob.can_cancel) && (
+                  {((spotlightJob.is_live ?? ['waiting', 'processing'].includes(spotlightJob.status)) ||
+                    spotlightJob.can_retry ||
+                    spotlightJob.can_cancel) && (
                     <div className="fingerprint-action-group fingerprint-live-actions">
+                      {(spotlightJob.is_live ?? ['waiting', 'processing'].includes(spotlightJob.status)) && (
+                        <button
+                          type="button"
+                          className="fingerprint-secondary-action fingerprint-view-progress-button"
+                          onClick={() => openLiveEnrollmentProgress(spotlightJob)}
+                        >
+                          <Eye size={14} aria-hidden="true" />
+                          View Progress
+                        </button>
+                      )}
                       {spotlightJob.can_retry && !isCompletedEnrollmentJob(spotlightJob) && (
                         <button
                           type="button"
@@ -3459,7 +3572,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
                           onClick={() => handleCancelJob(spotlightJob)}
                           disabled={activeJobActionId === spotlightJob.job_id}
                         >
-                          <Ban size={14} aria-hidden="true" />
                           {activeJobActionId === spotlightJob.job_id ? 'Working...' : 'Cancel'}
                         </button>
                       )}
@@ -3577,6 +3689,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </button>
           </div>
 
+          {!isLargeFingerprintScreen ? (
+            <p className="fingerprint-inline-message fingerprint-mobile-enrollment-note" role="status">
+              {fingerprintMobileEnrollmentMessage}
+            </p>
+          ) : null}
+
           <div className="fingerprint-sync-overview">
             <section className="fingerprint-job-summary fingerprint-sync-summary" aria-label="Sync job summary">
               {syncJobSummaryCards.map(({ label, value, detail, icon: Icon }) => (
@@ -3675,14 +3793,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
                         <span>{job.error_message || 'None'}</span>
                       </td>
                       <td className="fingerprint-sync-actions-cell">
-                        {job.status === 'pending' || job.can_retry ? (
+                        {job.status === 'pending' || (isLargeFingerprintScreen && canRetrySyncJob(job)) ? (
                           <RowActionMenu
                             label={`Actions for queue ${job.queue_id}`}
                             items={[
                               {
                                 label: activeSyncActionId === `sync-job-${job.queue_id}` ? 'Working...' : 'Retry',
                                 icon: RotateCcw,
-                                hidden: !job.can_retry,
+                                hidden: !isLargeFingerprintScreen || !canRetrySyncJob(job),
                                 disabled: activeSyncActionId === `sync-job-${job.queue_id}`,
                                 onClick: () => handleRetrySyncJob(job),
                               },
@@ -3716,7 +3834,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
         </section>
       )}
 
-      {selectedFingerprint && (
+      {selectedFingerprint && isLargeFingerprintScreen && (
         <div className="fingerprint-modal-overlay" onClick={closeEnrollmentModal}>
           <section
             className="fingerprint-modal fingerprint-enrollment-modal"
@@ -4085,7 +4203,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   onClick={() => handleCancelJob(trackedEnrollmentDisplayJob)}
                   disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}
                 >
-                  <Ban size={14} aria-hidden="true" />
                   {activeJobActionId === trackedEnrollmentDisplayJob.job_id ? 'Working...' : 'Cancel'}
                 </button>
                 )}
@@ -4209,7 +4326,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
         </div>
       )}
 
-      {syncPromptFingerprint && (
+      {syncPromptFingerprint && isLargeFingerprintScreen && (
         <div
           className="fingerprint-modal-overlay"
           onClick={() => setSyncPromptFingerprint(null)}

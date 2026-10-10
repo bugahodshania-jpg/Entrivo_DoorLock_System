@@ -79,6 +79,19 @@ const scheduleTableTabs = [
   { value: 'past', label: 'Past schedules' },
 ];
 
+function readScheduleListQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  const status = params.get('status');
+  const kind = params.get('kind');
+
+  return {
+    tab: scheduleTableTabs.some((option) => option.value === tab) ? tab : 'today',
+    status: scheduleStatusFilterOptions.some((option) => option.value === status) ? status : 'all',
+    kind: scheduleKindFilterOptions.some((option) => option.value === kind) ? kind : 'all',
+  };
+}
+
 function normalizeLookupValue(value) {
   return String(value || '')
     .toLowerCase()
@@ -279,11 +292,11 @@ export default function Schedules({ user }) {
   const [conflictInfo, setConflictInfo] = useState(null);
   const [pendingPayload, setPendingPayload] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeScheduleTab, setActiveScheduleTab] = useState('today');
+  const [activeScheduleTab, setActiveScheduleTab] = useState(() => readScheduleListQuery().tab);
   const [isScheduleTabMenuOpen, setIsScheduleTabMenuOpen] = useState(false);
-  const [activeStatusFilter, setActiveStatusFilter] = useState('all');
+  const [activeStatusFilter, setActiveStatusFilter] = useState(() => readScheduleListQuery().status);
   const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
-  const [activeKindFilter, setActiveKindFilter] = useState('all');
+  const [activeKindFilter, setActiveKindFilter] = useState(() => readScheduleListQuery().kind);
   const [isKindFilterMenuOpen, setIsKindFilterMenuOpen] = useState(false);
   const scheduleTabMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
@@ -560,6 +573,30 @@ export default function Schedules({ user }) {
   useEffect(() => {
     setCurrentPage(1);
   }, [activeScheduleTab, activeStatusFilter, activeKindFilter]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+
+    if (activeScheduleTab !== 'today') {
+      params.set('tab', activeScheduleTab);
+    }
+
+    if (activeStatusFilter !== 'all') {
+      params.set('status', activeStatusFilter);
+    }
+
+    if (activeKindFilter !== 'all') {
+      params.set('kind', activeKindFilter);
+    }
+
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, [activeKindFilter, activeScheduleTab, activeStatusFilter]);
 
   useEffect(() => {
     if (!isScheduleTabMenuOpen && !isStatusFilterMenuOpen && !isKindFilterMenuOpen) {
@@ -1324,7 +1361,7 @@ export default function Schedules({ user }) {
           <div className="schedules-header-actions">
             <button type="button" className="schedules-csv-button" onClick={() => setExportTarget('table')}>
               <Download size={14} />
-              Download
+              Export
             </button>
             <button type="button" className="dashboard-schedule-button schedules-add-button" onClick={() => openModal()}>
               <CalendarPlus size={16} aria-hidden="true" />

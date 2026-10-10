@@ -868,7 +868,7 @@ export default function MySchedule({ user }) {
             <div className="schedules-header-actions">
               <button type="button" className="schedules-csv-button" onClick={() => setExportTarget('table')}>
                 <Download size={14} />
-                Download
+                Export
               </button>
               <button
                 type="button"

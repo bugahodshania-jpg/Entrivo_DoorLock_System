@@ -783,17 +783,8 @@
 }
 
 @media (max-width: 900px) {
-  .auth-page .home-header-right {
-    box-shadow: 0 12px 28px rgba(16, 37, 29, 0.1);
-  }
-
   .auth-page .home-actions {
-    width: auto;
-  }
-
-  .auth-page .home-actions .home-link-button,
-  .auth-page .home-actions .home-primary-button {
-    width: auto;
+    width: 100%;
   }
 }
 
@@ -2836,7 +2827,7 @@
   }
 
   .auth-page.auth-page-login .home-brand-text strong {
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .auth-page.auth-page-login .home-brand-text small {

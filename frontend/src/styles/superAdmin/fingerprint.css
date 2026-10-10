@@ -439,10 +439,21 @@
   font: inherit;
   font-size: 12px;
   font-weight: 800;
+  gap: 8px;
   justify-content: center;
   min-height: 32px;
   min-width: 92px;
   padding: 7px 12px;
+}
+
+.fingerprint-view-progress-button {
+  gap: 10px;
+  padding: 8px 16px;
+}
+
+.fingerprint-view-progress-button svg {
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .fingerprint-icon-action {
@@ -731,8 +742,11 @@
 
 .fingerprint-sync-table th:nth-child(9),
 .fingerprint-sync-table td:nth-child(9) {
+  padding-left: 8px;
+  padding-right: 8px;
   text-align: center;
-  width: 12%;
+  vertical-align: middle;
+  width: 72px;
 }
 
 .fingerprint-job-identity strong,
@@ -756,17 +770,23 @@
 }
 
 .fingerprint-sync-actions-cell {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.fingerprint-sync-actions-cell .row-action-menu-cell {
+  display: inline-flex;
   justify-content: center;
+  margin-inline: auto;
+  width: 100%;
 }
 
 .fingerprint-sync-actions-cell > span {
   color: #8b95a1;
+  display: block;
   font-size: 12px;
   font-weight: 400;
+  text-align: center;
 }
 
 .fingerprint-job-progress {
@@ -1275,6 +1295,13 @@
   background: #fffafa;
   border-color: #ead7d7;
   color: #7a3434;
+}
+
+.fingerprint-mobile-enrollment-note {
+  background: #fff3e0;
+  border-color: #f3d2a2;
+  color: #6b4a16;
+  margin-top: 14px;
 }
 
 .fingerprint-modal-overlay {
@@ -3350,6 +3377,10 @@
   .fingerprint-sync-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .fingerprint-jobs-card .dashboard-panel-header .fingerprint-back-button {
+    align-self: flex-end;
   }
 
   .fingerprint-sync-overview {

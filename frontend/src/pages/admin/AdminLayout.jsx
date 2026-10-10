@@ -88,6 +88,11 @@ const navSections = [
         icon: Activity,
         privilege: 'access_logs',
       },
+    ],
+  },
+  {
+    heading: 'Activity',
+    links: [
       {
         label: 'Activity Logs',
         href: '/admin/activity-logs',

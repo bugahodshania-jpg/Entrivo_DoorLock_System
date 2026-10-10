@@ -878,14 +878,37 @@
     width: 100%;
   }
 
-  .manage-users-header-actions {
-    align-items: stretch;
-    flex-direction: column;
+  .manage-users .manage-users-header-actions {
+    align-items: center;
+    display: grid;
+    gap: 10px 12px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     width: 100%;
   }
 
-  .manage-users-search-stack {
-    align-items: stretch;
+  .manage-users .manage-users-search-stack {
+    display: contents;
+  }
+
+  .manage-users .manage-users-download-button {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    padding-bottom: 0;
+  }
+
+  .manage-users .manage-users-register-button {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    width: fit-content;
+  }
+
+  .manage-users .manage-users-search {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    max-width: none;
+    min-width: 0;
     width: 100%;
   }
 

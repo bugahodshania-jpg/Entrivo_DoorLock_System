@@ -484,7 +484,6 @@ export default function ActivityLogs() {
                     <td>{log.userId}</td>
                     <td>
                       <div className="activity-logs-user">
-                        <span className="activity-logs-avatar" aria-hidden="true">{log.initial}</span>
                         <div>
                           <strong>{log.name}</strong>
                           <span>@{log.username}</span>
