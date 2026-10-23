@@ -22,6 +22,8 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/NotificationService.php';
+require_once dirname(__DIR__) . '/services/OverrideScheduleService.php';
 
 function ensureScheduleKindColumn(PDO $pdo): void
 {
@@ -220,6 +222,53 @@ function countOverridesByStatus(PDO $pdo): array
     ];
 }
 
+function fetchOldestPending(PDO $pdo): ?array
+{
+    $statement = $pdo->query(
+        pendingOverrideSelectSql() . "
+         WHERE access_overrides.approved_by IS NULL
+         ORDER BY access_overrides.created_at ASC, access_overrides.override_start ASC
+         LIMIT 1"
+    );
+    $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+    return $row ? mapPendingOverride($row) : null;
+}
+
+function fetchRecentApprovedThisWeek(PDO $pdo, int $limit = 5): array
+{
+    $limit = max(1, min(5, $limit));
+    $statement = $pdo->query(
+        pendingOverrideSelectSql() . "
+         WHERE access_overrides.approved_by IS NOT NULL
+           AND DATE(access_overrides.override_start)
+               BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+                   AND DATE_ADD(
+                       DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY),
+                       INTERVAL 6 DAY
+                   )
+         ORDER BY access_overrides.override_start DESC, access_overrides.created_at DESC
+         LIMIT {$limit}"
+    );
+
+    return array_map(
+        static fn ($row) => mapPendingOverride($row),
+        $statement->fetchAll(PDO::FETCH_ASSOC)
+    );
+}
+
+function overrideListPayload(PDO $pdo, string $status): array
+{
+    return [
+        'message' => 'Override requests loaded.',
+        'status' => $status,
+        'overrides' => fetchOverrides($pdo, $status),
+        'counts' => countOverridesByStatus($pdo),
+        'oldestPending' => fetchOldestPending($pdo),
+        'recentApprovedThisWeek' => fetchRecentApprovedThisWeek($pdo),
+    ];
+}
+
 function fetchOverrideById(PDO $pdo, int $overrideId): ?array
 {
     $statement = $pdo->prepare(
@@ -268,12 +317,7 @@ try {
             exit;
         }
 
-        echo json_encode([
-            'message' => 'Override requests loaded.',
-            'status' => $status,
-            'overrides' => fetchOverrides($pdo, $status),
-            'counts' => countOverridesByStatus($pdo),
-        ]);
+        echo json_encode(overrideListPayload($pdo, $status));
         exit;
     }
 
@@ -317,20 +361,31 @@ try {
             exit;
         }
 
-        $start = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string) $existing['overrideStart'])
-            ?: DateTimeImmutable::createFromFormat('Y-m-d H:i', (string) $existing['overrideStart']);
-        $end = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string) $existing['overrideEnd'])
-            ?: DateTimeImmutable::createFromFormat('Y-m-d H:i', (string) $existing['overrideEnd']);
-
-        if (!$start || !$end) {
-            http_response_code(422);
-            echo json_encode(['message' => 'That override request has an invalid access window.']);
-            exit;
-        }
-
+        $notifications = new NotificationService($pdo);
+        $notifications->ensureSchema();
+        $overrideSchedules = new OverrideScheduleService($pdo);
+        $overrideSchedules->ensureStampColumn();
         $pdo->beginTransaction();
 
         try {
+            // Read the window again while locked: a pending request can be edited.
+            $lock = $pdo->prepare('SELECT override_id FROM access_overrides WHERE override_id = ? AND approved_by IS NULL FOR UPDATE');
+            $lock->execute([$overrideId]);
+            $existing = $lock->fetchColumn() ? fetchPendingOverride($pdo, $overrideId) : null;
+            if (!$existing) {
+                $pdo->rollBack();
+                http_response_code(404);
+                echo json_encode(['message' => 'That pending override request was not found.']);
+                exit;
+            }
+            $start = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', (string) $existing['overrideStart']);
+            $end = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', (string) $existing['overrideEnd']);
+            if (!$start || !$end || $end <= $start || $start->format('Y-m-d') !== $end->format('Y-m-d')) {
+                $pdo->rollBack();
+                http_response_code(422);
+                echo json_encode(['message' => 'That override request has an invalid single-day access window.']);
+                exit;
+            }
             $statement = $pdo->prepare(
                 'UPDATE access_overrides
                  SET approved_by = :approved_by
@@ -379,7 +434,7 @@ try {
             if ($scheduleId > 0) {
                 $updateSchedule = $pdo->prepare(
                     "UPDATE schedules
-                     SET status = 'overridden',
+                     SET status = 'approved',
                          schedule_kind = 'override',
                          approved_by = :approved_by,
                          approved_at = :approved_at,
@@ -424,7 +479,7 @@ try {
                         NULL,
                         NULL,
                         15,
-                        'overridden',
+                        'approved',
                         :created_by,
                         :approved_by,
                         :approved_at
@@ -441,6 +496,15 @@ try {
                 ]);
             }
 
+            $overrideScheduleId = $scheduleId > 0 ? $scheduleId : (int) $pdo->lastInsertId();
+            $overrideSchedules->stampOverlappingRegulars(
+                (int) $existing['userId'],
+                $scheduleDate,
+                $timeStart,
+                $timeEnd,
+                $overrideScheduleId
+            );
+            $notificationIds = $notifications->createForApprovedOverride($existing, true);
             $pdo->commit();
         } catch (Throwable $error) {
             if ($pdo->inTransaction()) {
@@ -450,10 +514,21 @@ try {
             throw $error;
         }
 
-        $message = 'Override request approved. It now appears in Schedules with Overridden status.';
+        $message = 'Override request approved. It now appears in Schedules as an Approved override.';
+        // SMTP runs in a separate process; even the single-worker PHP development
+        // server remains available for notification polling during a mail outage.
+        $emailDelivery = [
+            'sent' => 0, 'failed' => 0, 'uncertain' => 0, 'pending' => count($notificationIds),
+            'dispatchStarted' => count($notificationIds) > 0 && NotificationService::dispatchDelivery($overrideId),
+        ];
+        if (count($notificationIds) > 0) {
+            $message .= $emailDelivery['dispatchStarted']
+                ? ' Affected users have dashboard notices, and their email notifications are queued for delivery.'
+                : ' Affected users have dashboard notices. Email is queued; run the notification delivery worker to send it.';
+        }
         $activityType = 'Approve';
         $description = 'Approved override request #' . $overrideId . ' for ' . $existing['name']
-            . ' and marked the schedule as overridden.';
+            . ' and created an approved override schedule.';
     } else {
         $statement = $pdo->prepare(
             'DELETE FROM access_overrides
@@ -483,12 +558,13 @@ try {
         (string) $overrideId
     );
 
-    echo json_encode([
-        'message' => $message,
-        'status' => $listStatus,
-        'overrides' => fetchOverrides($pdo, $listStatus),
-        'counts' => countOverridesByStatus($pdo),
-    ]);
+    echo json_encode(array_merge(
+        overrideListPayload($pdo, $listStatus),
+        array_merge(['message' => $message], isset($emailDelivery) ? [
+            'affectedUsersNotified' => count($notificationIds),
+            'emailNotifications' => $emailDelivery,
+        ] : [])
+    ));
 } catch (Throwable $error) {
     http_response_code(500);
     echo json_encode(['message' => 'Unable to process override requests right now.']);

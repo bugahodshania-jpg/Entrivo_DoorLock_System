@@ -163,6 +163,10 @@ class ActivityLogService
             return 'RFID';
         }
 
+        if ($entity === 'delete_request' || str_contains($text, 'delete request')) {
+            return 'Delete';
+        }
+
         if (
             $entity === 'user'
             || in_array($type, ['add', 'edit', 'delete', 'block', 'unblock'], true)
@@ -205,7 +209,7 @@ class ActivityLogService
                 'entity_type' => $entityType !== null ? substr($entityType, 0, 64) : null,
                 'entity_id' => $entityId !== null ? substr((string) $entityId, 0, 64) : null,
                 'description' => substr(trim($description), 0, 512),
-                'status' => $status === 'Failed' ? 'Failed' : 'Success',
+                'status' => self::normalizeStatus($status),
                 'ip_address' => $this->clientIp(),
                 'user_agent' => $this->userAgent(),
             ]);
@@ -392,7 +396,7 @@ class ActivityLogService
 
         $descriptions = [
             'queued' => ['Queue', 'Queued ' . $subject . ' to ' . $device . ' for ' . $who . '.'],
-            'pending' => ['Queue', 'Fingerprint sync to ' . $device . ' for ' . $who . ' is already pending (' . $subject . ').'],
+            'pending' => ['Sync', 'Fingerprint was not synced to ' . $device . ' for ' . $who . '. ' . ($queueId > 0 ? 'Sync job #' . $queueId : 'A sync job') . ' was already waiting, so this attempt did not transfer the template.'],
             'retried' => ['Retry', 'Retried ' . $subject . ' to ' . $device . ' for ' . $who . '.'],
             'cancelled' => ['Cancel', 'Cancelled ' . $subject . ' to ' . $device . ' for ' . $who . '.'],
             'synced' => ['Sync', 'Synced fingerprint to ' . $device . ' for ' . $who . ' (' . $subject . ').'],
@@ -400,13 +404,24 @@ class ActivityLogService
         ];
         [$activityType, $description] = $descriptions[$action] ?? ['Sync', ucfirst($action) . ' ' . $subject . ' for ' . $who . '.'];
 
-        if ($status === 'Failed' && $action !== 'failed') {
+        if ($status !== 'Failed') {
+            $status = match ($action) {
+                'queued', 'retried' => 'Pending',
+                'pending' => 'Failed',
+                'cancelled' => 'Cancelled',
+                'failed' => 'Failed',
+                'synced' => 'Success',
+                default => 'Pending',
+            };
+        }
+
+        if ($status === 'Failed' && !in_array($action, ['failed', 'pending'], true)) {
             $description = 'Unable to ' . strtolower($activityType) . ' ' . $subject . ' for ' . $who . '.';
         }
 
         $reason = trim((string) ($job['error_message'] ?? ''));
 
-        if ($status === 'Failed' && $reason !== '') {
+        if (in_array($status, ['Failed', 'Cancelled'], true) && $reason !== '') {
             $description = rtrim($description, '.') . '. ' . $reason;
         }
 
@@ -422,9 +437,164 @@ class ActivityLogService
     }
 
     /**
-     * Removes job-start rows that are not a finished fingerprint enrollment.
-     * A cancelled or unfinished job is not an enrollment or an update.
+     * @return array<int, array{activity_type: string, description: string, status: string, occurred_at: string}>
      */
+    public function listFingerprintSyncEvents(int $queueId): array
+    {
+        if ($queueId <= 0) {
+            return [];
+        }
+
+        try {
+            $this->ensureTable();
+            $statement = $this->pdo->prepare(
+                "SELECT activity_type, description, status, created_at
+                 FROM activity_transactions
+                 WHERE entity_type = 'fingerprint_sync'
+                   AND entity_id = :entity_id
+                 ORDER BY created_at ASC, transaction_id ASC"
+            );
+            $statement->execute(['entity_id' => (string) $queueId]);
+            $events = [];
+
+            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $occurredAt = trim((string) ($row['created_at'] ?? ''));
+
+                if ($occurredAt === '') {
+                    continue;
+                }
+
+                $events[] = [
+                    'activity_type' => (string) ($row['activity_type'] ?? ''),
+                    'description' => (string) ($row['description'] ?? ''),
+                    'status' => self::normalizeStatus((string) ($row['status'] ?? '')),
+                    'occurred_at' => $occurredAt,
+                ];
+            }
+
+            return $events;
+        } catch (Throwable $error) {
+            error_log('ActivityLogService sync timeline: ' . $error->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * @return array<int, array{activity_type: string, description: string, status: string, occurred_at: string}>
+     */
+    public function listFingerprintJobEvents(int $jobId): array
+    {
+        if ($jobId <= 0) {
+            return [];
+        }
+
+        try {
+            $this->ensureTable();
+            $statement = $this->pdo->prepare(
+                "SELECT activity_type, description, status, created_at
+                 FROM activity_transactions
+                 WHERE entity_id = :entity_id
+                   AND entity_type IN ('fingerprint_job', 'fingerprint')
+                 ORDER BY created_at ASC, transaction_id ASC"
+            );
+            $statement->execute(['entity_id' => (string) $jobId]);
+            $events = [];
+
+            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $occurredAt = trim((string) ($row['created_at'] ?? ''));
+
+                if ($occurredAt === '') {
+                    continue;
+                }
+
+                $events[] = [
+                    'activity_type' => (string) ($row['activity_type'] ?? ''),
+                    'description' => (string) ($row['description'] ?? ''),
+                    'status' => self::normalizeStatus((string) ($row['status'] ?? '')),
+                    'occurred_at' => $occurredAt,
+                ];
+            }
+
+            return $events;
+        } catch (Throwable $error) {
+            error_log('ActivityLogService enrollment timeline: ' . $error->getMessage());
+
+            return [];
+        }
+    }
+
+    public static function normalizeStatus(string $status): string
+    {
+        return match ($status) {
+            'Failed' => 'Failed',
+            'Pending' => 'Pending',
+            'Cancelled' => 'Cancelled',
+            default => 'Success',
+        };
+    }
+
+    /**
+     * A queued, retried, or still-pending sync is not a completed transfer.
+     */
+    public function correctUnfinishedSyncStatuses(): void
+    {
+        try {
+            $this->ensureTable();
+            $this->pdo->exec(
+                "UPDATE activity_transactions
+                 SET status = 'Pending'
+                 WHERE entity_type = 'fingerprint_sync'
+                   AND status = 'Success'
+                   AND (
+                        description LIKE 'Queued fingerprint sync%'
+                        OR description LIKE 'Retried fingerprint sync%'
+                   )"
+            );
+            $pendingAttempts = $this->pdo->query(
+                "SELECT transaction_id, description
+                 FROM activity_transactions
+                 WHERE entity_type = 'fingerprint_sync'
+                   AND description LIKE '%is already pending%'"
+            );
+            $rewrite = $this->pdo->prepare(
+                "UPDATE activity_transactions
+                 SET status = 'Failed',
+                     description = :description
+                 WHERE transaction_id = :transaction_id"
+            );
+            foreach ($pendingAttempts->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $description = (string) $row['description'];
+                if (preg_match('/Fingerprint sync to (.+) for (.+) is already pending \(fingerprint sync job #(\d+)\)\./', $description, $matches)) {
+                    $description = 'Fingerprint was not synced to ' . $matches[1] . ' for ' . $matches[2] . '. Sync job #' . $matches[3] . ' was already waiting, so this attempt did not transfer the template.';
+                }
+                $rewrite->execute([
+                    'description' => substr($description, 0, 512),
+                    'transaction_id' => (int) $row['transaction_id'],
+                ]);
+            }
+            $this->pdo->exec(
+                "UPDATE activity_transactions
+                 SET status = 'Cancelled'
+                 WHERE entity_type = 'fingerprint_sync'
+                   AND status = 'Success'
+                   AND description LIKE 'Cancelled fingerprint sync%'"
+            );
+            $this->pdo->exec(
+                "UPDATE activity_transactions
+                 SET description = REPLACE(
+                        description,
+                        ' for more than 1 hour, so it was cancelled.',
+                        ', so it was cancelled.'
+                     )
+                 WHERE entity_type = 'fingerprint_sync'
+                   AND description LIKE '%for more than 1 hour, so it was cancelled.%'"
+            );
+        } catch (Throwable $error) {
+            error_log('ActivityLogService sync status: ' . $error->getMessage());
+        }
+    }
+
     public function syncFingerprintEnrollmentActivities(): void
     {
         try {
@@ -510,7 +680,7 @@ class ActivityLogService
                 'target_user_id' => $targetUserId && $targetUserId > 0 ? $targetUserId : null,
                 'activity_type' => substr(trim($activityType), 0, 32),
                 'description' => substr(trim($description), 0, 512),
-                'status' => $status === 'Failed' ? 'Failed' : 'Success',
+                'status' => self::normalizeStatus($status),
                 'entity_type' => substr($entityType, 0, 64),
                 'entity_id' => substr($entityId, 0, 64),
             ]);

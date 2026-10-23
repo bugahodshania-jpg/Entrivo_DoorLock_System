@@ -34,30 +34,50 @@
   margin-top: 6px;
 }
 
-.access-logs-export {
+.access-logs-live-status {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #cfe0d7;
-  border-radius: 8px;
-  color: #0c4b2d;
-  cursor: pointer;
+  color: #60716a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.access-logs-live-label {
+  align-items: center;
   display: inline-flex;
-  flex: 0 0 auto;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 5px;
 }
 
-.access-logs-export:hover {
-  background: #eef6f1;
+.access-logs-live-label i {
+  background: #8a9892;
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
 }
 
-.access-logs-export:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.access-logs-live-status.is-live .access-logs-live-label {
+  color: #0c7a43;
+}
+
+.access-logs-live-status.is-live .access-logs-live-label i {
+  background: #0c7a43;
+}
+
+.access-logs-live-status.is-reconnecting .access-logs-live-label,
+.access-logs-live-error {
+  color: #946321;
+}
+
+.access-logs-live-status.is-reconnecting .access-logs-live-label i {
+  background: #946321;
+}
+
+.access-logs-live-status time,
+.access-logs-live-error {
+  font-size: 11px;
 }
 
 .access-logs-toolbar {
@@ -303,6 +323,51 @@
 }
 
 .access-logs-page .access-logs-table .access-logs-status-denied {
+  background: #fbeaea;
+  color: #b93636;
+}
+
+.access-logs-page .access-logs-table-with-actions {
+  min-width: 1060px;
+}
+
+.access-logs-page .access-logs-table-with-actions th:nth-child(1),
+.access-logs-page .access-logs-table-with-actions td:nth-child(1),
+.access-logs-page .access-logs-table-with-actions th:nth-child(3),
+.access-logs-page .access-logs-table-with-actions td:nth-child(3),
+.access-logs-page .access-logs-table-with-actions th:nth-child(7),
+.access-logs-page .access-logs-table-with-actions td:nth-child(7) {
+  width: 12%;
+}
+
+.access-logs-page .access-logs-table-with-actions th:nth-child(2),
+.access-logs-page .access-logs-table-with-actions td:nth-child(2) {
+  width: 18%;
+}
+
+.access-logs-page .access-logs-table-with-actions th:nth-child(5),
+.access-logs-page .access-logs-table-with-actions td:nth-child(5) {
+  width: 9%;
+}
+
+.access-logs-page .access-logs-table-with-actions th:nth-child(6),
+.access-logs-page .access-logs-table-with-actions td:nth-child(6) {
+  width: 19%;
+}
+
+.access-logs-page .access-logs-table-with-actions th:nth-child(8),
+.access-logs-page .access-logs-table-with-actions td:nth-child(8) {
+  padding-right: 8px;
+  text-align: center;
+  width: 7%;
+}
+
+.access-log-view-modal .access-logs-status-granted {
+  background: #e7f6ed;
+  color: #0c7a43;
+}
+
+.access-log-view-modal .access-logs-status-denied {
   background: #fbeaea;
   color: #b93636;
 }

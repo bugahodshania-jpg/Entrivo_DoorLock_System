@@ -1,13 +1,66 @@
-import { createPdfDrawing, escapePdfText, finishPdf, wrapPdfText } from './exportFiles';
+import { formatDateInManila } from './dateTime.js';
+import { createPdfDrawing, escapePdfText, finishPdf, wrapPdfText } from './exportFiles.js';
 
 export const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-export function getScheduleTimeLabel(schedule) {
-  if (schedule.timeStartLabel && schedule.timeEndLabel) {
-    return `${schedule.timeStartLabel} - ${schedule.timeEndLabel}`;
+export function getScheduleDateParts(scheduleOrDate) {
+  const stamp = String(
+    typeof scheduleOrDate === 'string' || typeof scheduleOrDate === 'number'
+      ? scheduleOrDate
+      : scheduleOrDate?.scheduleDate
+        || scheduleOrDate?.startDate
+        || scheduleOrDate?.dateValue
+        || '',
+  ).trim().slice(0, 10);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(stamp)) {
+    return {
+      date: formatDateInManila(stamp, { month: 'short', day: 'numeric', year: 'numeric' }),
+      weekday: formatDateInManila(stamp, { weekday: 'long' }),
+    };
   }
 
-  return schedule.window || '';
+  const label = String(
+    typeof scheduleOrDate === 'string'
+      ? scheduleOrDate
+      : scheduleOrDate?.scheduleDateLabel || scheduleOrDate?.dateLabel || '',
+  ).trim();
+  const weekdayFirst = label.match(/^([A-Za-z]+),\s*(.+)$/);
+
+  if (weekdayFirst) {
+    return { weekday: weekdayFirst[1], date: weekdayFirst[2] };
+  }
+
+  return { date: label, weekday: '' };
+}
+
+export function getScheduleTimeParts(schedule) {
+  const start = String(schedule?.timeStartLabel || '').trim();
+  const end = String(schedule?.timeEndLabel || '').trim();
+  if (start && end) {
+    return { start, end };
+  }
+
+  const combined = String(
+    schedule?.time || schedule?.window || '',
+  ).trim();
+  const parts = combined.split(/\s*[-–]\s*/).map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return { start: parts[0], end: parts.slice(1).join(' – ') };
+  }
+
+  return { start: combined, end: '' };
+}
+
+export function getScheduleTimeLabel(schedule) {
+  const { start, end } = getScheduleTimeParts(schedule);
+
+  if (start && end) {
+    return `${start} - ${end}`;
+  }
+
+  return start || schedule?.window || '';
 }
 
 export function formatScheduleStatusLabel(status) {
@@ -15,6 +68,11 @@ export function formatScheduleStatusLabel(status) {
 
   if (!value) {
     return 'Unknown';
+  }
+
+  // Older API responses used this status for approved override access.
+  if (value === 'overridden') {
+    return 'Approved';
   }
 
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -25,6 +83,10 @@ export function formatScheduleKindLabel(kind) {
 }
 
 export function getScheduleKind(schedule) {
+  if (String(schedule?.status || '').trim().toLowerCase() === 'overridden') {
+    return 'override';
+  }
+
   return String(schedule?.scheduleKind || schedule?.schedule_kind || 'regular').toLowerCase() === 'override'
     ? 'override'
     : 'regular';
@@ -58,13 +120,115 @@ export function shiftDateStamp(dateStr, dayDelta) {
 }
 
 export function parseTimeToMinutes(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+  const text = String(value || '').trim();
+  const ampm = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)$/i);
+
+  if (ampm) {
+    let hours = Number(ampm[1]) % 12;
+    if (ampm[3].toUpperCase() === 'PM') {
+      hours += 12;
+    }
+    return hours * 60 + Number(ampm[2]);
+  }
+
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
 
   if (!match) {
     return null;
   }
 
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+export function expandScheduleDates({ scheduleType, scheduleDate, startDate, endDate, repeatType, repeatDays = [] }) {
+  if (scheduleType !== 'recurring') {
+    return scheduleDate ? [String(scheduleDate).slice(0, 10)] : [];
+  }
+
+  const cursor = parseDateStamp(startDate);
+  const last = parseDateStamp(endDate);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(last.getTime()) || cursor > last) {
+    return [];
+  }
+
+  const selectedDays = new Set(repeatDays);
+  const dates = [];
+
+  while (cursor <= last) {
+    const weekday = weekdayOptions[(cursor.getDay() + 6) % 7];
+    if (repeatType === 'daily' || (repeatType === 'weekly_selected' && selectedDays.has(weekday))) {
+      dates.push(toDateStamp(cursor));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
+
+function storedScheduleKind(schedule) {
+  return String(schedule?.scheduleKind || schedule?.schedule_kind || 'regular').toLowerCase() === 'override'
+    ? 'override'
+    : 'regular';
+}
+
+/** Time overlaps for any person. A regular schedule cannot share a window. An approved override may share a window with one regular schedule, but not with another override. */
+export function findScheduleConflicts(schedules, candidate) {
+  const kind = String(candidate?.scheduleKind || 'regular').toLowerCase() === 'override' ? 'override' : 'regular';
+  const dates = (candidate?.dates || []).map((date) => String(date || '').slice(0, 10)).filter(Boolean);
+  const start = parseTimeToMinutes(candidate?.timeStart);
+  const end = parseTimeToMinutes(candidate?.timeEnd);
+  const excludeId = Number(candidate?.excludeId || 0);
+
+  if (start === null || end === null || end <= start || dates.length === 0) {
+    return { conflicts: [], conflictDetails: [], validDates: dates };
+  }
+
+  const wanted = new Set(dates);
+  const conflictDates = [];
+  const details = [];
+
+  for (const schedule of schedules || []) {
+    if (excludeId && Number(schedule.id) === excludeId) {
+      continue;
+    }
+    if (String(schedule?.status || '').toLowerCase() === 'cancelled') {
+      continue;
+    }
+
+    const otherKind = storedScheduleKind(schedule);
+    if (kind === 'override' && otherKind !== 'override') {
+      continue;
+    }
+
+    const date = String(schedule.scheduleDate || '').slice(0, 10);
+    if (!wanted.has(date)) {
+      continue;
+    }
+
+    const otherStart = parseTimeToMinutes(schedule.timeStart || schedule.timeStartLabel);
+    const otherEnd = parseTimeToMinutes(schedule.timeEnd || schedule.timeEndLabel);
+    if (otherStart === null || otherEnd === null || !(start < otherEnd && end > otherStart)) {
+      continue;
+    }
+
+    if (!conflictDates.includes(date)) {
+      conflictDates.push(date);
+    }
+
+    details.push({
+      scheduleDate: date,
+      timeStartLabel: schedule.timeStartLabel || formatMinutesLabel(otherStart),
+      timeEndLabel: schedule.timeEndLabel || formatMinutesLabel(otherEnd),
+      ownerName: schedule.ownerName || 'Scheduled user',
+      scheduleKind: otherKind,
+    });
+  }
+
+  return {
+    conflicts: conflictDates,
+    conflictDetails: details,
+    validDates: dates.filter((date) => !conflictDates.includes(date)),
+  };
 }
 
 export function formatMinutesLabel(totalMinutes) {
@@ -324,13 +488,15 @@ export function buildWeeklyPdf({ title, note, days }) {
 }
 
 export function compareSchedulesChronologically(left, right) {
+  const dateOf = (schedule) => String(schedule?.scheduleDate || schedule?.dateValue || schedule?.startDate || '').slice(0, 10);
   const timeValue = (value) => parseTimeToMinutes(value) ?? Number.MAX_SAFE_INTEGER;
 
   return (
-    String(left.scheduleDate || '').localeCompare(String(right.scheduleDate || '')) ||
-    timeValue(left.timeStart) - timeValue(right.timeStart) ||
-    timeValue(left.timeEnd) - timeValue(right.timeEnd) ||
-    String(left.ownerName || '').localeCompare(String(right.ownerName || ''))
+    dateOf(left).localeCompare(dateOf(right)) ||
+    timeValue(left?.timeStart || left?.timeStartLabel) - timeValue(right?.timeStart || right?.timeStartLabel) ||
+    timeValue(left?.timeEnd || left?.timeEndLabel) - timeValue(right?.timeEnd || right?.timeEndLabel) ||
+    String(left?.ownerName || '').localeCompare(String(right?.ownerName || '')) ||
+    (Number(left?.id) || 0) - (Number(right?.id) || 0)
   );
 }
 

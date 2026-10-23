@@ -44,8 +44,8 @@ class UserPrivilegeService
             'path' => '/super-admin/schedules',
         ],
         'pending_overrides' => [
-            'label' => 'Pending Overrides',
-            'description' => 'Review and approve temporary access override requests.',
+            'label' => 'Override Requests',
+            'description' => 'Review and manage temporary access override requests.',
             'path' => '/super-admin/pending-overrides',
         ],
         'access_logs' => [
@@ -133,6 +133,10 @@ class UserPrivilegeService
 
     public static function privilegeForPath(string $path): ?string
     {
+        if (in_array($path, ['/super-admin/fingerprint-direct', '/super-admin/sensor-memory', '/admin/sensor-memory'], true)) {
+            return 'fingerprint';
+        }
+
         foreach (self::PRIVILEGES as $key => $meta) {
             if (!empty($meta['path']) && $meta['path'] === $path) {
                 return $key;

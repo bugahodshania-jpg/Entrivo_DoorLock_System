@@ -19,6 +19,7 @@ import {
   normalizeGracePeriodMinutes,
 } from '../../utils/systemSettings';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
@@ -854,10 +855,6 @@ export default function Settings({ user }) {
             </div>
           </div>
 
-          {adminProfileError && !isEditingAdminPassword ? (
-            <p className="settings-admin-error">{adminProfileError}</p>
-          ) : null}
-
           <div className="settings-admin-dashboard">
             <section className="settings-admin-profile-summary" aria-label="Admin profile summary">
               <div className="settings-admin-profile-avatar">
@@ -1121,8 +1118,6 @@ export default function Settings({ user }) {
                   </button>
                 </header>
 
-                {adminProfileError ? <p className="pending-registration-error" role="alert">{adminProfileError}</p> : null}
-
                 <div className="pending-registration-review-body">
                   <section className="pending-registration-review-card">
                     <h3>Account Information</h3>
@@ -1284,6 +1279,11 @@ export default function Settings({ user }) {
         </article>
         ) : null}
       </section>
+      <ErrorNoticeModal
+        open={Boolean(adminProfileError)}
+        message={adminProfileError}
+        onClose={() => setAdminProfileError('')}
+      />
     </main>
   );
 }

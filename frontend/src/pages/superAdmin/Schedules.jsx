@@ -1,10 +1,18 @@
-import { CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, Trash2, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
 import WeeklyScheduleGrid from '../../components/WeeklyScheduleGrid';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
+import DeleteRequestModal from '../../components/DeleteRequestModal';
+import DeleteRequestToast from '../../components/DeleteRequestToast';
+import OverrideImpactModal from '../../components/OverrideImpactModal';
+import ScheduleConflictModal from '../../components/ScheduleConflictModal';
+import ScheduleKindBadges from '../../components/ScheduleKindBadges';
+import ScheduleDayTable, { ScheduleDayRow } from '../../components/ScheduleDayTable';
+import TableEmptyState from '../../components/TableEmptyState';
 import { formatDateInManila, getManilaDateStamp, getManilaDateTimeStamp, parseManilaDateTime } from '../../utils/dateTime';
 import { buildTablePdf, downloadFile } from '../../utils/exportFiles';
 import {
@@ -13,10 +21,14 @@ import {
   buildWeeklyPdf,
   compareSchedulesChronologically,
   formatMinutesLabel,
+  expandScheduleDates,
+  findScheduleConflicts,
   formatScheduleKindLabel,
   formatScheduleStatusLabel,
   getScheduleKind,
+  getScheduleDateParts,
   getScheduleTimeLabel,
+  getScheduleTimeParts,
   getWeekStartStamp,
   parseDateStamp,
   parseTimeToMinutes,
@@ -25,6 +37,11 @@ import {
   weekdayOptions,
 } from '../../utils/scheduleCalendar';
 import { getDefaultGracePeriodMinutes } from '../../utils/systemSettings';
+import { portalHref, userHasPrivilege } from '../../utils/privileges';
+import {
+  canCreateOverrideFromSchedule,
+  mergeOverrideCreateIntoList,
+} from '../../utils/overrideSchedule';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
@@ -39,7 +56,7 @@ const regularScheduleStatusOptions = [
 
 /** Statuses used when editing an override schedule. */
 const overrideScheduleStatusOptions = [
-  { value: 'overridden', label: 'Overridden' },
+  { value: 'approved', label: 'Approved' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
@@ -47,7 +64,6 @@ const overrideScheduleStatusOptions = [
 const scheduleStatusFilterOptions = [
   { value: 'all', label: 'All statuses' },
   ...regularScheduleStatusOptions,
-  { value: 'overridden', label: 'Overridden' },
 ];
 
 const scheduleKindFilterOptions = [
@@ -69,6 +85,7 @@ const initialFormState = {
   timeEnd: '',
   gracePeriodMinutes: 15,
   status: 'pending',
+  reason: '',
 };
 
 const scheduleTableTabs = [
@@ -89,6 +106,7 @@ function readScheduleListQuery() {
     tab: scheduleTableTabs.some((option) => option.value === tab) ? tab : 'today',
     status: scheduleStatusFilterOptions.some((option) => option.value === status) ? status : 'all',
     kind: scheduleKindFilterOptions.some((option) => option.value === kind) ? kind : 'all',
+    addOverride: params.get('add') === 'override',
   };
 }
 
@@ -202,8 +220,11 @@ function CalendarEvent({ schedule }) {
   return (
     <div className="schedules-calendar-event">
       <strong>{schedule.ownerName}</strong>
-      <span>{schedule.scheduleDateLabel || formatScheduleDate(schedule.scheduleDate)}</span>
-      {timeLabel ? <span>{timeLabel}</span> : null}
+      <span className="schedules-calendar-event-meta">
+        {schedule.scheduleDateLabel || formatScheduleDate(schedule.scheduleDate)}
+      </span>
+      {timeLabel ? <span className="schedules-calendar-event-meta">{timeLabel}</span> : null}
+      <ScheduleKindBadges schedule={schedule} />
     </div>
   );
 }
@@ -227,12 +248,16 @@ function getScheduleWindowLabel(schedule) {
 }
 
 function getScheduleWindowParts(schedule) {
+  const dateParts = getScheduleDateParts(schedule);
+  const timeParts = getScheduleTimeParts(schedule);
+
   return {
-    dateLabel: formatScheduleDate(schedule.scheduleDate || schedule.startDate),
-    timeLabel:
-      schedule.timeStartLabel && schedule.timeEndLabel
-        ? `${schedule.timeStartLabel} - ${schedule.timeEndLabel}`
-        : schedule.window,
+    dateLabel: [dateParts.date, dateParts.weekday].filter(Boolean).join(', '),
+    dateValueLabel: dateParts.date,
+    weekdayLabel: dateParts.weekday,
+    timeStartLabel: timeParts.start,
+    timeEndLabel: timeParts.end,
+    timeLabel: getScheduleTimeLabel(schedule),
   };
 }
 
@@ -268,6 +293,11 @@ export default function Schedules({ user }) {
   const confirmAction = useActionConfirm();
   const rowsPerPage = 7;
   const [schedules, setSchedules] = useState([]);
+  const [pendingOverrides, setPendingOverrides] = useState([]);
+  const [pendingOverrideCount, setPendingOverrideCount] = useState(0);
+  const [isPendingOverridesLoading, setIsPendingOverridesLoading] = useState(true);
+  const [pendingOverridesError, setPendingOverridesError] = useState('');
+  const canViewOverrideRequests = userHasPrivilege(user, 'pending_overrides');
   const [usersByRole, setUsersByRole] = useState({
     faculty: [],
     staff: [],
@@ -278,13 +308,23 @@ export default function Schedules({ user }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lockedScheduleDate, setLockedScheduleDate] = useState('');
+  const [lockOverrideCreate, setLockOverrideCreate] = useState(false);
+  const [lockOverrideUser, setLockOverrideUser] = useState(false);
+  const [affectedSchedule, setAffectedSchedule] = useState(null);
+  const [impactInfo, setImpactInfo] = useState(null);
   const [formState, setFormState] = useState(initialFormState);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSuggestionsOpen, setUserSuggestionsOpen] = useState(false);
+  const [highlightedUserIndex, setHighlightedUserIndex] = useState(0);
+  const userSuggestionListRef = useRef(null);
   const [viewSchedule, setViewSchedule] = useState(null);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [deleteSchedule, setDeleteSchedule] = useState(null);
+  const [deleteRequest, setDeleteRequest] = useState(null);
+  const [deleteNotice, setDeleteNotice] = useState('');
+  const [scheduleNotice, setScheduleNotice] = useState('');
   const [historySchedule, setHistorySchedule] = useState(null);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -301,6 +341,7 @@ export default function Schedules({ user }) {
   const scheduleTabMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
   const kindFilterMenuRef = useRef(null);
+  const openOverrideCreateOnMount = useRef(readScheduleListQuery().addOverride);
 
   useEffect(() => {
     let isActive = true;
@@ -349,6 +390,49 @@ export default function Schedules({ user }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!canViewOverrideRequests) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function loadPendingOverrides() {
+      setIsPendingOverridesLoading(true);
+
+      try {
+        const response = await axiosClient.get('/api/pending_overrides.php', {
+          params: { status: 'pending' },
+        });
+
+        if (!isActive) {
+          return;
+        }
+
+        const requests = (response.data.overrides || []).filter((request) => request.state === 'pending');
+        setPendingOverrides(requests.slice(0, 5));
+        setPendingOverrideCount(Number(response.data.counts?.pending ?? requests.length));
+        setPendingOverridesError('');
+      } catch {
+        if (isActive) {
+          setPendingOverrides([]);
+          setPendingOverrideCount(0);
+          setPendingOverridesError('Unable to load pending requests right now.');
+        }
+      } finally {
+        if (isActive) {
+          setIsPendingOverridesLoading(false);
+        }
+      }
+    }
+
+    loadPendingOverrides();
+
+    return () => {
+      isActive = false;
+    };
+  }, [canViewOverrideRequests]);
+
   const userSelectGroups = useMemo(() => {
     return [
       { label: 'Students', identifierLabel: 'School ID', value: usersByRole.students },
@@ -380,7 +464,12 @@ export default function Schedules({ user }) {
     }
 
     return schedulableUsers.filter((item) => {
-      return normalizeLookupValue(item.identifier).includes(normalizedUserSearchQuery);
+      const identifier = normalizeLookupValue(item.identifier);
+      const name = normalizeLookupValue(
+        item.name || [item.firstName, item.lastName].filter(Boolean).join(' ') || item.username,
+      );
+
+      return identifier.includes(normalizedUserSearchQuery) || name.includes(normalizedUserSearchQuery);
     });
   }, [normalizedUserSearchQuery, schedulableUsers]);
 
@@ -405,6 +494,62 @@ export default function Schedules({ user }) {
   }, [formState.userId, schedulableUsers]);
 
   const activeSelectedUser = selectedUser || exactMatchedUser;
+  const showUserSuggestions = userSuggestionsOpen && Boolean(normalizedUserSearchQuery) && !exactMatchedUser;
+
+  useEffect(() => {
+    const activeOption = userSuggestionListRef.current?.querySelector('.is-active');
+    activeOption?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedUserIndex, showUserSuggestions]);
+
+  function selectSuggestedUser(item) {
+    if (!item) {
+      return;
+    }
+
+    setUserSearchQuery(item.identifier);
+    updateField('userId', String(item.id));
+    setFormError('');
+    setUserSuggestionsOpen(false);
+  }
+
+  function handleUserSearchChange(event) {
+    const value = event.target.value;
+    setUserSearchQuery(value);
+    setHighlightedUserIndex(0);
+    setUserSuggestionsOpen(true);
+
+    if (selectedUser && normalizeLookupValue(selectedUser.identifier) !== normalizeLookupValue(value)) {
+      updateField('userId', '');
+    }
+  }
+
+  function handleUserSearchKeyDown(event) {
+    if (event.key === 'Escape') {
+      setUserSuggestionsOpen(false);
+      return;
+    }
+
+    if (!showUserSuggestions || suggestedUsers.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedUserIndex((index) => (index + 1) % suggestedUsers.length);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedUserIndex((index) => (index - 1 + suggestedUsers.length) % suggestedUsers.length);
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      selectSuggestedUser(suggestedUsers[highlightedUserIndex]);
+    }
+  }
 
   function getUserDisplayName(selected) {
     if (!selected) {
@@ -451,52 +596,32 @@ export default function Schedules({ user }) {
     return fullName || actor.name || actor.username || actor.email || 'System';
   }
 
-  const columns = ['Sched ID', 'User', 'Schedule Window', 'Type', 'Status', 'Created', 'Actions'];
+  const columns = ['ID', 'User', 'Date', 'Time', 'Type', 'Status', 'Created', 'Actions'];
   const todayStamp = useMemo(() => getManilaDateStamp(), []);
   const nowStamp = useMemo(() => getManilaDateTimeStamp(), [schedules]);
   const schedulesForActiveTab = useMemo(() => {
+    const byScheduleTime = (list) => [...list].sort(compareSchedulesChronologically);
+
     if (activeScheduleTab === 'incoming') {
-      return schedules
-        .filter((schedule) => isIncomingSchedule(schedule, nowStamp))
-        .sort((left, right) => getScheduleStartStamp(left).localeCompare(getScheduleStartStamp(right)));
+      return byScheduleTime(schedules.filter((schedule) => isIncomingSchedule(schedule, nowStamp)));
     }
 
     if (activeScheduleTab === 'today') {
-      return schedules
-        .filter((schedule) => getPrimaryScheduleDate(schedule) === todayStamp)
-        .sort((left, right) => {
-          if (left.timeStart === right.timeStart) {
-            return (Number(right.id) || 0) - (Number(left.id) || 0);
-          }
-
-          return String(left.timeStart || '').localeCompare(String(right.timeStart || ''));
-        });
+      return byScheduleTime(schedules.filter((schedule) => getPrimaryScheduleDate(schedule) === todayStamp));
     }
 
     if (activeScheduleTab === 'past') {
-      return schedules
-        .filter((schedule) => {
-          const scheduleDate = getPrimaryScheduleDate(schedule);
-          return scheduleDate && scheduleDate < todayStamp;
-        })
-        .sort((left, right) => {
-          const dateCompare = String(getPrimaryScheduleDate(right)).localeCompare(String(getPrimaryScheduleDate(left)));
-
-          if (dateCompare !== 0) {
-            return dateCompare;
-          }
-
-          return (Number(right.id) || 0) - (Number(left.id) || 0);
-        });
+      return byScheduleTime(schedules.filter((schedule) => {
+        const scheduleDate = getPrimaryScheduleDate(schedule);
+        return scheduleDate && scheduleDate < todayStamp;
+      }));
     }
 
     if (activeScheduleTab === 'recent') {
-      return schedules
-        .filter((schedule) => isRecentlyAddedSchedule(schedule))
-        .sort((left, right) => getRecentSortValue(right) - getRecentSortValue(left));
+      return byScheduleTime(schedules.filter((schedule) => isRecentlyAddedSchedule(schedule)));
     }
 
-    return schedules;
+    return byScheduleTime(schedules);
   }, [activeScheduleTab, nowStamp, schedules, todayStamp]);
   const filteredSchedules = useMemo(() => {
     return schedulesForActiveTab.filter((schedule) => {
@@ -535,7 +660,7 @@ export default function Schedules({ user }) {
     return {
       all: kindScoped.length,
       ...Object.fromEntries(
-        [...regularScheduleStatusOptions, { value: 'overridden', label: 'Overridden' }].map((option) => [
+        regularScheduleStatusOptions.map((option) => [
           option.value,
           kindScoped.filter((schedule) => schedule.status === option.value).length,
         ]),
@@ -635,13 +760,17 @@ export default function Schedules({ user }) {
   }, [isScheduleTabMenuOpen, isStatusFilterMenuOpen, isKindFilterMenuOpen]);
 
   useEffect(() => {
-    if (!isModalOpen && !editingSchedule && !viewSchedule && !deleteSchedule && !historySchedule && !conflictInfo) {
+    if (!isModalOpen && !editingSchedule && !viewSchedule && !deleteSchedule && !historySchedule && !conflictInfo && !impactInfo) {
       return undefined;
     }
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
         setIsModalOpen(false);
+        setLockedScheduleDate('');
+        setLockOverrideCreate(false);
+        setLockOverrideUser(false);
+        setAffectedSchedule(null);
         setEditingSchedule(null);
         setViewSchedule(null);
         setDeleteSchedule(null);
@@ -649,6 +778,7 @@ export default function Schedules({ user }) {
         setHistoryEntries([]);
         setHistoryError('');
         setConflictInfo(null);
+        setImpactInfo(null);
         setPendingPayload(null);
       }
     }
@@ -657,10 +787,14 @@ export default function Schedules({ user }) {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModalOpen, editingSchedule, viewSchedule, deleteSchedule, historySchedule, conflictInfo]);
+  }, [isModalOpen, editingSchedule, viewSchedule, deleteSchedule, historySchedule, conflictInfo, impactInfo]);
 
   useEffect(() => {
     if (!isModalOpen && !editingSchedule) {
+      return;
+    }
+
+    if (lockOverrideUser) {
       return;
     }
 
@@ -681,16 +815,49 @@ export default function Schedules({ user }) {
     if (!exactMatchedUser && formState.userId) {
       updateField('userId', '');
     }
-  }, [exactMatchedUser, formState.userId, isModalOpen, editingSchedule, normalizedUserSearchQuery]);
+  }, [exactMatchedUser, formState.userId, isModalOpen, editingSchedule, lockOverrideUser, normalizedUserSearchQuery]);
 
-  function openModal(scheduleDate = '') {
+  function openModal(scheduleDate = '', options = {}) {
+    const isOverrideCreate = options.preset === 'override';
+
     setFormState({
       ...initialFormState,
       scheduleType: 'single',
+      scheduleKind: isOverrideCreate ? 'override' : 'regular',
       scheduleDate,
+      status: isOverrideCreate ? 'approved' : 'pending',
       gracePeriodMinutes: getDefaultGracePeriodMinutes(),
     });
     setLockedScheduleDate(scheduleDate);
+    setLockOverrideCreate(isOverrideCreate);
+    setLockOverrideUser(false);
+    setAffectedSchedule(null);
+    setImpactInfo(null);
+    setFormError('');
+    setUserSearchQuery('');
+    setIsModalOpen(true);
+  }
+
+  function openOverrideFromSchedule(schedule) {
+    setFormState({
+      ...initialFormState,
+      userId: '',
+      scheduleType: 'single',
+      scheduleKind: 'override',
+      scheduleDate: schedule.scheduleDate || '',
+      timeStart: String(schedule.timeStart || '').slice(0, 5),
+      timeEnd: String(schedule.timeEnd || '').slice(0, 5),
+      gracePeriodMinutes: Number.isFinite(Number(schedule.gracePeriodMinutes))
+        ? Number(schedule.gracePeriodMinutes)
+        : getDefaultGracePeriodMinutes(),
+      status: 'approved',
+      reason: '',
+    });
+    setLockedScheduleDate('');
+    setLockOverrideCreate(true);
+    setLockOverrideUser(false);
+    setAffectedSchedule(schedule);
+    setImpactInfo(null);
     setFormError('');
     setUserSearchQuery('');
     setIsModalOpen(true);
@@ -699,6 +866,9 @@ export default function Schedules({ user }) {
   function closeAllModals() {
     setIsModalOpen(false);
     setLockedScheduleDate('');
+    setLockOverrideCreate(false);
+    setLockOverrideUser(false);
+    setAffectedSchedule(null);
     setEditingSchedule(null);
     setViewSchedule(null);
     setDeleteSchedule(null);
@@ -706,11 +876,21 @@ export default function Schedules({ user }) {
     setHistoryEntries([]);
     setHistoryError('');
     setConflictInfo(null);
+    setImpactInfo(null);
     setPendingPayload(null);
     setFormState(initialFormState);
     setFormError('');
     setUserSearchQuery('');
   }
+
+  useEffect(() => {
+    if (!openOverrideCreateOnMount.current) {
+      return;
+    }
+
+    openOverrideCreateOnMount.current = false;
+    openModal('', { preset: 'override' });
+  }, []);
 
   function handleView(schedule) {
     setViewSchedule(schedule);
@@ -739,6 +919,13 @@ export default function Schedules({ user }) {
 
   function handleDelete(schedule) {
     if (user?.role === 'admin') {
+      const kindLabel = getScheduleKind(schedule) === 'override' ? 'Override schedule' : 'Schedule';
+      setDeleteRequest({
+        targetType: 'schedule',
+        targetId: schedule.id,
+        targetLabel: `${kindLabel} #${schedule.id} · ${schedule.ownerName || 'User'}`,
+        detail: [schedule.scheduleDateLabel || schedule.scheduleDate, getScheduleTimeLabel(schedule)].filter(Boolean).join(' · '),
+      });
       return;
     }
 
@@ -781,57 +968,68 @@ export default function Schedules({ user }) {
         `/api/schedules.php?id=${deleteSchedule.id}&actor_id=${encodeURIComponent(user?.id || '')}`,
       );
       setSchedules((previous) => previous.filter((s) => s.id !== deleteSchedule.id));
+      setScheduleNotice('Schedule deleted.');
       setDeleteSchedule(null);
     } catch {
       setFormError('Unable to delete schedule.');
     }
   }
 
-  async function handleConfirmOverlap() {
+  async function handleConfirmOverrideImpact() {
     if (!pendingPayload) {
-      closeAllModals();
+      setImpactInfo(null);
       return;
     }
 
-    if ((conflictInfo?.validCount ?? 0) === 0) {
-      setConflictInfo(null);
-      setPendingPayload(null);
+    const confirmed = await confirmAction({
+      step: 'password',
+      title: 'Security Verification',
+      message: 'Enter your password to confirm this override.',
+      danger: true,
+    });
+    if (!confirmed) {
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const response = await axiosClient.post('/api/schedules.php', { ...pendingPayload, confirmOverlap: true });
+      const response = await axiosClient.post('/api/schedules.php', {
+        ...pendingPayload,
+        confirmOverrideImpact: true,
+      });
       const data = response.data;
 
-      if (data.isBatch) {
-        const createdSchedules = data.schedules || [];
-        const conflicts = data.conflicts || [];
-
-        if (createdSchedules.length > 0) {
-          setSchedules((previous) => [...createdSchedules, ...previous]);
-          setCurrentPage(1);
-        }
-
-        if (conflicts.length > 0) {
-          setFormError(conflicts.length + ' date(s) were skipped due to conflicts.');
-        }
-      } else if (data.schedule) {
-        setSchedules((previous) => [data.schedule, ...previous]);
+      if (data.schedule) {
+        setSchedules((previous) => mergeOverrideCreateIntoList(previous, data));
         setCurrentPage(1);
+        setScheduleNotice('Override schedule created.');
       }
 
       closeAllModals();
-    } catch {
-      setFormError('Unable to create schedules.');
+    } catch (error) {
+      setFormError(error?.response?.data?.message || 'Unable to create the override schedule.');
     } finally {
       setIsSubmitting(false);
     }
   }
 
   function updateField(key, value) {
-    setFormState((previous) => ({ ...previous, [key]: value }));
+    setFormState((previous) => {
+      if (key === 'scheduleKind') {
+        return {
+          ...previous,
+          scheduleKind: value,
+          status: value === 'override' ? 'approved' : previous.status === 'approved' && previous.scheduleKind === 'override'
+            ? 'pending'
+            : previous.status,
+          scheduleType: value === 'override' ? 'single' : previous.scheduleType,
+          scheduleDate: value === 'override' ? (previous.scheduleDate || previous.startDate || '') : previous.scheduleDate,
+        };
+      }
+
+      return { ...previous, [key]: value };
+    });
   }
 
   function toggleRepeatDay(day) {
@@ -873,6 +1071,31 @@ export default function Schedules({ user }) {
         return;
       }
 
+      if (formState.timeEnd <= formState.timeStart) {
+        setFormError('End time must be after the start time.');
+        return;
+      }
+
+      const editConflict = findScheduleConflicts(schedules, {
+        userId: editingSchedule.userId,
+        scheduleKind: getScheduleKind(editingSchedule),
+        timeStart: formState.timeStart,
+        timeEnd: formState.timeEnd,
+        dates: formState.scheduleDate ? [formState.scheduleDate] : [],
+        excludeId: editingSchedule.id,
+      });
+      if (editConflict.conflicts.length > 0) {
+        setConflictInfo({
+          conflicts: editConflict.conflicts,
+          conflictDetails: editConflict.conflictDetails,
+          message: getScheduleKind(editingSchedule) === 'override'
+            ? 'An approved override can share a time with one regular schedule. It cannot overlap another override.'
+            : 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
+        });
+        setPendingPayload(null);
+        return;
+      }
+
       const confirmed = await confirmAction({
         title: 'Update schedule',
         message: 'Are you sure you want to update this schedule?',
@@ -897,7 +1120,19 @@ export default function Schedules({ user }) {
         };
 
         const response = await axiosClient.put('/api/schedules.php', payload);
-        const updated = response.data.schedule;
+        const data = response.data;
+
+        if (data.hasConflicts) {
+          setConflictInfo({
+            conflicts: data.conflicts || [],
+            conflictDetails: data.conflictDetails || [],
+            message: data.message || 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
+          });
+          setPendingPayload(null);
+          return;
+        }
+
+        const updated = data.schedule;
 
         if (updated) {
           setSchedules((previous) =>
@@ -905,6 +1140,7 @@ export default function Schedules({ user }) {
           );
         }
 
+        setScheduleNotice('Schedule updated.');
         closeAllModals();
       } catch {
         setFormError('Unable to update schedule.');
@@ -914,10 +1150,15 @@ export default function Schedules({ user }) {
       return;
     }
 
+    const isOverrideCreate = lockOverrideCreate || formState.scheduleKind === 'override';
     const scheduleUserId = Number(formState.userId || activeSelectedUser?.id || 0);
 
     if (!scheduleUserId) {
-      setFormError('Enter a valid Employee ID or School ID for this schedule.');
+      setFormError(
+        isOverrideCreate
+          ? 'Select the requester who needs temporary access to the room.'
+          : 'Enter a valid Employee ID or School ID for this schedule.',
+      );
       return;
     }
 
@@ -946,65 +1187,114 @@ export default function Schedules({ user }) {
       return;
     }
 
-    const confirmed = await confirmAction({
-      title: 'Add schedule',
-      message: 'Are you sure you want to add this schedule?',
+    const isRecurring = !isOverrideCreate && formState.scheduleType === 'recurring';
+    const payload = {
+      userId: scheduleUserId,
+      scheduleType: isOverrideCreate ? 'single' : formState.scheduleType,
+      scheduleKind: isOverrideCreate ? 'override' : formState.scheduleKind,
+      scheduleDate: isRecurring ? null : formState.scheduleDate,
+      startDate: isRecurring ? formState.startDate : null,
+      endDate: isRecurring ? formState.endDate : null,
+      repeatType: isRecurring ? formState.repeatType : 'none',
+      repeatDays: isRecurring ? formState.repeatDays : null,
+      timeStart: formState.timeStart,
+      timeEnd: formState.timeEnd,
+      gracePeriodMinutes: Number(formState.gracePeriodMinutes),
+      status: isOverrideCreate ? 'approved' : formState.status,
+      reason: isOverrideCreate ? formState.reason : undefined,
+      requesterName: isOverrideCreate ? getUserDisplayName(activeSelectedUser) : undefined,
+      sourceScheduleId: isOverrideCreate ? affectedSchedule?.id || undefined : undefined,
+      createdBy: user?.id ?? null,
+      createdByName: getActorDisplayName(user),
+      approvedBy: (isOverrideCreate || formState.status === 'approved') ? (user?.id ?? null) : null,
+    };
+
+    const createConflict = findScheduleConflicts(schedules, {
+      userId: scheduleUserId,
+      scheduleKind: isOverrideCreate ? 'override' : 'regular',
+      timeStart: formState.timeStart,
+      timeEnd: formState.timeEnd,
+      dates: expandScheduleDates({
+        scheduleType: isOverrideCreate ? 'single' : formState.scheduleType,
+        scheduleDate: formState.scheduleDate,
+        startDate: formState.startDate,
+        endDate: formState.endDate,
+        repeatType: formState.repeatType,
+        repeatDays: formState.repeatDays,
+      }),
     });
-    if (!confirmed) {
+
+    if (createConflict.conflicts.length > 0) {
+      setConflictInfo({
+        conflicts: createConflict.conflicts,
+        conflictDetails: createConflict.conflictDetails,
+        message: isOverrideCreate
+          ? 'An approved override can share a time with one regular schedule. It cannot overlap another override.'
+          : 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
+      });
+      setPendingPayload(null);
       return;
+    }
+
+    if (!isOverrideCreate) {
+      const confirmed = await confirmAction({
+        title: 'Add schedule',
+        message: 'Are you sure you want to add this schedule?',
+      });
+      if (!confirmed) {
+        return;
+      }
     }
 
     setIsSubmitting(true);
 
     try {
-      const isRecurring = formState.scheduleType === 'recurring';
-      const payload = {
-        userId: scheduleUserId,
-        scheduleType: formState.scheduleType,
-        scheduleKind: formState.scheduleKind,
-        scheduleDate: isRecurring ? null : formState.scheduleDate,
-        startDate: isRecurring ? formState.startDate : null,
-        endDate: isRecurring ? formState.endDate : null,
-        repeatType: isRecurring ? formState.repeatType : 'none',
-        repeatDays: isRecurring ? formState.repeatDays : null,
-        timeStart: formState.timeStart,
-        timeEnd: formState.timeEnd,
-        gracePeriodMinutes: Number(formState.gracePeriodMinutes),
-        status: formState.status,
-        createdBy: user?.id ?? null,
-        approvedBy: formState.status === 'approved' ? (user?.id ?? null) : null,
-      };
-
       const response = await axiosClient.post('/api/schedules.php', payload);
       const data = response.data;
 
+      if (data.needsOverrideConfirmation) {
+        setImpactInfo({
+          affectedSchedules: data.affectedSchedules || [],
+          notifiedUsers: data.notifiedUsers || [],
+        });
+        setPendingPayload(payload);
+        return;
+      }
+
+      if (isOverrideCreate && data.schedule) {
+        setSchedules((previous) => mergeOverrideCreateIntoList(previous, data));
+        setCurrentPage(1);
+        setScheduleNotice('Override schedule created.');
+        closeAllModals();
+        return;
+      }
+
       if (data.isBatch) {
         const createdSchedules = data.schedules || [];
-        const conflicts = data.conflicts || [];
 
         if (createdSchedules.length > 0) {
           setSchedules((previous) => [...createdSchedules, ...previous]);
           setCurrentPage(1);
-        }
-
-        if (conflicts.length > 0) {
-          setConflictInfo({ conflicts, createdCount: createdSchedules.length });
-          setPendingPayload(null);
-          return;
+          setScheduleNotice(
+            createdSchedules.length === 1
+              ? 'Schedule created.'
+              : `${createdSchedules.length} schedules created.`,
+          );
         }
       } else if (data.hasConflicts) {
         setConflictInfo({
           conflicts: data.conflicts || [],
           conflictDetails: data.conflictDetails || [],
-          validCount: (data.validDates || []).length,
+          message: data.message || 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
         });
-        setPendingPayload(payload);
+        setPendingPayload(null);
         return;
       } else {
         const created = data.schedule;
         if (created) {
           setSchedules((previous) => [created, ...previous]);
           setCurrentPage(1);
+          setScheduleNotice('Schedule created.');
         }
       }
 
@@ -1241,7 +1531,7 @@ export default function Schedules({ user }) {
       .filter(
         (schedule) =>
           schedule.scheduleDate &&
-          (schedule.status === 'approved' || schedule.status === 'overridden') &&
+          schedule.status === 'approved' &&
           isInRange(schedule.scheduleDate),
       )
       .sort(compareSchedulesChronologically);
@@ -1280,7 +1570,7 @@ export default function Schedules({ user }) {
     const weekSchedules = getExportableSchedules(isInDisplayedWeek);
     const pdf = buildWeeklyPdf({
       title: `Weekly Schedule: ${weekRangeLabel}`,
-      note: 'Approved and overridden schedules.',
+      note: 'Approved regular and override schedules.',
       days: weekDays.map((day) => ({
         ...day,
         entries: weekSchedules.filter((schedule) => schedule.scheduleDate === day.dateStr),
@@ -1341,7 +1631,7 @@ export default function Schedules({ user }) {
     });
     const pdf = buildCalendarPdf({
       title,
-      note: 'Approved and overridden schedules.',
+      note: 'Approved regular and override schedules.',
       dayHeaders,
       cells,
     });
@@ -1359,8 +1649,8 @@ export default function Schedules({ user }) {
             <p>Manage access schedules created for users.</p>
           </div>
           <div className="schedules-header-actions">
-            <button type="button" className="schedules-csv-button" onClick={() => setExportTarget('table')}>
-              <Download size={14} />
+            <button type="button" className="dashboard-export-button" onClick={() => setExportTarget('table')}>
+              <Download size={15} aria-hidden="true" />
               Export
             </button>
             <button type="button" className="dashboard-schedule-button schedules-add-button" onClick={() => openModal()}>
@@ -1555,31 +1845,24 @@ export default function Schedules({ user }) {
                 </tr>
               )}
 
-              {!isLoading && errorMessage && (
+              {!isLoading && filteredSchedules.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {errorMessage}
-                  </td>
-                </tr>
-              )}
-
-              {!isLoading && !errorMessage && filteredSchedules.length === 0 && (
-                <tr>
-                  <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {activeStatusFilter !== 'all'
-                      ? `No ${activeStatusFilterConfig.label.toLowerCase()} schedules found.`
-                      : null}
-                    {activeStatusFilter === 'all' && activeScheduleTab === 'all' && 'No schedules found.'}
-                    {activeStatusFilter === 'all' && activeScheduleTab === 'today' && 'No schedules found for today.'}
-                    {activeStatusFilter === 'all' && activeScheduleTab === 'incoming' && 'No incoming schedules found.'}
-                    {activeStatusFilter === 'all' && activeScheduleTab === 'recent' && 'No recently added schedules found.'}
-                    {activeStatusFilter === 'all' && activeScheduleTab === 'past' && 'No past schedules found.'}
+                    <TableEmptyState description="Try another schedule view or adjust your filters.">
+                      {activeStatusFilter !== 'all'
+                        ? `No ${activeStatusFilterConfig.label.toLowerCase()} schedules found.`
+                        : null}
+                      {activeStatusFilter === 'all' && activeScheduleTab === 'all' && 'No schedules found.'}
+                      {activeStatusFilter === 'all' && activeScheduleTab === 'today' && 'No schedules found for today.'}
+                      {activeStatusFilter === 'all' && activeScheduleTab === 'incoming' && 'No incoming schedules found.'}
+                      {activeStatusFilter === 'all' && activeScheduleTab === 'recent' && 'No recently added schedules found.'}
+                      {activeStatusFilter === 'all' && activeScheduleTab === 'past' && 'No past schedules found.'}
+                    </TableEmptyState>
                   </td>
                 </tr>
               )}
 
               {!isLoading &&
-                !errorMessage &&
                 paginatedSchedules.map((schedule) => {
                   const scheduleWindow = getScheduleWindowParts(schedule);
                   const createdAtParts = getCreatedAtParts(schedule);
@@ -1593,16 +1876,24 @@ export default function Schedules({ user }) {
                     </td>
                     <td>
                       <div className="schedules-window-cell">
-                        <strong>{scheduleWindow.dateLabel}</strong>
-                        <span>{scheduleWindow.timeLabel}</span>
+                        <strong>{scheduleWindow.dateValueLabel || scheduleWindow.dateLabel || '—'}</strong>
+                        {scheduleWindow.weekdayLabel ? <span>{scheduleWindow.weekdayLabel}</span> : null}
                       </div>
                     </td>
                     <td>
-                      <span
-                        className={`dashboard-log-status dashboard-log-status-kind-${getScheduleKind(schedule)}`}
-                      >
-                        {formatScheduleKindLabel(getScheduleKind(schedule))}
-                      </span>
+                      <div className="schedules-window-cell">
+                        {scheduleWindow.timeStartLabel && scheduleWindow.timeEndLabel ? (
+                          <>
+                            <strong>{scheduleWindow.timeStartLabel}</strong>
+                            <span>{scheduleWindow.timeEndLabel}</span>
+                          </>
+                        ) : (
+                          <strong>{scheduleWindow.timeLabel || '—'}</strong>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <ScheduleKindBadges schedule={schedule} />
                     </td>
                     <td>
                       <span className={`dashboard-log-status dashboard-log-status-${schedule.status}`}>
@@ -1620,9 +1911,10 @@ export default function Schedules({ user }) {
                         label={`Actions for schedule ${schedule.id}`}
                         items={[
                           { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
+                          { label: 'Override', icon: ShieldAlert, hidden: !canCreateOverrideFromSchedule(schedule), onClick: () => openOverrideFromSchedule(schedule) },
                           { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
                           { label: 'History', icon: History, onClick: () => handleHistory(schedule) },
-                          { label: 'Delete', icon: Trash2, danger: true, hidden: user?.role === 'admin', onClick: () => handleDelete(schedule) },
+                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
                         ]}
                       />
                     </td>
@@ -1633,7 +1925,7 @@ export default function Schedules({ user }) {
           </table>
         </div>
 
-        {!isLoading && !errorMessage && filteredSchedules.length > 0 && (
+        {!isLoading && filteredSchedules.length > 0 && (
           <div className="schedules-pagination" aria-label="Schedules pagination">
             <p>
               Showing {(currentPage - 1) * rowsPerPage + 1}-
@@ -1662,12 +1954,13 @@ export default function Schedules({ user }) {
         )}
       </section>
 
-      <aside className="schedules-calendar-card">
+      <aside className="schedules-sidebar" aria-label="Schedule calendar and pending overrides">
+      <section className="schedules-calendar-card" aria-label="Schedule calendar">
         <div className="schedules-calendar">
           {isCalendarExpanded && (!focusedCell || isWeekView) && (
             <div className="schedules-calendar-export-row">
-              <button type="button" className="schedules-calendar-export" onClick={() => setExportTarget('calendar')}>
-                <Download size={14} />
+              <button type="button" className="dashboard-export-button" onClick={() => setExportTarget('calendar')}>
+                <Download size={15} aria-hidden="true" />
                 Export schedule
               </button>
               <button
@@ -1798,21 +2091,30 @@ export default function Schedules({ user }) {
                 ) : null}
               </div>
               {focusedCell.entries.length > 0 && (
-                <div className="schedules-calendar-day-table">
+                <ScheduleDayTable>
                   {focusedCell.entries.map((schedule) => (
-                    <div className="schedules-calendar-day-row" key={schedule.id}>
-                      <CalendarEvent schedule={schedule} />
-                      <RowActionMenu
-                        label={`Actions for ${schedule.userName || 'schedule'}`}
-                        items={[
-                          { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
-                          { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
-                          { label: 'Delete', icon: Trash2, danger: true, hidden: user?.role === 'admin', onClick: () => handleDelete(schedule) },
-                        ]}
-                      />
-                    </div>
+                    <ScheduleDayRow
+                      key={schedule.id}
+                      schedule={schedule}
+                      name={schedule.ownerName}
+                      dateLabel={schedule.scheduleDateLabel || formatScheduleDate(schedule.scheduleDate)}
+                      timeStartLabel={schedule.timeStartLabel}
+                      timeEndLabel={schedule.timeEndLabel}
+                      timeLabel={getScheduleTimeLabel(schedule)}
+                      actions={
+                        <RowActionMenu
+                          label={`Actions for ${schedule.userName || 'schedule'}`}
+                          items={[
+                            { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
+                            { label: 'Override', icon: ShieldAlert, hidden: !canCreateOverrideFromSchedule(schedule), onClick: () => openOverrideFromSchedule(schedule) },
+                            { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
+                            { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
+                          ]}
+                        />
+                      }
+                    />
                   ))}
-                </div>
+                </ScheduleDayTable>
               )}
             </div>
           ) : (
@@ -1916,6 +2218,47 @@ export default function Schedules({ user }) {
             </button>
           </div>
         </div>
+      </section>
+      {!isCalendarExpanded && canViewOverrideRequests && (
+        <section
+          className="schedules-pending-overrides-card"
+          aria-labelledby="schedules-pending-overrides-heading"
+          aria-busy={isPendingOverridesLoading}
+        >
+          <div className="schedules-pending-overrides-header">
+            <h2 id="schedules-pending-overrides-heading">Pending override requests</h2>
+            {!isPendingOverridesLoading && !pendingOverridesError && (
+              <span className="schedules-pending-overrides-count" aria-label={`${pendingOverrideCount} pending requests`}>
+                {pendingOverrideCount}
+              </span>
+            )}
+          </div>
+          <div aria-live="polite">
+            {isPendingOverridesLoading ? (
+              <p className="schedules-pending-overrides-message">Loading pending requests...</p>
+            ) : pendingOverridesError ? (
+              <p className="schedules-pending-overrides-message">{pendingOverridesError}</p>
+            ) : pendingOverrides.length ? (
+              <ul className="schedules-pending-overrides-list">
+                {pendingOverrides.map((request) => (
+                  <li className="schedules-pending-overrides-row" key={request.id}>
+                    <strong title={request.name}>{request.name}</strong>
+                    <span title={`${request.dateLabel} · ${request.timeLabel}`}>
+                      {request.dateLabel} · {request.timeLabel}
+                    </span>
+                    <p title={request.reason}>{request.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="schedules-pending-overrides-message">No pending override requests.</p>
+            )}
+          </div>
+          <a className="schedules-pending-overrides-view-all" href={portalHref('/pending-overrides')}>
+            View all
+          </a>
+        </section>
+      )}
       </aside>
       </div>
       {isModalOpen && (
@@ -1923,8 +2266,16 @@ export default function Schedules({ user }) {
           <div className="schedules-modal" onClick={(e) => e.stopPropagation()}>
             <div className="schedules-modal-header">
               <div>
-                <strong>Create Schedule</strong>
-                <p>Set up a new access schedule for a user.</p>
+                <strong>
+                  {lockOverrideCreate || formState.scheduleKind === 'override'
+                    ? 'Create Override Schedule'
+                    : 'Create Schedule'}
+                </strong>
+                <p>
+                    {lockOverrideCreate || formState.scheduleKind === 'override'
+                      ? 'Choose the requester who needs temporary room access. The regular schedule stays as its own row.'
+                      : 'Set up a new access schedule for a user.'}
+                </p>
               </div>
               <button type="button" className="schedules-modal-close" onClick={closeAllModals}>
                 <X size={18} />
@@ -1933,45 +2284,135 @@ export default function Schedules({ user }) {
 
             <form onSubmit={handleSubmit}>
               <div className="schedules-form-grid">
-                <div className="schedules-field">
-                  <label>User ID / School ID</label>
+                {lockOverrideCreate || formState.scheduleKind === 'override' ? (
+                  affectedSchedule ? (
+                    <section className="schedules-summary-card">
+                      <dl className="schedules-summary-grid">
+                        <div>
+                          <dt>Affected schedule</dt>
+                          <dd>{affectedSchedule.ownerName}</dd>
+                        </div>
+                        <div>
+                          <dt>Window</dt>
+                          <dd>{getScheduleWindowLabel(affectedSchedule) || 'See the date and time below'}</dd>
+                        </div>
+                      </dl>
+                      <p className="schedules-summary-note">
+                        This regular schedule stays in place and will be stamped as overridden.
+                      </p>
+                    </section>
+                  ) : (
+                    <p className="schedules-field-hint">
+                      Choose who is requesting temporary access to the room. Their override is added as a new row.
+                    </p>
+                  )
+                ) : null}
+                <div className="schedules-field schedules-user-picker">
+                  <label htmlFor="schedule-user-search">
+                    {lockOverrideCreate || formState.scheduleKind === 'override'
+                      ? 'Requester'
+                      : 'User ID / School ID'}
+                  </label>
+                  {lockOverrideCreate || formState.scheduleKind === 'override' ? (
+                    <p className="schedules-field-hint">Person requesting temporary access to the room or door.</p>
+                  ) : null}
                   <input
+                    id="schedule-user-search"
                     type="text"
-                    placeholder="Search by identifier..."
+                    role="combobox"
+                    placeholder={
+                      lockOverrideCreate || formState.scheduleKind === 'override'
+                        ? 'Search requester by name or ID'
+                        : 'Search by name or ID'
+                    }
                     value={userSearchQuery}
-                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    aria-autocomplete="list"
+                    aria-expanded={showUserSuggestions}
+                    aria-controls="schedule-user-suggestions"
+                    aria-activedescendant={
+                      showUserSuggestions && suggestedUsers[highlightedUserIndex]
+                        ? `schedule-user-option-${suggestedUsers[highlightedUserIndex].id}`
+                        : undefined
+                    }
+                    onChange={handleUserSearchChange}
+                    onFocus={() => setUserSuggestionsOpen(true)}
+                    onBlur={() => setUserSuggestionsOpen(false)}
+                    onKeyDown={handleUserSearchKeyDown}
                     autoComplete="off"
+                    disabled={lockOverrideUser}
                   />
-                  {suggestedUsers.length > 0 && (
-                    <ul style={{ background: '#fff', border: '1px solid #dfe8e3', borderRadius: 4, listStyle: 'none', margin: '4px 0 0', maxHeight: 180, overflowY: 'auto', padding: 0 }}>
-                      {suggestedUsers.map((item) => (
-                        <li key={item.id} style={{ cursor: 'pointer', fontSize: 13, padding: '8px 12px' }}
-                          onClick={() => { setUserSearchQuery(item.identifier); updateField('userId', String(item.id)); setFormError(''); }}>
-                          {getUserDisplayName(item)} — {item.identifier}
+                  {showUserSuggestions && (
+                    <ul
+                      id="schedule-user-suggestions"
+                      className="schedules-user-suggestions"
+                      role="listbox"
+                      aria-label={
+                      lockOverrideCreate || formState.scheduleKind === 'override'
+                        ? 'Matching requesters'
+                        : 'Matching users'
+                    }
+                      ref={userSuggestionListRef}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      {suggestedUsers.length === 0 ? (
+                        <li className="schedules-user-suggestion-empty">No matching users.</li>
+                      ) : suggestedUsers.map((item, index) => (
+                        <li key={item.id} role="presentation">
+                          <button
+                            type="button"
+                            id={`schedule-user-option-${item.id}`}
+                            role="option"
+                            aria-selected={index === highlightedUserIndex}
+                            className={`schedules-user-suggestion${index === highlightedUserIndex ? ' is-active' : ''}`}
+                            onMouseEnter={() => setHighlightedUserIndex(index)}
+                            onClick={() => selectSuggestedUser(item)}
+                          >
+                            <span>
+                              <span className="schedules-user-suggestion-name">{getUserDisplayName(item)}</span>
+                              <span className="schedules-user-suggestion-id">{item.identifier}</span>
+                            </span>
+                            <span className="schedules-user-suggestion-role">
+                              {item.groupLabel === 'Students' ? 'Student' : item.groupLabel === 'Admins' ? 'Admin' : item.groupLabel}
+                            </span>
+                          </button>
                         </li>
                       ))}
                     </ul>
                   )}
                   {activeSelectedUser && (
                     <div className="schedules-user-details">
-                      <span><strong>Name:</strong> {getUserDisplayName(activeSelectedUser)}</span>
-                      <span><strong>{activeSelectedUser.identifierLabel}:</strong> {activeSelectedUser.identifier}</span>
-                      <span><strong>Dept:</strong> {getUserDepartment(activeSelectedUser)}</span>
-                      <span><strong>Position:</strong> {getUserPosition(activeSelectedUser)}</span>
+                      <div>
+                        <span className="schedules-user-details-label">
+                          {lockOverrideCreate || formState.scheduleKind === 'override' ? 'Requester' : 'Name'}
+                        </span>
+                        <span className="schedules-user-details-value">{getUserDisplayName(activeSelectedUser)}</span>
+                      </div>
+                      <div>
+                        <span className="schedules-user-details-label">{activeSelectedUser.identifierLabel}</span>
+                        <span className="schedules-user-details-value">{activeSelectedUser.identifier}</span>
+                      </div>
+                      <div>
+                        <span className="schedules-user-details-label">Department</span>
+                        <span className="schedules-user-details-value">{getUserDepartment(activeSelectedUser)}</span>
+                      </div>
+                      <div>
+                        <span className="schedules-user-details-label">Position</span>
+                        <span className="schedules-user-details-value">{getUserPosition(activeSelectedUser)}</span>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                <div className="schedules-form-row">
+                <div className="schedules-form-row schedules-form-row-3">
                   <div className="schedules-field">
                     <label>Schedule Type</label>
                     <select
                       value={formState.scheduleType}
                       onChange={(e) => { const v = e.target.value; updateField('scheduleType', v); resetRecurringFields(v); }}
-                      disabled={Boolean(lockedScheduleDate)}
+                      disabled={Boolean(lockedScheduleDate) || lockOverrideCreate || formState.scheduleKind === 'override'}
                     >
                       <option value="single">Single</option>
-                      {!lockedScheduleDate ? <option value="recurring">Recurring</option> : null}
+                      {!lockedScheduleDate && !lockOverrideCreate && formState.scheduleKind !== 'override' ? <option value="recurring">Recurring</option> : null}
                     </select>
                   </div>
                   <div className="schedules-field">
@@ -1979,6 +2420,7 @@ export default function Schedules({ user }) {
                     <select
                       value={formState.scheduleKind}
                       onChange={(e) => updateField('scheduleKind', e.target.value)}
+                      disabled={lockOverrideCreate}
                     >
                       <option value="regular">Regular</option>
                       <option value="override">Override</option>
@@ -1986,7 +2428,11 @@ export default function Schedules({ user }) {
                   </div>
                   <div className="schedules-field">
                     <label>Status</label>
-                    <select value={formState.status} onChange={(e) => updateField('status', e.target.value)}>
+                    <select
+                      value={formState.status}
+                      onChange={(e) => updateField('status', e.target.value)}
+                      disabled={lockOverrideCreate || formState.scheduleKind === 'override'}
+                    >
                       {regularScheduleStatusOptions.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
@@ -1994,7 +2440,7 @@ export default function Schedules({ user }) {
                   </div>
                 </div>
 
-                {formState.scheduleType === 'single' && (
+                {formState.scheduleType === 'single' && !(lockOverrideCreate || formState.scheduleKind === 'override') && (
                   <div className="schedules-field">
                     <label>Schedule Date</label>
                     <input
@@ -2041,25 +2487,62 @@ export default function Schedules({ user }) {
                   </>
                 )}
 
-                <div className="schedules-form-row">
-                  <div className="schedules-field">
-                    <label>Time Start</label>
-                    <input type="time" value={formState.timeStart} onChange={(e) => updateField('timeStart', e.target.value)} />
+                {formState.scheduleType === 'single' && (lockOverrideCreate || formState.scheduleKind === 'override') ? (
+                  <div className="schedules-form-row schedules-form-row-3">
+                    <div className="schedules-field">
+                      <label>Schedule Date</label>
+                      <input
+                        type="date"
+                        value={formState.scheduleDate}
+                        onChange={(e) => updateField('scheduleDate', e.target.value)}
+                        disabled={Boolean(lockedScheduleDate)}
+                      />
+                    </div>
+                    <div className="schedules-field">
+                      <label>Time Start</label>
+                      <input type="time" value={formState.timeStart} onChange={(e) => updateField('timeStart', e.target.value)} />
+                    </div>
+                    <div className="schedules-field">
+                      <label>Time End</label>
+                      <input type="time" value={formState.timeEnd} onChange={(e) => updateField('timeEnd', e.target.value)} />
+                    </div>
                   </div>
-                  <div className="schedules-field">
-                    <label>Time End</label>
-                    <input type="time" value={formState.timeEnd} onChange={(e) => updateField('timeEnd', e.target.value)} />
+                ) : (
+                  <div className="schedules-form-row">
+                    <div className="schedules-field">
+                      <label>Time Start</label>
+                      <input type="time" value={formState.timeStart} onChange={(e) => updateField('timeStart', e.target.value)} />
+                    </div>
+                    <div className="schedules-field">
+                      <label>Time End</label>
+                      <input type="time" value={formState.timeEnd} onChange={(e) => updateField('timeEnd', e.target.value)} />
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {lockOverrideCreate || formState.scheduleKind === 'override' ? (
+                  <div className="schedules-field">
+                    <label htmlFor="schedule-override-reason">Reason</label>
+                    <textarea
+                      id="schedule-override-reason"
+                      rows={3}
+                      value={formState.reason}
+                      onChange={(event) => updateField('reason', event.target.value)}
+                      placeholder="Why this requester needs temporary access (optional)"
+                    />
+                  </div>
+                ) : null}
 
               </div>
-
-              {formError && <p className="schedules-form-error">{formError}</p>}
 
               <div className="schedules-form-actions">
                 <button type="button" className="schedules-secondary-button" onClick={closeAllModals}>Cancel</button>
                 <button type="submit" className="schedules-primary-button" disabled={isSubmitting}>
-                  {isSubmitting ? 'Creating...' : 'Create Schedule'}
+                  {isSubmitting
+                    ? 'Creating...'
+                    : lockOverrideCreate || formState.scheduleKind === 'override'
+                      ? 'Create Override'
+                      : 'Create Schedule'}
                 </button>
               </div>
             </form>
@@ -2163,7 +2646,6 @@ export default function Schedules({ user }) {
                 </dl>
               </section>
 
-              {formError ? <p className="pending-registration-error" role="alert">{formError}</p> : null}
             </div>
 
             <footer>
@@ -2208,10 +2690,10 @@ export default function Schedules({ user }) {
 
             <div className="pending-registration-review-body">
               <section className="pending-registration-review-card">
-                <h3>User</h3>
+                <h3>{getScheduleKind(viewSchedule) === 'override' ? 'Requester' : 'User'}</h3>
                 <dl>
                   <div>
-                    <dt>Name</dt>
+                    <dt>{getScheduleKind(viewSchedule) === 'override' ? 'Requester' : 'Name'}</dt>
                     <dd>{viewSchedule.ownerName || '—'}</dd>
                   </div>
                   <div>
@@ -2253,11 +2735,7 @@ export default function Schedules({ user }) {
                   <div>
                     <dt>Type</dt>
                     <dd>
-                      <span
-                        className={`dashboard-log-status dashboard-log-status-kind-${getScheduleKind(viewSchedule)}`}
-                      >
-                        {formatScheduleKindLabel(getScheduleKind(viewSchedule))}
-                      </span>
+                      <ScheduleKindBadges schedule={viewSchedule} />
                     </dd>
                   </div>
                   <div>
@@ -2306,15 +2784,11 @@ export default function Schedules({ user }) {
             <div className="schedules-history-list">
               {isHistoryLoading && <p className="schedules-history-empty">Loading history...</p>}
 
-              {!isHistoryLoading && historyError && (
-                <p className="schedules-history-empty">{historyError}</p>
-              )}
-
-              {!isHistoryLoading && !historyError && historyEntries.length === 0 && (
+              {!isHistoryLoading && historyEntries.length === 0 && (
                 <p className="schedules-history-empty">No edit history found for this schedule.</p>
               )}
 
-              {!isHistoryLoading && !historyError && historyEntries.map((entry) => (
+              {!isHistoryLoading && historyEntries.map((entry) => (
                 <article className="schedules-history-item" key={entry.id}>
                   <div className="schedules-history-item-header">
                     <strong>{entry.editedByName || 'System'}</strong>
@@ -2366,6 +2840,21 @@ export default function Schedules({ user }) {
         onClose={() => setExportTarget(null)}
       />
 
+      <DeleteRequestModal
+        open={Boolean(deleteRequest)}
+        actorId={user?.id}
+        targetType={deleteRequest?.targetType}
+        targetId={deleteRequest?.targetId}
+        targetLabel={deleteRequest?.targetLabel || ''}
+        detail={deleteRequest?.detail || ''}
+        onClose={() => setDeleteRequest(null)}
+        onSubmitted={(message) => {
+          setDeleteNotice(message);
+          window.setTimeout(() => setDeleteNotice(''), 4000);
+        }}
+      />
+      <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
+      <DeleteRequestToast message={scheduleNotice} title="Schedule" onClose={() => setScheduleNotice('')} />
       {deleteSchedule && (
         <div className="schedules-modal-overlay" onClick={closeAllModals}>
           <div className="schedules-modal schedules-delete-modal" onClick={(e) => e.stopPropagation()}>
@@ -2391,52 +2880,46 @@ export default function Schedules({ user }) {
         </div>
       )}
 
+      <OverrideImpactModal
+        open={Boolean(impactInfo)}
+        affectedSchedules={impactInfo?.affectedSchedules || []}
+        notifiedUsers={impactInfo?.notifiedUsers || []}
+        isSubmitting={isSubmitting}
+        onCancel={() => {
+          setImpactInfo(null);
+          setPendingPayload(null);
+        }}
+        onConfirm={() => {
+          void handleConfirmOverrideImpact();
+        }}
+      />
+
       {conflictInfo && (
-        <div className="schedules-modal-overlay" onClick={() => { setConflictInfo(null); setPendingPayload(null); }}>
-          <div className="schedules-modal schedules-conflict-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="schedules-modal-header">
-              <div>
-                <strong>Time Conflicts Detected</strong>
-                <p>Some dates overlap with existing schedules</p>
-              </div>
-              <button type="button" className="schedules-modal-close" onClick={() => { setConflictInfo(null); setPendingPayload(null); }}>
-                <X size={18} />
-              </button>
-            </div>
-            <p className="schedules-conflict-summary">
-              {conflictInfo.createdCount !== undefined
-                ? `${conflictInfo.createdCount} of ${conflictInfo.createdCount + conflictInfo.conflicts.length} schedule(s) were created. The rest were skipped due to conflicts.`
-                : conflictInfo.validCount > 0
-                  ? `${conflictInfo.validCount} of ${conflictInfo.validCount + conflictInfo.conflicts.length} schedule(s) can be created. Conflicting date(s) will be skipped.`
-                  : 'This time conflicts with an existing schedule for the same person. Change the time before saving.'}
-            </p>
-            {conflictInfo.conflictDetails?.length > 0 ? (
-              <ul className="schedules-conflict-list">
-                {conflictInfo.conflictDetails.map((item, index) => (
-                  <li key={`${item.scheduleDate}-${item.timeStartLabel}-${index}`}>
-                    {item.ownerName} already has {item.timeStartLabel} – {item.timeEndLabel} on {formatScheduleDate(item.scheduleDate)}
-                  </li>
-                ))}
-              </ul>
-            ) : conflictInfo.conflicts.length > 0 ? (
-              <ul className="schedules-conflict-list">
-                {conflictInfo.conflicts.map((date, i) => <li key={i}>{formatScheduleDate(date)}</li>)}
-              </ul>
-            ) : null}
-            <p className="schedules-conflict-ask">
-              {conflictInfo.validCount > 0
-                ? 'Continue and create only the non-conflicting schedules?'
-                : 'Cancel and choose a time that does not overlap.'}
-            </p>
-            <div className="schedules-form-actions">
-              <button type="button" className="schedules-secondary-button" onClick={() => { setConflictInfo(null); setPendingPayload(null); }}>Cancel</button>
-              <button type="button" className="schedules-primary-button" onClick={handleConfirmOverlap} disabled={isSubmitting || conflictInfo.validCount === 0}>
-                {isSubmitting ? 'Creating...' : 'Create Non-conflicting Schedules'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ScheduleConflictModal
+          open
+          message={conflictInfo.message || 'This date and time are already occupied.'}
+          details={conflictInfo.conflictDetails || []}
+          onClose={() => {
+            setConflictInfo(null);
+            setPendingPayload(null);
+          }}
+        />
       )}
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(formError)}
+        message={formError}
+        onClose={() => setFormError('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(historyError)}
+        message={historyError}
+        onClose={() => setHistoryError('')}
+      />
     </main>
   );
 }

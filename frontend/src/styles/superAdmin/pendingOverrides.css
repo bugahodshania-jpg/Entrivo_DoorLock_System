@@ -1,0 +1,40 @@
+/* Shift a little space from School / Employee ID to Requested window. */
+.pending-overrides-page .pending-registrations-table.pending-overrides-table th:nth-child(3),
+.pending-overrides-page .pending-registrations-table.pending-overrides-table td:nth-child(3) {
+  width: 15%;
+}
+
+.pending-overrides-page .pending-registrations-table.pending-overrides-table th:nth-child(4),
+.pending-overrides-page .pending-registrations-table.pending-overrides-table td:nth-child(4) {
+  width: 14%;
+}
+
+/* Give Reason the space freed by the compact Status column. */
+.pending-overrides-page .pending-registrations-table.pending-overrides-table th:nth-child(5),
+.pending-overrides-page .pending-registrations-table.pending-overrides-table td:nth-child(5) {
+  width: calc(23% - 100px);
+}
+
+.pending-overrides-page .pending-registrations-table.pending-overrides-table th:nth-child(7),
+.pending-overrides-page .pending-registrations-table.pending-overrides-table td:nth-child(7) {
+  text-align: center;
+  width: 100px;
+}
+
+@media (max-width: 900px) {
+  .pending-overrides-page .pending-overrides-recent-card > .dashboard-panel-header {
+    align-items: start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+  }
+
+  .pending-overrides-page .pending-overrides-recent-card > .dashboard-panel-header > div {
+    min-width: 0;
+  }
+
+  .pending-overrides-page .pending-overrides-add-button {
+    align-self: start;
+    justify-self: end;
+  }
+}

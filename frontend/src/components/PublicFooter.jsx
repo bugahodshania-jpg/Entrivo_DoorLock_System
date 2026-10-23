@@ -10,7 +10,7 @@ const sectionLinks = [
 
 export default function PublicFooter({ isHome = false, isFaqs = false }) {
   return (
-    <footer className="home-footer">
+    <footer className={`home-footer${isHome ? ' is-home' : ''}`}>
       <div className="home-footer-inner">
         <div className="home-footer-brand">
           <span className="home-brand-marks" aria-hidden="true">

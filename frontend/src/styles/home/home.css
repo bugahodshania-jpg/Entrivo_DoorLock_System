@@ -93,6 +93,10 @@
   width: 44px;
 }
 
+.home-brand .home-logo-csucc {
+  margin-top: 4px;
+}
+
 .home-logo-csucc img {
   display: block;
   height: 68px;
@@ -238,7 +242,7 @@
 
 .home-hero::before {
   background-image:
-    linear-gradient(90deg, rgba(5, 24, 16, 0.91) 0%, rgba(5, 24, 16, 0.88) 62%, rgba(7, 31, 22, 0.97) 100%),
+    linear-gradient(90deg, rgba(5, 24, 16, 0.96) 0%, rgba(5, 24, 16, 0.95) 62%, rgba(7, 31, 22, 0.98) 100%),
     url('../../assets/images/pattern.png');
   background-position: left center;
   background-repeat: no-repeat;
@@ -621,9 +625,9 @@
   background-color: var(--forest);
   background-image:
     linear-gradient(90deg,
-      rgba(7, 31, 22, 0.42) 0%,
-      rgba(7, 31, 22, 0.5) 38%,
-      rgba(7, 31, 22, 0.9) 60%,
+      rgba(7, 31, 22, 0.84) 0%,
+      rgba(7, 31, 22, 0.88) 38%,
+      rgba(7, 31, 22, 0.95) 60%,
       #071f16 76%),
     url('../../assets/images/pattern.png');
   background-position: left center;
@@ -733,7 +737,12 @@
 
 .home-footer {
   background: var(--forest-deep);
+  border-top: 4px solid var(--gold);
   padding: 28px 40px 32px;
+}
+
+.home-footer.is-home {
+  border-top: 0;
 }
 
 .home-footer-inner {
@@ -1110,7 +1119,9 @@
   box-sizing: border-box;
   display: grid;
   gap: 14px;
+  max-height: calc(100dvh - 36px);
   max-width: 440px;
+  overflow-y: auto;
   padding: 28px 28px 22px;
   width: min(440px, 100%);
 }
@@ -1140,16 +1151,42 @@
   display: grid;
 }
 
-.home-school-id-sr {
-  border: 0;
-  clip: rect(0, 0, 0, 0);
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  padding: 0;
-  position: absolute;
+.home-school-id-label {
+  color: #243b30;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.home-school-id-field {
+  display: grid;
+  gap: 6px;
+}
+
+.home-school-id-help {
+  background: #f4f8f5;
+  border: 1px solid #e3ebe6;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.home-school-id-help strong {
+  color: #243b30;
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.home-school-id-modal .home-school-id-help p {
+  font-size: 11px;
+  line-height: 1.4;
   white-space: nowrap;
-  width: 1px;
+}
+
+.home-school-id-verification .home-school-id-actions {
+  border-top: 1px solid #e3ebe6;
+  margin-top: 0;
+  padding-top: 16px;
 }
 
 .home-school-id-modal input {
@@ -1176,8 +1213,8 @@
 
 .home-school-id-modal p.home-school-id-error {
   color: #d12424;
-  font-size: 13px;
-  margin: -8px 0 0;
+  font-size: 11px;
+  margin: 0;
 }
 
 .home-school-id-actions {

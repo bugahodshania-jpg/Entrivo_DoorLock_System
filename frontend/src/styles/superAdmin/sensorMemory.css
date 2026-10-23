@@ -1,0 +1,106 @@
+.sensor-memory-page { color: #13251f; width: 100%; }
+.sensor-memory-summary { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; }
+.sensor-memory-page .sensor-memory-card { padding: 20px 22px 12px; }
+.sensor-memory-page .sensor-memory-header { align-items: center; gap: 16px; margin-bottom: 18px; }
+.sensor-memory-header h1 { color: #10251d; font-size: 18px; font-weight: 700; margin: 0; }
+.sensor-memory-header p { margin: 6px 0 0; max-width: 570px; }
+.sensor-memory-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.sensor-memory-button { align-items: center; background: #fff; border: 1px solid #cdded4; border-radius: 5px; color: #0c4b2d; cursor: pointer; display: inline-flex; flex-shrink: 0; font: inherit; font-size: 12px; font-weight: 600; gap: 7px; justify-content: center; min-height: 35px; padding: 8px 12px; white-space: nowrap; }
+.sensor-memory-button:hover:not(:disabled) { background: #f1f7f3; border-color: #a7c5b3; }
+.sensor-memory-button.is-danger { background: #fff; border-color: #e3b4b4; color: #9d3030; }
+.sensor-memory-button.is-danger:hover:not(:disabled) { background: #fdf4f4; border-color: #d7a0a0; }
+.sensor-memory-button.is-primary { background: #0c4b2d; border-color: #0c4b2d; color: #fff; }
+.sensor-memory-button.is-primary:hover:not(:disabled) { background: #073b22; }
+.sensor-memory-button:disabled { cursor: not-allowed; opacity: .55; }
+.sensor-memory-device { align-items: center; display: flex; gap: 8px; }
+.sensor-memory-device > span { color: #63746b; font-size: 12px; }
+.sensor-memory-filter { max-width: 100%; }
+.sensor-memory-device .sensor-memory-filter { max-width: 240px; }
+.sensor-memory-device .manage-users-role-tab-trigger { max-width: 100%; }
+.sensor-memory-device .manage-users-role-tab-trigger-label { overflow: hidden; text-overflow: ellipsis; }
+.sensor-memory-header .sensor-memory-filter :is(.manage-users-role-tab-trigger-label, .manage-users-role-tab-option-label) { color: inherit; font-size: 12px; font-weight: inherit; }
+.sensor-memory-filter .manage-users-role-tab-menu { max-height: 280px; max-width: min(320px, calc(100vw - 56px)); overflow-y: auto; top: calc(100% + 6px); }
+.sensor-memory-filter .manage-users-role-tab-option.is-focused:not(.is-active) { background: #f3f7f5; outline: 1px solid #b9cec3; outline-offset: -1px; }
+.sensor-memory-modal select { background: #fff; border: 1px solid #d9e4dd; border-radius: 5px; color: #243d30; cursor: pointer; font: inherit; font-size: 12px; max-width: 240px; min-height: 35px; padding: 7px 28px 7px 10px; }
+.sensor-memory-page :is(button, input, select):focus-visible, .sensor-memory-modal :is(button, textarea, select):focus-visible { outline: 2px solid #3d8c60; outline-offset: 2px; }
+.sensor-memory-notice { align-items: center; background: #edf6f0; border: 1px solid #d4e7da; border-radius: 5px; color: #245439; display: flex; gap: 10px; margin: 0 0 14px; padding: 12px 14px; }
+.sensor-memory-notice > svg { flex-shrink: 0; }
+.sensor-memory-notice > div, .sensor-memory-notice > span { flex: 1; }
+.sensor-memory-notice strong { font-size: 12px; font-weight: 600; }
+.sensor-memory-notice p { color: inherit; font-size: 12px; line-height: 1.6; margin: 3px 0 0; }
+.sensor-memory-notice.is-error { background: #fff3f1; border-color: #f0d4ce; color: #a13e2e; font-size: 12px; }
+.sensor-memory-notice.is-warning { background: #fff9ed; border-color: #eddfbe; color: #876322; }
+.sensor-memory-snapshot { align-items: center; background: #f7faf8; border: 1px solid #e0e9e3; border-radius: 5px; color: #52725d; display: flex; gap: 10px; margin-bottom: 18px; padding: 12px 14px; }
+.sensor-memory-snapshot > svg { flex-shrink: 0; }
+.sensor-memory-snapshot strong { color: #32513e; font-size: 12px; font-weight: 600; }
+.sensor-memory-snapshot p { color: #718078; font-size: 11px; line-height: 1.6; margin: 3px 0 0; }
+.sensor-memory-snapshot.is-empty { padding: 18px 14px; }
+.sensor-memory-toolbar { align-items: center; border-bottom: 1px solid #e6ece9; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; margin-bottom: 5px; padding-bottom: 12px; }
+.sensor-memory-toolbar .manage-users-search { width: 250px; }
+.sensor-memory-table-scroll { overflow-x: auto; }
+.sensor-memory-table { border-collapse: collapse; color: #344b3e; font-size: 12px; table-layout: fixed; width: 100%; min-width: 900px; }
+.sensor-memory-table th { background: #f7f9f8; border-bottom: 1px solid #e6ece9; color: #62736a; font-size: 11px; font-weight: 600; padding: 12px 10px; text-align: left; white-space: nowrap; }
+.sensor-memory-table td { border-bottom: 1px solid #eaf0ec; padding: 12px 10px; vertical-align: middle; overflow-wrap: anywhere; }
+.sensor-memory-table tbody tr:last-child td { border-bottom: 0; }
+.sensor-memory-table th:nth-child(1) { width: 70px; }
+.sensor-memory-table th:nth-child(2) { width: 110px; }
+.sensor-memory-table th:nth-child(3) { width: 22%; }
+.sensor-memory-table th:nth-child(4) { width: 14%; }
+.sensor-memory-table th:nth-child(5) { width: 115px; }
+.sensor-memory-table th:nth-child(6) { width: 180px; }
+.sensor-memory-table th:last-child { text-align: center; width: 64px; }
+.sensor-memory-slot { color: #244a34; font-weight: 600; }
+.sensor-memory-user { display: flex; flex-direction: column; gap: 4px; padding: 3px 0; }
+.sensor-memory-user strong { color: #293d32; font-size: 12px; font-weight: 600; }
+.sensor-memory-user small { color: #8a978e; font-size: 10px; }
+.sensor-memory-finger { line-height: 1.5; padding: 3px 0; }
+.sensor-memory-presence { align-items: center; color: #8b958e; display: inline-flex; font-size: 11px; gap: 6px; }
+.sensor-memory-presence i { background: #a0aaa4; border-radius: 50%; height: 6px; width: 6px; }
+.sensor-memory-presence.is-present { color: #247148; }
+.sensor-memory-presence.is-present i { background: #33965b; }
+.sensor-memory-badge { background: #f0f3f1; border: 1px solid #e2e8e4; border-radius: 4px; color: #758178; display: inline-block; font-size: 10px; font-weight: 500; line-height: 1.5; max-width: 100%; padding: 3px 7px; }
+.sensor-memory-badge:is(.is-mapped, .is-match) { background: #eaf5ee; border-color: #d1e8d9; color: #237143; }
+.sensor-memory-badge:is(.is-sensor_only, .is-database_only, .is-no_backup) { background: #fff8e9; border-color: #efdfbb; color: #946c25; }
+.sensor-memory-badge:is(.is-conflict, .is-different, .is-invalid_sensor_template) { background: #fff0ed; border-color: #f0d5cf; color: #ad503d; }
+.sensor-memory-muted { color: #8c978f; font-size: 11px; }
+.sensor-memory-empty { align-items: center; color: #8b9d91; display: flex; flex-direction: column; gap: 10px; padding: 40px 12px; text-align: center; }
+.sensor-memory-empty strong { color: #5b7264; font-size: 13px; font-weight: 500; }
+.sensor-memory-empty p { color: #8b9d91; font-size: 11px; margin: 0; }
+.sensor-memory-pagination { border-top: 1px solid #e6ece9; margin-top: 5px; padding-top: 12px; }
+.sensor-memory-pagination p { display: flex; flex-direction: column; gap: 4px; }
+.sensor-memory-pagination p small { color: #8d9b92; font-size: 10px; }
+.sensor-memory-footnote { border-top: 1px solid #edf1ee; color: #87958b; font-size: 10px; line-height: 1.7; margin: 12px 0 0; padding-top: 10px; }
+.sensor-memory-help { color: #7a8b80; font-size: 11px; line-height: 1.6; }
+.sensor-memory-sr-only { clip: rect(0, 0, 0, 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+.sensor-memory-modal { max-width: 800px; }
+.sensor-memory-modal code { color: #52695b; font-family: Consolas, monospace; font-size: 10px; font-weight: 500; overflow-wrap: anywhere; }
+.sensor-memory-modal .sensor-memory-db-record + .sensor-memory-db-record { border-top: 3px solid #edf2ee; }
+.sensor-memory-card-note { color: #7f8e84; font-size: 12px; margin: 0; padding: 14px 12px; }
+.sensor-memory-template-actions { align-items: flex-start; border-top: 1px solid #e6eeea; display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.sensor-memory-template-actions > p { color: #718078; font-size: 11px; line-height: 1.6; margin: 0; }
+.sensor-memory-inline-error { color: #a13e2e; font-size: 11px; }
+.sensor-memory-raw-controls { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.sensor-memory-raw-controls > small { color: #88998e; font-size: 10px; }
+.sensor-memory-raw { display: flex; flex-direction: column; gap: 8px; }
+.sensor-memory-raw label { align-items: center; color: #667b6d; display: flex; font-size: 11px; gap: 8px; }
+.sensor-memory-raw textarea { background: #f8faf9; border: 1px solid #dce7df; border-radius: 4px; color: #42634e; font-family: Consolas, monospace; font-size: 11px; line-height: 1.6; min-height: 115px; padding: 10px; resize: vertical; width: 100%; word-break: break-all; }
+.sensor-memory-spin { animation: sensor-memory-spin 1.8s linear infinite; }
+@keyframes sensor-memory-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sensor-memory-spin { animation: none; } }
+@media (max-width: 1050px) { .sensor-memory-page .sensor-memory-header { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 700px) {
+  .sensor-memory-summary { grid-template-columns: 1fr; }
+  .sensor-memory-page .sensor-memory-card { padding: 16px 14px 12px; }
+  .sensor-memory-toolbar { align-items: stretch; }
+  .sensor-memory-toolbar .manage-users-search { max-width: none; }
+  .sensor-memory-notice { align-items: flex-start; flex-wrap: wrap; }
+  .sensor-memory-notice > div { min-width: calc(100% - 38px); }
+  .sensor-memory-notice > button { margin-left: 28px; }
+  .sensor-memory-device > span { display: none; }
+  .sensor-memory-device .sensor-memory-filter { max-width: 190px; }
+  .sensor-memory-modal { padding: 16px 14px 14px; }
+  .sensor-memory-modal header h2 { font-size: 16px; }
+  .sensor-memory-modal .pending-registration-review-body dl { grid-template-columns: 1fr; }
+  .sensor-memory-modal .pending-registration-review-body dl > div { border-right: 0; border-top: 1px solid #e6eeea; }
+  .sensor-memory-modal .pending-registration-review-body dl > div:first-child { border-top: 0; }
+}

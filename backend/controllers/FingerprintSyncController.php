@@ -43,4 +43,9 @@ class FingerprintSyncController
     {
         return $this->service->failDeviceJob($input);
     }
+
+    public function updateDeviceProgress(array $input): array
+    {
+        return $this->service->updateDeviceProgress($input);
+    }
 }

@@ -32,7 +32,7 @@ Upload the combined firmware. Replace `COM3` with your ESP32 port:
 
 ```powershell
 cd "C:\xampp_new\htdocs\Entrivo_DoorLock_System"
-arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32 "esp32\door_controller"
+arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32 "esp32\door_controller_for_sync"
 ```
 
 4. Open Sensor B serial monitor
@@ -99,7 +99,7 @@ Door relay reset
 If the modal stays on **Queued**, Sensor B is not reaching the backend. Check WiFi and `SERVER_URL` in:
 
 ```text
-esp32\door_controller\Config.h
+esp32\door_controller_for_sync\Config.h
 ```
 
 Current backend URL is:

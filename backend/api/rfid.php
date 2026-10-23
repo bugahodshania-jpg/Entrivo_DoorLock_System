@@ -22,6 +22,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'PUT'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/RfidScanService.php';
 
 function mapStudentRfidCard(array $row): array
 {
@@ -159,6 +160,16 @@ function updateStudentRfidCard(PDO $pdo, int $cardId, array $input): array
 
     if ($duplicate->fetch()) {
         throw new InvalidArgumentException('That RFID UID is already assigned to another card.');
+    }
+
+    $existingUid = strtoupper(preg_replace('/\s+/', '', (string) ($existing['rfidUid'] ?? '')));
+
+    if ($rfidUid !== $existingUid) {
+        $scans = new RfidScanService($pdo);
+
+        if ($scans->latestScan($rfidUid) === null) {
+            throw new InvalidArgumentException('This UID was not scanned yet. Scan the school ID at the RFID station, then enter the UID shown on the screen.');
+        }
     }
 
     $update = $pdo->prepare(

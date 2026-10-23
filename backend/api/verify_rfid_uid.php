@@ -21,42 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-$service = new RfidScanService(entrivo_pdo());
-$rfidUid = $service->normalizeUid(is_array($input) ? ($input['rfid_uid'] ?? '') : '');
-
-if ($rfidUid === '') {
-    http_response_code(422);
-    echo json_encode(['message' => 'Enter the RFID UID shown on the scanner.']);
-    exit;
-}
-
-if (!$service->isValidUid($rfidUid)) {
-    http_response_code(422);
-    echo json_encode(['message' => 'The UID must match the scanner exactly.']);
-    exit;
-}
-
 try {
-    if ($service->isRegistered($rfidUid)) {
-        http_response_code(409);
-        echo json_encode(['message' => 'This UID is already registered.']);
-        exit;
-    }
-
-    $scan = $service->latestScan($rfidUid);
-    if ($scan === null) {
-        http_response_code(422);
-        echo json_encode([
-            'message' => 'This UID was not scanned yet. Scan your school ID at the RFID station, then enter the UID shown on the screen.',
-        ]);
-        exit;
-    }
-
+    $input = json_decode(file_get_contents('php://input'), true);
+    $service = new RfidScanService(entrivo_pdo());
+    echo json_encode($service->verifyForRegistration(is_array($input) ? ($input['rfid_uid'] ?? '') : ''));
+} catch (RfidUidVerificationException $error) {
+    http_response_code($error->httpStatus);
     echo json_encode([
-        'verified' => true,
-        'rfid_uid' => $rfidUid,
-        'scanned_at' => $scan['scanned_at'],
+        'message' => $error->getMessage(),
+        'code' => $error->errorCode,
+        'errors' => ['rfid_uid' => $error->getMessage()],
     ]);
 } catch (Throwable $error) {
     http_response_code(500);

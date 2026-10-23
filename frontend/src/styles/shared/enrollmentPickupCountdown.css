@@ -1,0 +1,15 @@
+.fingerprint-enrollment-pickup-countdown {
+  align-items: center;
+  color: #0d6b43;
+  display: inline-flex;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  gap: 6px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.fingerprint-enrollment-pickup-countdown svg {
+  flex: 0 0 auto;
+}

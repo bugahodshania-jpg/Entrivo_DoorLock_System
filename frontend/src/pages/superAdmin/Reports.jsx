@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, Download, Info, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import ExportFormatModal from '../../components/ExportFormatModal';
+import TableEmptyState from '../../components/TableEmptyState';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
@@ -282,7 +284,9 @@ function ExtendedAccessPanel({ rows, onViewAll }) {
         </button>
       </header>
       {rows.length === 0 ? (
-        <p className="reports-chart-empty">No scheduled entries in this view.</p>
+        <TableEmptyState description="Scheduled access records matching the selected filters will appear here.">
+          No scheduled entries in this view.
+        </TableEmptyState>
       ) : (
         <div className="reports-extended-table-wrap">
           <table>
@@ -405,7 +409,9 @@ function ReportTable({ columns, columnWidths, rows, emptyMessage, isLoading, foo
             {!isLoading && rows.length === 0 ? (
               <tr>
                 <td className="dashboard-recent-empty" colSpan={columns.length}>
-                  {emptyMessage}
+                  <TableEmptyState description="Try adjusting the report filters or date range.">
+                    {emptyMessage}
+                  </TableEmptyState>
                 </td>
               </tr>
             ) : null}
@@ -798,8 +804,6 @@ export default function Reports() {
         ))}
       </div>
 
-      {errorMessage ? <p className="reports-error" role="alert">{errorMessage}</p> : null}
-
       {activeReport === 'overview' ? null : (
       <section className="dashboard-recent-card reports-card">
         <div className="dashboard-panel-header reports-header">
@@ -934,6 +938,11 @@ export default function Reports() {
         csvHint="Spreadsheet for Excel"
         onSelect={handleExport}
         onClose={() => setIsExportOpen(false)}
+      />
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
       />
     </main>
   );

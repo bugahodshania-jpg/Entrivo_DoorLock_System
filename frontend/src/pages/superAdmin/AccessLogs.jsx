@@ -1,28 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Check,
   CheckCircle2,
   ChevronDown,
   Download,
+  Eye,
   RefreshCw,
+  Trash2,
   Search,
   X,
   XCircle,
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import { useActionConfirm } from '../../components/ActionConfirm';
+import DeleteRequestModal from '../../components/DeleteRequestModal';
+import DeleteRequestToast from '../../components/DeleteRequestToast';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import ExportFormatModal from '../../components/ExportFormatModal';
+import AccessLogViewModal from '../../components/AccessLogViewModal';
+import AccessLogsLiveStatus from '../../components/AccessLogsLiveStatus';
+import RowActionMenu from '../../components/RowActionMenu';
+import TableEmptyState from '../../components/TableEmptyState';
+import useLiveAccessLogs from '../../hooks/useLiveAccessLogs';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
-
-const initialSummary = {
-  totalToday: 0,
-  grantedToday: 0,
-  deniedToday: 0,
-};
 
 const viewFilterOptions = [
   { value: 'today', label: "Today's access logs" },
@@ -35,111 +40,17 @@ const statusFilterOptions = [
   { value: 'denied', label: 'Denied' },
 ];
 
-// TEMP: sample rows for layout preview — remove when real access logs are enough.
-function buildSampleAccessLogs(todayDateStamp) {
-  return [
-    {
-      id: 'sample-1',
-      dateValue: todayDateStamp,
-      date: 'Sep 27, 2026',
-      time: '08:15 AM',
-      userName: 'Shania Gultiano Bugahod',
-      userEmail: 'shania.bugahod@csucc.edu.ph',
-      userIdentifier: '2023-0471',
-      userRole: 'student',
-      method: 'RFID',
-      accessType: 'IN',
-      scheduleId: 12,
-      scheduleWindow: '08:00 AM - 12:00 PM',
-      status: 'granted',
-    },
-    {
-      id: 'sample-2',
-      dateValue: todayDateStamp,
-      date: 'Sep 27, 2026',
-      time: '08:42 AM',
-      userName: 'Juan dela Cruz',
-      userEmail: 'juan.delacruz@csucc.edu.ph',
-      userIdentifier: 'FAC-0004',
-      userRole: 'faculty',
-      method: 'Fingerprint',
-      accessType: 'IN',
-      scheduleId: 18,
-      scheduleWindow: '08:00 AM - 05:00 PM',
-      status: 'granted',
-    },
-    {
-      id: 'sample-3',
-      dateValue: todayDateStamp,
-      date: 'Sep 27, 2026',
-      time: '09:05 AM',
-      userName: 'Maria Santos',
-      userEmail: 'maria.santos@csucc.edu.ph',
-      userIdentifier: '2022-1188',
-      userRole: 'student',
-      method: 'RFID',
-      accessType: 'OUT',
-      scheduleId: null,
-      scheduleWindow: null,
-      status: 'denied',
-    },
-    {
-      id: 'sample-4',
-      dateValue: todayDateStamp,
-      date: 'Sep 27, 2026',
-      time: '10:18 AM',
-      userName: 'Admin Portal Account',
-      userEmail: 'admin@csucc.edu.ph',
-      userIdentifier: 'ADM-0001',
-      userRole: 'admin',
-      method: 'Fingerprint',
-      accessType: 'IN',
-      scheduleId: 7,
-      scheduleWindow: 'Mon-Fri 07:30 AM - 06:00 PM',
-      status: 'granted',
-    },
-    {
-      id: 'sample-5',
-      dateValue: todayDateStamp,
-      date: 'Sep 27, 2026',
-      time: '11:03 AM',
-      userName: 'Unknown User',
-      userEmail: 'No email',
-      userIdentifier: 'No ID',
-      userRole: '',
-      method: 'RFID',
-      accessType: 'IN',
-      scheduleId: null,
-      scheduleWindow: null,
-      status: 'denied',
-    },
-    {
-      id: 'sample-6',
-      dateValue: '2026-09-26',
-      date: 'Sep 26, 2026',
-      time: '04:55 PM',
-      userName: 'Ana Reyes',
-      userEmail: 'ana.reyes@csucc.edu.ph',
-      userIdentifier: 'STF-0012',
-      userRole: 'staff',
-      method: 'Fingerprint',
-      accessType: 'OUT',
-      scheduleId: 21,
-      scheduleWindow: 'Sep 26, 2026 01:00 PM - 05:00 PM',
-      status: 'granted',
-    },
-  ];
+function getRfidUid(log) {
+  return String(log.method || '').toLowerCase() === 'rfid' ? log.rfidUid || '' : '';
 }
 
-export default function AccessLogs() {
+export default function AccessLogs({ user }) {
   const rowsPerPage = 10;
   const todayDateStamp = getManilaDateStamp();
   const viewFilterMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
-  const [accessLogs, setAccessLogs] = useState([]);
-  const [summary, setSummary] = useState(initialSummary);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
+  const liveLogs = useLiveAccessLogs();
+  const { accessLogs, summary, isLoading, errorMessage } = liveLogs;
   const [currentPage, setCurrentPage] = useState(1);
   const [viewFilter, setViewFilter] = useState('today');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -149,68 +60,13 @@ export default function AccessLogs() {
   const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  useEffect(() => {
-    let isActive = true;
-    const sampleDateStamp = getManilaDateStamp();
-
-    async function loadAccessLogs() {
-      try {
-        const response = await axiosClient.get('/api/access_logs.php');
-
-        if (!isActive) {
-          return;
-        }
-
-        const loadedLogs = response.data.accessLogs || [];
-        const sampleLogs = buildSampleAccessLogs(sampleDateStamp);
-        // TEMP: always show sample rows for layout preview.
-        setAccessLogs([...sampleLogs, ...loadedLogs]);
-        setSummary({
-          ...initialSummary,
-          ...response.data.summary,
-          totalToday: Math.max(
-            Number(response.data.summary?.totalToday) || 0,
-            sampleLogs.filter((log) => log.dateValue === sampleDateStamp).length,
-          ),
-          grantedToday: Math.max(
-            Number(response.data.summary?.grantedToday) || 0,
-            sampleLogs.filter(
-              (log) => log.dateValue === sampleDateStamp && log.status === 'granted',
-            ).length,
-          ),
-          deniedToday: Math.max(
-            Number(response.data.summary?.deniedToday) || 0,
-            sampleLogs.filter(
-              (log) => log.dateValue === sampleDateStamp && log.status === 'denied',
-            ).length,
-          ),
-        });
-        setErrorMessage('');
-      } catch {
-        if (isActive) {
-          // TEMP: fall back to sample rows so layout can still be reviewed.
-          setAccessLogs(buildSampleAccessLogs(sampleDateStamp));
-          setSummary({
-            totalToday: 5,
-            grantedToday: 3,
-            deniedToday: 2,
-          });
-          setErrorMessage('');
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadAccessLogs();
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
+  const [viewLog, setViewLog] = useState(null);
+  const [deleteRequest, setDeleteRequest] = useState(null);
+  const [deleteNotice, setDeleteNotice] = useState('');
+  const [removedLogIds, setRemovedLogIds] = useState([]);
+  const [actionError, setActionError] = useState('');
+  const confirmAction = useActionConfirm();
+  const closeLogView = useCallback(() => setViewLog(null), []);
 
   useEffect(() => {
     if (!isViewFilterMenuOpen && !isStatusFilterMenuOpen) {
@@ -267,7 +123,7 @@ export default function AccessLogs() {
     [summary.deniedToday, summary.grantedToday, summary.totalToday],
   );
 
-  const columns = ['Date & Time', 'User', 'Identifier', 'Method', 'Access Type', 'Schedule', 'Status'];
+  const columns = ['Date & Time', 'User', 'Identifier', 'Method', 'Access Type', 'Schedule', 'Status', 'Action'];
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
   const viewScopedLogs = useMemo(() => {
@@ -280,6 +136,10 @@ export default function AccessLogs() {
 
   const visibleAccessLogs = useMemo(() => {
     return viewScopedLogs.filter((log) => {
+      if (removedLogIds.includes(log.id)) {
+        return false;
+      }
+
       if (statusFilter !== 'all' && String(log.status || '').toLowerCase() !== statusFilter) {
         return false;
       }
@@ -302,6 +162,7 @@ export default function AccessLogs() {
         log.userIdentifier,
         log.userRole,
         log.method,
+        getRfidUid(log),
         log.accessType,
         log.scheduleId,
         log.scheduleWindow,
@@ -310,7 +171,45 @@ export default function AccessLogs() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
     });
-  }, [dateFrom, dateTo, normalizedSearchQuery, statusFilter, viewScopedLogs]);
+  }, [dateFrom, dateTo, normalizedSearchQuery, removedLogIds, statusFilter, viewScopedLogs]);
+
+  async function deleteAccessLog(log) {
+    if (user?.role === 'admin') {
+      setDeleteRequest({
+        targetType: 'access_log',
+        targetId: log.id,
+        targetLabel: `Access log #${log.id} · ${log.userName || 'Unknown user'}`,
+        detail: [log.date, log.time, log.status].filter(Boolean).join(' · '),
+      });
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Delete access log',
+      danger: true,
+      message: `Permanently delete access log #${log.id} for ${log.userName || 'this user'}? This cannot be undone.`,
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await axiosClient.post('/api/delete_requests.php', {
+        action: 'delete_now',
+        actorId: user?.id,
+        targetType: 'access_log',
+        targetId: log.id,
+      });
+      setRemovedLogIds((current) => [...current, log.id]);
+      if (viewLog?.id === log.id) {
+        setViewLog(null);
+      }
+      setDeleteNotice('Access log deleted.');
+      window.setTimeout(() => setDeleteNotice(''), 4000);
+    } catch (error) {
+      setActionError(error.response?.data?.message || 'Unable to delete that access log.');
+    }
+  }
 
   const viewFilterCounts = useMemo(() => {
     const statusLogs =
@@ -366,6 +265,7 @@ export default function AccessLogs() {
         'Identifier',
         'Role',
         'Method',
+        'RFID UID',
         'Access Type',
         'Schedule',
         'Status',
@@ -378,6 +278,7 @@ export default function AccessLogs() {
         log.userIdentifier,
         log.userRole,
         log.method,
+        getRfidUid(log),
         log.accessType,
         `${log.scheduleId ?? 'N/A'} | ${log.scheduleWindow ?? 'N/A'}`,
         log.status,
@@ -394,7 +295,7 @@ export default function AccessLogs() {
           dateTo ? `To ${dateTo}` : '',
           searchQuery.trim() ? `Search: "${searchQuery.trim()}"` : '',
         ]),
-        widths: [62, 55, 95, 120, 70, 50, 55, 70, 130, 50],
+        widths: [62, 55, 90, 110, 65, 45, 50, 85, 65, 130, 50],
         emphasizeColumn: 2,
         emptyMessage: 'No access logs match the selected filters.',
       },
@@ -427,6 +328,7 @@ export default function AccessLogs() {
                 ? "Recorded access attempts from RFID and biometrics for today."
                 : 'Recorded access attempts from RFID and biometrics.'}
             </p>
+            <AccessLogsLiveStatus {...liveLogs} />
           </div>
           <button
             type="button"
@@ -624,17 +526,15 @@ export default function AccessLogs() {
             <Search size={14} aria-hidden="true" />
             <input
               type="search"
-              placeholder="Search user, ID, or method"
+              placeholder="Search user, ID, UID, or method"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
             />
           </label>
         </div>
 
-        {errorMessage ? <p className="access-logs-error" role="alert">{errorMessage}</p> : null}
-
         <div className="dashboard-recent-table-wrap access-logs-table-wrap">
-          <table className="dashboard-recent-table access-logs-table">
+          <table className="dashboard-recent-table access-logs-table access-logs-table-with-actions">
             <thead>
               <tr>
                 {columns.map((column) => (
@@ -651,30 +551,25 @@ export default function AccessLogs() {
                 </tr>
               )}
 
-              {!isLoading && errorMessage && (
+              {!isLoading && visibleAccessLogs.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {errorMessage}
-                  </td>
-                </tr>
-              )}
-
-              {!isLoading && !errorMessage && visibleAccessLogs.length === 0 && (
-                <tr>
-                  <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {normalizedSearchQuery
-                      ? 'No access logs match your search.'
-                      : viewFilter === 'today'
-                        ? "No access logs found for today's activity."
-                        : 'No access logs found.'}
+                    {errorMessage
+                      ? 'Unable to load access logs. Retrying automatically.'
+                      : <TableEmptyState description="Recorded access attempts will appear here. Try adjusting your search or filters.">
+                          {normalizedSearchQuery
+                            ? 'No access logs match your search.'
+                            : viewFilter === 'today'
+                              ? "No access logs found for today's activity."
+                              : 'No access logs found.'}
+                        </TableEmptyState>}
                   </td>
                 </tr>
               )}
 
               {!isLoading &&
-                !errorMessage &&
                 paginatedAccessLogs.map((log) => (
-                  <tr key={log.id}>
+                  <tr key={log.id} data-access-log-id={log.id}>
                     <td>
                       <strong>{log.date}</strong>
                       <span>{log.time}</span>
@@ -689,6 +584,7 @@ export default function AccessLogs() {
                     </td>
                     <td>
                       <strong>{log.method || 'N/A'}</strong>
+                      {getRfidUid(log) ? <span>UID: {getRfidUid(log)}</span> : null}
                     </td>
                     <td>
                       <strong>{log.accessType || 'N/A'}</strong>
@@ -706,13 +602,22 @@ export default function AccessLogs() {
                         {log.status}
                       </span>
                     </td>
+                    <td>
+                      <RowActionMenu
+                        label={`Actions for access log #${log.id}`}
+                        items={[
+                          { label: 'View', icon: Eye, onClick: () => setViewLog(log) },
+                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => deleteAccessLog(log) },
+                        ]}
+                      />
+                    </td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
 
-        {!isLoading && !errorMessage && visibleAccessLogs.length > 0 && (
+        {!isLoading && visibleAccessLogs.length > 0 && (
           <div className="access-logs-pagination" aria-label="Access logs pagination">
             <p>
               Showing {(currentPage - 1) * rowsPerPage + 1}-
@@ -741,6 +646,22 @@ export default function AccessLogs() {
           </div>
         )}
       </section>
+      <AccessLogViewModal log={viewLog} onClose={closeLogView} />
+      <DeleteRequestModal
+        open={Boolean(deleteRequest)}
+        actorId={user?.id}
+        targetType={deleteRequest?.targetType}
+        targetId={deleteRequest?.targetId}
+        targetLabel={deleteRequest?.targetLabel || ''}
+        detail={deleteRequest?.detail || ''}
+        onClose={() => setDeleteRequest(null)}
+        onSubmitted={(message) => {
+          setDeleteNotice(message);
+          window.setTimeout(() => setDeleteNotice(''), 4000);
+        }}
+      />
+      <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
+      <ErrorNoticeModal open={Boolean(actionError)} message={actionError} onClose={() => setActionError('')} />
       <ExportFormatModal
         open={isExportModalOpen}
         title="Export Access Logs"

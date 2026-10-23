@@ -1,11 +1,11 @@
 <?php
 
 require_once __DIR__ . '/../models/Fingerprint.php';
+require_once __DIR__ . '/FingerprintTemplateFormat.php';
 
 class FingerprintTemplateService
 {
     private Fingerprint $fingerprintModel;
-    private const EXPECTED_TEMPLATE_BYTES = 512;
 
     public function __construct(?Fingerprint $fingerprintModel = null)
     {
@@ -46,6 +46,17 @@ class FingerprintTemplateService
                 'body' => [
                     'success' => false,
                     'message' => 'No stored template data was found for this fingerprint.',
+                ],
+            ];
+        }
+
+        $templateBinary = FingerprintTemplateFormat::verifiedBinary($templateBinary, $record['template_hash'] ?? null);
+        if ($templateBinary === null) {
+            return [
+                'status' => 422,
+                'body' => [
+                    'success' => false,
+                    'message' => 'The stored fingerprint template is invalid. Enroll the finger again before exporting it.',
                 ],
             ];
         }
@@ -117,16 +128,26 @@ class FingerprintTemplateService
         }
 
         $templateBytes = strlen($decodedTemplate);
-        if ($templateBytes !== self::EXPECTED_TEMPLATE_BYTES) {
+        if (!FingerprintTemplateFormat::isSupportedSize($templateBytes)) {
             return [
                 'status' => 422,
                 'body' => [
                     'success' => false,
                     'message' => sprintf(
-                        'Invalid fingerprint template size. Expected %d bytes, got %d bytes.',
-                        self::EXPECTED_TEMPLATE_BYTES,
+                        'Invalid fingerprint template size. Expected %s bytes, got %d bytes.',
+                        FingerprintTemplateFormat::describeSupportedSizes(),
                         $templateBytes
                     ),
+                ],
+            ];
+        }
+
+        if (!FingerprintTemplateFormat::isUsableTemplate($decodedTemplate)) {
+            return [
+                'status' => 422,
+                'body' => [
+                    'success' => false,
+                    'message' => 'The fingerprint template contains only one repeated byte and cannot be used. Enroll the finger again; the existing fingerprint was preserved.',
                 ],
             ];
         }

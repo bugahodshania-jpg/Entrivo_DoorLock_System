@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/RegistrationUniquenessService.php';
+require_once __DIR__ . '/RegistrationInputValidation.php';
 
 class UserRegistrationService
 {
@@ -69,7 +70,7 @@ class UserRegistrationService
             }
         }
 
-        $username = $this->normalizeUsername($this->requiredText($input, 'username', 'Username'), $role);
+        $username = $this->normalizeUsername($this->requiredText($input, 'username', 'Username'));
         $idLabel = $role === 'student' ? 'School ID' : 'Employee ID';
         $identifier = $this->normalizeIssuedId(
             $this->requiredText($input, $role === 'student' ? 'school_id' : 'employee_id', $idLabel),
@@ -78,8 +79,17 @@ class UserRegistrationService
         );
         $password = $this->temporaryPasswordFromId($username, $identifier);
         $email = $this->normalizeEmail($this->requiredText($input, 'email', 'School email'));
-        $firstName = $this->normalizeTitleText($this->requiredText($input, 'first_name', 'First name'));
-        $lastName = $this->normalizeTitleText($this->requiredText($input, 'last_name', 'Last name'));
+        $firstName = $this->normalizePersonName($this->requiredText($input, 'first_name', 'First name'), 'First name');
+        $lastName = $this->normalizePersonName($this->requiredText($input, 'last_name', 'Last name'), 'Last name');
+        $rfidUid = $role === 'student'
+            ? $this->requireScannedRfidUid($input['rfid_uid'] ?? $input['rfidUid'] ?? null)
+            : null;
+        (new RegistrationUniquenessService($this->pdo))->assertAvailable([
+            ($role === 'student' ? 'school_id' : 'employee_id') => $identifier,
+            'email' => $email,
+            'username' => $username,
+            ...($rfidUid !== null ? ['rfid_uid' => $rfidUid] : []),
+        ]);
         $middleName = $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null));
 
         $sharedProfile = [
@@ -133,6 +143,7 @@ class UserRegistrationService
             $userId = (int)$this->pdo->lastInsertId();
             $this->insertProfile($role, $userId, $profile);
             $fingerprint = $this->createPendingFingerprint($userId);
+            $rfid = $rfidUid !== null ? $this->createRfidCard($userId, $rfidUid) : null;
 
             $this->pdo->commit();
 
@@ -167,7 +178,7 @@ class UserRegistrationService
                 'year_level' => $profile['year_level'] ?? null,
                 'section' => $profile['section'] ?? null,
                 'temporary_password' => $password,
-                'rfid' => null,
+                'rfid' => $rfid,
                 'fingerprint' => $fingerprint,
             ];
         } catch (Throwable $error) {
@@ -193,25 +204,25 @@ class UserRegistrationService
         }
 
         $role = (string) $account['role'];
-        $dateOfBirth = $this->requiredText($input, 'date_of_birth', 'Date of birth');
+        $validated = RegistrationInputValidation::profile($input, true);
+        $dateOfBirth = $validated['date_of_birth'];
         $shared = [
-            'middle_name' => $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null)),
+            'middle_name' => $validated['middle_name'],
             'extension_name' => $this->boundedText($this->optionalText($input['extension_name'] ?? null), 'Suffix', 20),
             'sex' => $this->requiredSex($input['sex'] ?? null),
             'date_of_birth' => $dateOfBirth,
-            'age' => $this->calculateAge($dateOfBirth),
-            'contact_number' => $this->normalizeContactNumber($this->requiredText($input, 'contact_number', 'Contact number')),
-            'province' => $this->boundedText($this->normalizeTitleText($this->requiredText($input, 'province', 'Province')), 'Province', 100),
-            'city_municipality' => $this->boundedText(
-                $this->normalizeTitleText($this->requiredText($input, 'city_municipality', 'City / Municipality')),
-                'City / Municipality',
-                100
-            ),
-            'barangay' => $this->boundedText($this->normalizeTitleText($this->requiredText($input, 'barangay', 'Barangay')), 'Barangay', 100),
-            'street_address' => $this->boundedText($this->optionalText($input['street_address'] ?? null), 'Street address', 255),
+            'age' => $validated['age'],
+            'contact_number' => $validated['contact_number'],
+            'province' => $validated['province'],
+            'city_municipality' => $validated['city_municipality'],
+            'barangay' => $validated['barangay'],
+            'street_address' => $validated['street_address'],
         ];
 
+        $uniqueness = new RegistrationUniquenessService($this->pdo);
+        $contactLock = $uniqueness->acquireContactLock($validated['contact_number']);
         try {
+            $uniqueness->assertContactAvailable($validated['contact_number'], $userId);
             $this->pdo->beginTransaction();
 
             if ($role === 'student') {
@@ -307,6 +318,8 @@ class UserRegistrationService
             }
 
             throw $error;
+        } finally {
+            $uniqueness->releaseContactLock($contactLock);
         }
     }
 
@@ -346,59 +359,31 @@ class UserRegistrationService
 
     public function registerPublicStudent(array $input): array
     {
-        (new RegistrationUniquenessService($this->pdo))->assertAvailable($input);
-        $username = $this->requiredText($input, 'username', 'Username');
-        if (preg_match('/\p{N}/u', $username)) {
-            throw new InvalidArgumentException('Username cannot contain numbers.');
+        $validated = RegistrationInputValidation::profile($input);
+        $firstName = $validated['first_name'];
+        $lastName = $validated['last_name'];
+        try {
+            $username = $this->normalizeUsername(
+                $this->optionalText($input['username'] ?? null)
+                    ?? RegistrationInputValidation::generatedUsername($firstName, $lastName)
+            );
+        } catch (InvalidArgumentException $error) {
+            throw new RegistrationValidationException(['username' => $error->getMessage()]);
         }
+        (new RegistrationUniquenessService($this->pdo))->assertAvailable([
+            ...$input,
+            'username' => $username,
+            'email' => $validated['email'],
+        ]);
         $password = (string) ($input['password'] ?? '');
-        $email = $this->normalizeEmail($this->requiredText($input, 'email', 'Email'));
-        $firstName = $this->normalizeTitleText($this->requiredText($input, 'first_name', 'First name'));
-        $lastName = $this->normalizeTitleText($this->requiredText($input, 'last_name', 'Last name'));
-        $dateOfBirth = $this->requiredText($input, 'date_of_birth', 'Date of birth');
+        $email = $validated['email'];
+        $dateOfBirth = $validated['date_of_birth'];
         $college = $this->requiredText($input, 'college', 'College');
         $program = $this->requiredText($input, 'program_department', 'Program / Department');
         $securityQuestions = $this->normalizeSecurityQuestions($input['security_questions'] ?? null);
 
-        if (strlen($username) > 50) {
-            throw new InvalidArgumentException('Username must be 50 characters or fewer.');
-        }
-
-        if (!str_contains($username, '.')) {
-            throw new InvalidArgumentException('Username must include a dot (.).');
-        }
-
-        if (preg_match('/\s/', $username)) {
-            throw new InvalidArgumentException('Username cannot contain spaces.');
-        }
-
-        if (strlen($password) < 8) {
-            throw new InvalidArgumentException('Password must be at least 8 characters.');
-        }
-
-        if (!preg_match('/[A-Z]/', $password)) {
-            throw new InvalidArgumentException('Password must include an uppercase letter.');
-        }
-
-        if (!preg_match('/[a-z]/', $password)) {
-            throw new InvalidArgumentException('Password must include a lowercase letter.');
-        }
-
-        if (!preg_match('/\d/', $password)) {
-            throw new InvalidArgumentException('Password must include a number.');
-        }
-
-        if (!preg_match('/[^A-Za-z0-9]/', $password)) {
-            throw new InvalidArgumentException('Password must include a special character.');
-        }
-
-        if (strlen($password) > 72) {
-            throw new InvalidArgumentException('Password must be 72 characters or fewer.');
-        }
-
-        if ($password !== (string) ($input['confirm_password'] ?? '')) {
-            throw new InvalidArgumentException('Password and re-entered password must match.');
-        }
+        $passwordErrors = RegistrationInputValidation::passwordErrors($password, (string) ($input['confirm_password'] ?? ''));
+        if ($passwordErrors !== []) throw new RegistrationValidationException($passwordErrors);
 
         if (!isset(self::STUDENT_PROGRAMS[$college])) {
             throw new InvalidArgumentException('Select a college from the list.');
@@ -411,30 +396,33 @@ class UserRegistrationService
         $profile = [
             'school_id' => $this->normalizeSchoolId($this->requiredText($input, 'school_id', 'School ID')),
             'first_name' => $firstName,
-            'middle_name' => $this->normalizeTitleText($this->optionalText($input['middle_name'] ?? null)),
+            'middle_name' => $validated['middle_name'],
             'last_name' => $lastName,
             'extension_name' => $this->optionalText($input['extension_name'] ?? null),
             'sex' => $this->requiredSex($input['sex'] ?? null),
             'date_of_birth' => $dateOfBirth,
-            'age' => $this->calculateAge($dateOfBirth),
-            'contact_number' => $this->normalizeContactNumber($this->requiredText($input, 'contact_number', 'Contact number')),
+            'age' => $validated['age'],
+            'contact_number' => $validated['contact_number'],
             'college' => $college,
             'program_department' => $program,
             'year_level' => $this->requiredYearLevel($input['year_level'] ?? null),
             'section' => $this->optionalSection($input['section'] ?? null),
-            'province' => $this->normalizeTitleText($this->requiredText($input, 'province', 'Province')),
-            'city_municipality' => $this->normalizeTitleText($this->requiredText($input, 'city_municipality', 'City / Municipality')),
-            'barangay' => $this->normalizeTitleText($this->requiredText($input, 'barangay', 'Barangay')),
-            'street_address' => $this->requiredText($input, 'street_address', 'Street address'),
+            'province' => $validated['province'],
+            'city_municipality' => $validated['city_municipality'],
+            'barangay' => $validated['barangay'],
+            'street_address' => $validated['street_address'],
             'zip_code' => $this->normalizeZipCode($this->requiredText($input, 'zip_code', 'Zip code')),
-            'country' => $this->normalizeTitleText($this->requiredText($input, 'country', 'Country')),
+            'country' => $validated['country'],
             'school_id_photo' => $this->normalizeSchoolIdPhoto($input['school_id_photo'] ?? null),
         ];
 
-        $rfidUid = $this->requireScannedRfidUid($input['rfid_uid'] ?? null);
+        $rfidUid = (new RfidScanService($this->pdo))->verifyForRegistration($input['rfid_uid'] ?? null)['rfid_uid'];
         $approvalDueAt = new DateTimeImmutable('+24 hours');
 
+        $uniqueness = new RegistrationUniquenessService($this->pdo);
+        $contactLock = $uniqueness->acquireContactLock($validated['contact_number']);
         try {
+            $uniqueness->assertContactAvailable($validated['contact_number']);
             $this->pdo->beginTransaction();
 
             $userStatement = $this->pdo->prepare(
@@ -481,12 +469,27 @@ class UserRegistrationService
                 'approval_status' => 'pending',
                 'approval_due_at' => $approvalDueAt->format('F j, Y, \a\t g:i A'),
             ];
+        } catch (PDOException $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            if (($error->errorInfo[1] ?? null) === 1062) {
+                // Recheck normalized values after a concurrent registration wins the insert.
+                (new RegistrationUniquenessService($this->pdo))->assertAvailable([
+                    ...$input,
+                    'username' => $username,
+                    'email' => $email,
+                ]);
+            }
+            throw $error;
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
 
             throw $error;
+        } finally {
+            $uniqueness->releaseContactLock($contactLock);
         }
     }
 
@@ -685,6 +688,33 @@ class UserRegistrationService
         return max(0, (int)$value);
     }
 
+    private function normalizePersonName(string $value, string $label): string
+    {
+        $name = trim($value);
+
+        if (mb_strlen($name) < 2 || mb_strlen($name) > 50) {
+            throw new InvalidArgumentException("{$label} must be 2 to 50 characters.");
+        }
+
+        if (preg_match('/\p{N}/u', $name)) {
+            throw new InvalidArgumentException("{$label} cannot contain numbers.");
+        }
+
+        if (preg_match('/[^A-Za-zÑñ -]/u', $name)) {
+            throw new InvalidArgumentException("{$label} can only include letters, Ñ, spaces, and hyphens.");
+        }
+
+        if (!preg_match('/^[A-ZÑ]/u', $name)) {
+            throw new InvalidArgumentException("{$label} must start with a capital letter.");
+        }
+
+        if (!preg_match('/^[A-ZÑ][A-Za-zÑñ]*(?:[ -][A-Za-zÑñ]+)*$/u', $name)) {
+            throw new InvalidArgumentException("{$label} cannot start or end with a hyphen, or repeat spaces and hyphens.");
+        }
+
+        return $name;
+    }
+
     private function normalizeTitleText(?string $value): ?string
     {
         if ($value === null) {
@@ -726,16 +756,28 @@ class UserRegistrationService
         return $digits;
     }
 
-    private function normalizeUsername(string $username, string $role): string
+    private function normalizeUsername(string $username): string
     {
         $username = trim($username);
 
-        if (!preg_match('/^[A-Za-z][A-Za-z0-9._-]{2,49}$/', $username)) {
-            throw new InvalidArgumentException('Username must start with a letter and be 3 to 50 characters, using letters, numbers, dots, underscores, or hyphens.');
+        if ($username !== strtolower($username)) {
+            throw new InvalidArgumentException('Username must be all lowercase.');
         }
 
-        if ($role === 'student' && !str_contains($username, '.')) {
+        if (preg_match('/\p{N}/u', $username)) {
+            throw new InvalidArgumentException('Username cannot contain numbers.');
+        }
+
+        if (!preg_match('/^[a-z.]+$/', $username)) {
+            throw new InvalidArgumentException('Username can only use lowercase letters and a dot.');
+        }
+
+        if (!str_contains($username, '.')) {
             throw new InvalidArgumentException('Username must include a dot (.).');
+        }
+
+        if (!preg_match('/^[a-z]+(?:\.[a-z]+)+$/', $username) || strlen($username) > 50) {
+            throw new InvalidArgumentException('Use lowercase letters separated by a dot, such as firstname.lastname.');
         }
 
         return $username;
@@ -840,7 +882,7 @@ class UserRegistrationService
         }
 
         if ($scans->isRegistered($normalized)) {
-            throw new InvalidArgumentException('This UID is already registered.');
+            throw new InvalidArgumentException(RfidScanService::REGISTERED_UID_MESSAGE);
         }
 
         if ($scans->latestScan($normalized) === null) {
@@ -1030,47 +1072,46 @@ class UserRegistrationService
 
     private function normalizeSecurityQuestions(mixed $questions): array
     {
-        if (!is_array($questions) || count($questions) !== 3) {
-            throw new InvalidArgumentException('Three security questions are required.');
-        }
-
+        $questions = is_array($questions) ? array_values($questions) : [];
         $normalized = [];
         $seenQuestions = [];
+        $errors = [];
 
-        foreach (array_values($questions) as $index => $question) {
-            if (!is_array($question)) {
-                throw new InvalidArgumentException('Three security questions are required.');
-            }
-
-            $prompt = trim((string) ($question['question'] ?? ''));
-            $answer = preg_replace('/\s+/', ' ', trim((string) ($question['answer'] ?? '')));
+        for ($index = 0; $index < 3; $index++) {
+            $question = is_array($questions[$index] ?? null) ? $questions[$index] : [];
+            $slot = $index + 1;
+            $prompt = is_string($question['question'] ?? null) ? trim($question['question']) : '';
+            $answer = is_string($question['answer'] ?? null) ? preg_replace('/\s+/', ' ', trim($question['answer'])) : '';
 
             if (!in_array($prompt, self::SECURITY_QUESTIONS, true)) {
-                throw new InvalidArgumentException('Select a security question from the list.');
-            }
-
-            if (isset($seenQuestions[$prompt])) {
-                throw new InvalidArgumentException('Choose three different security questions.');
+                $errors["security_question_{$slot}"] = 'Select a security question from the list.';
+            } elseif (isset($seenQuestions[$prompt])) {
+                $errors["security_question_{$slot}"] = 'Choose three different security questions.';
             }
 
             if ($answer === null || strlen($answer) < 2) {
-                throw new InvalidArgumentException('Each security answer must be at least 2 characters.');
-            }
-
-            if (strlen($answer) > 100) {
-                throw new InvalidArgumentException('Each security answer must be 100 characters or fewer.');
+                $errors["security_answer_{$slot}"] = 'Each security answer must be at least 2 characters.';
+            } elseif (strlen($answer) > 100) {
+                $errors["security_answer_{$slot}"] = 'Answer is too long. Use a shorter answer.';
             }
 
             $seenQuestions[$prompt] = true;
             $normalized[] = [
-                'slot' => $index + 1,
+                'slot' => $slot,
                 'question' => $prompt,
-                'answer_hash' => password_hash(strtolower($answer), PASSWORD_DEFAULT),
                 'answer_text' => $answer,
             ];
         }
 
-        return $normalized;
+        if (count($questions) !== 3 && $errors === []) {
+            $errors['security_question_3'] = 'Three security questions are required.';
+        }
+        if ($errors !== []) throw new RegistrationValidationException($errors);
+
+        return array_map(fn(array $question): array => [
+            ...$question,
+            'answer_hash' => password_hash(strtolower($question['answer_text']), PASSWORD_DEFAULT),
+        ], $normalized);
     }
 
     private function insertSecurityQuestions(int $userId, array $questions): void

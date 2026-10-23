@@ -32,7 +32,7 @@ export const PRIVILEGE_META = {
     path: '/super-admin/schedules',
   },
   pending_overrides: {
-    label: 'Pending Overrides',
+    label: 'Override Requests',
     path: '/super-admin/pending-overrides',
   },
   access_logs: {
@@ -40,7 +40,7 @@ export const PRIVILEGE_META = {
     path: '/super-admin/access-logs',
   },
   activity_logs: {
-    label: 'Activity Logs',
+    label: 'Logs',
     path: '/super-admin/activity-logs',
   },
   reports: {
@@ -131,8 +131,16 @@ export function privilegeForPath(pathname) {
     return exact[0];
   }
 
+  if (path === '/super-admin/fingerprint-direct' || path === '/super-admin/sensor-memory') {
+    return 'fingerprint';
+  }
+
   if (path.startsWith('/super-admin/register-user')) {
     return 'manage_users';
+  }
+
+  if (path === '/super-admin/login-logs' || path === '/super-admin/system-logs') {
+    return 'activity_logs';
   }
 
   if (path === '/super-admin/profile') {

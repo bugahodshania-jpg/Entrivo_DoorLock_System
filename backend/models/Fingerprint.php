@@ -6,9 +6,9 @@ class Fingerprint
 {
     private PDO $conn;
 
-    public function __construct()
+    public function __construct(?PDO $pdo = null)
     {
-        $this->conn = entrivo_pdo();
+        $this->conn = $pdo ?? entrivo_pdo();
     }
 
     public function getById(int $fingerprintId): ?array

@@ -3,6 +3,8 @@
 date_default_timezone_set('Asia/Manila');
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://127.0.0.1:5173';
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
@@ -22,6 +24,9 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/ScheduleStatusService.php';
+require_once dirname(__DIR__) . '/services/OverrideRequestCancellationService.php';
+require_once dirname(__DIR__) . '/services/OverrideScheduleService.php';
 
 function portalNormalizeText($value): string
 {
@@ -246,7 +251,7 @@ function portalDashboard(PDO $pdo, int $userId): array
         "SELECT COUNT(*) AS total
          FROM schedules
          WHERE user_id = :user_id
-           AND status = 'approved'
+           AND status IN ('approved', 'overridden')
            AND schedule_date = CURDATE()"
     );
     $activeToday->execute(['user_id' => $userId]);
@@ -337,7 +342,7 @@ function portalDashboard(PDO $pdo, int $userId): array
             schedules.status
          FROM schedules
          WHERE schedules.user_id = :user_id
-           AND schedules.status = 'approved'
+           AND schedules.status IN ('approved', 'overridden')
            AND schedules.schedule_date = CURDATE()
          ORDER BY schedules.time_start ASC"
     );
@@ -417,7 +422,7 @@ function portalDashboard(PDO $pdo, int $userId): array
          FROM access_log
          WHERE access_log.user_id = :user_id
            AND DATE(access_log.access_timestamp) = CURDATE()
-         ORDER BY access_log.access_timestamp DESC
+         ORDER BY access_log.access_timestamp DESC, access_log.log_id DESC
          LIMIT 5"
     );
     $recentLogStatement->execute(['user_id' => $userId]);
@@ -476,7 +481,7 @@ function portalAccessLogs(PDO $pdo, int $userId): array
          FROM access_log
          LEFT JOIN schedules ON schedules.schedule_id = access_log.schedule_id
          WHERE access_log.user_id = :user_id
-         ORDER BY access_log.access_timestamp DESC
+         ORDER BY access_log.access_timestamp DESC, access_log.log_id DESC
          LIMIT 300"
     );
     $statement->execute(['user_id' => $userId]);
@@ -488,7 +493,7 @@ function portalAccessLogs(PDO $pdo, int $userId): array
 
             if ($row['schedule_id'] === null && $row['override_id'] !== null) {
                 $scheduleKind = 'override';
-            } elseif ($scheduleKind === '' && $scheduleStatus === 'overridden') {
+            } elseif ($scheduleStatus === 'overridden') {
                 $scheduleKind = 'override';
             } elseif ($scheduleKind === '' && $row['schedule_id'] !== null) {
                 $scheduleKind = 'regular';
@@ -535,7 +540,7 @@ function portalActivityDescriptionForOwner(
     $entity = strtolower(trim((string) $entityType));
 
     if (preg_match('/^Approved override request #(\d+)\s+for\b.+/i', $text, $matches)) {
-        return 'Your override request #' . $matches[1] . ' was approved and marked as overridden.';
+        return 'Your override request #' . $matches[1] . ' was approved.';
     }
 
     if (preg_match('/^Rejected override request #(\d+)\s+for\b.+/i', $text, $matches)) {
@@ -642,6 +647,11 @@ function portalActivityLogs(PDO $pdo, int $userId): array
     $activityLog = new ActivityLogService($pdo);
     $activityLog->ensureTable();
     $activityLog->syncFingerprintEnrollmentActivities();
+    $activityLog->correctUnfinishedSyncStatuses();
+    require_once dirname(__DIR__) . '/services/FingerprintSyncService.php';
+    require_once dirname(__DIR__) . '/models/FingerprintSyncQueue.php';
+    require_once dirname(__DIR__) . '/models/Fingerprint.php';
+    (new FingerprintSyncService())->expireIdleSyncJobs();
 
     $loginStatement = $pdo->prepare(
         "SELECT
@@ -712,7 +722,7 @@ function portalActivityLogs(PDO $pdo, int $userId): array
     $transactionLogs = array_map(
         static function ($row) use ($userId) {
             [$device, $deviceDetail] = portalActivityDevice($row['user_agent'] ?? null);
-            $status = strcasecmp((string) $row['status'], 'Failed') === 0 ? 'Failed' : 'Success';
+            $status = ActivityLogService::normalizeStatus((string) $row['status']);
             $actorUserId = $row['actor_user_id'] !== null ? (int) $row['actor_user_id'] : null;
             $activityType = (string) ($row['activity_type'] ?? '');
             $entityType = $row['entity_type'] ?? null;
@@ -892,10 +902,13 @@ function portalOverrides(PDO $pdo, int $userId): array
 
 function portalSchedules(PDO $pdo, int $userId): array
 {
+    $hasScheduleKind = (bool) $pdo->query("SHOW COLUMNS FROM schedules LIKE 'schedule_kind'")->fetch();
+    $kindSelect = $hasScheduleKind ? "COALESCE(schedule_kind, 'regular')" : "'regular'";
     $statement = $pdo->prepare(
         "SELECT
             schedule_id,
             schedule_type,
+            {$kindSelect} AS schedule_kind,
             schedule_date,
             start_date,
             end_date,
@@ -905,11 +918,15 @@ function portalSchedules(PDO $pdo, int $userId): array
             repeat_days,
             repeat_day,
             status,
+            overridden_by_schedule_id,
             grace_period_minutes,
+            created_at,
             DATE_FORMAT(COALESCE(schedule_date, start_date), '%Y-%m-%d') AS date_value,
             DATE_FORMAT(COALESCE(schedule_date, start_date), '%b %e, %Y') AS date_label,
             TIME_FORMAT(time_start, '%h:%i %p') AS time_start_label,
-            TIME_FORMAT(time_end, '%h:%i %p') AS time_end_label
+            TIME_FORMAT(time_end, '%h:%i %p') AS time_end_label,
+            DATE_FORMAT(created_at, '%b %e, %Y') AS created_date_label,
+            DATE_FORMAT(created_at, '%h:%i %p') AS created_time_label
          FROM schedules
          WHERE user_id = :user_id
          ORDER BY COALESCE(schedule_date, start_date) DESC, time_start ASC
@@ -927,9 +944,10 @@ function portalSchedules(PDO $pdo, int $userId): array
                 $repeatDays = [];
             }
 
-            return [
+            return ScheduleStatusService::normalizeSchedule([
                 'id' => (int) $row['schedule_id'],
                 'scheduleType' => $row['schedule_type'],
+                'scheduleKind' => $row['schedule_kind'],
                 'scheduleDate' => $row['schedule_date'],
                 'startDate' => $row['start_date'],
                 'endDate' => $row['end_date'],
@@ -937,13 +955,19 @@ function portalSchedules(PDO $pdo, int $userId): array
                 'dateLabel' => $row['date_label'],
                 'timeStart' => $row['time_start'],
                 'timeEnd' => $row['time_end'],
+                'timeStartLabel' => $row['time_start_label'],
+                'timeEndLabel' => $row['time_end_label'],
                 'time' => $row['time_start_label'] . ' - ' . $row['time_end_label'],
+                'createdAtValue' => $row['created_at'],
+                'createdDateLabel' => $row['created_date_label'],
+                'createdTimeLabel' => $row['created_time_label'],
                 'repeatType' => $row['repeat_type'],
                 'repeatDays' => $repeatDays,
                 'repeatDay' => $row['repeat_day'],
                 'status' => $row['status'],
+                'overriddenByScheduleId' => $row['overridden_by_schedule_id'] ?? null,
                 'gracePeriodMinutes' => (int) ($row['grace_period_minutes'] ?? 15),
-            ];
+            ]);
         },
         $statement->fetchAll(PDO::FETCH_ASSOC)
     );
@@ -951,15 +975,19 @@ function portalSchedules(PDO $pdo, int $userId): array
 
 function portalCalendarSchedules(PDO $pdo, int $viewerUserId): array
 {
+    $hasScheduleKind = (bool) $pdo->query("SHOW COLUMNS FROM schedules LIKE 'schedule_kind'")->fetch();
+    $kindSelect = $hasScheduleKind ? "COALESCE(s.schedule_kind, 'regular')" : "'regular'";
     $statement = $pdo->prepare(
         "SELECT
             s.schedule_id,
             s.user_id,
             s.schedule_type,
+            {$kindSelect} AS schedule_kind,
             s.schedule_date,
             s.time_start,
             s.time_end,
             s.status,
+            s.overridden_by_schedule_id,
             s.grace_period_minutes,
             DATE_FORMAT(COALESCE(s.schedule_date, s.start_date), '%Y-%m-%d') AS date_value,
             DATE_FORMAT(COALESCE(s.schedule_date, s.start_date), '%b %e, %Y') AS date_label,
@@ -997,13 +1025,14 @@ function portalCalendarSchedules(PDO $pdo, int $viewerUserId): array
         static function ($row) use ($viewerUserId) {
             $ownerUserId = (int) $row['user_id'];
 
-            return [
+            return ScheduleStatusService::normalizeSchedule([
                 'id' => (int) $row['schedule_id'],
                 'userId' => $ownerUserId,
                 'isMine' => $ownerUserId === $viewerUserId,
                 'ownerName' => $row['owner_name'],
                 'ownerIdentifier' => $row['owner_identifier'],
                 'scheduleType' => $row['schedule_type'],
+                'scheduleKind' => $row['schedule_kind'],
                 'scheduleDate' => $row['schedule_date'],
                 'dateValue' => $row['date_value'],
                 'dateLabel' => $row['date_label'],
@@ -1011,8 +1040,9 @@ function portalCalendarSchedules(PDO $pdo, int $viewerUserId): array
                 'timeEnd' => $row['time_end'],
                 'time' => $row['time_start_label'] . ' - ' . $row['time_end_label'],
                 'status' => $row['status'],
+                'overriddenByScheduleId' => $row['overridden_by_schedule_id'] ?? null,
                 'gracePeriodMinutes' => (int) ($row['grace_period_minutes'] ?? 15),
-            ];
+            ]);
         },
         $statement->fetchAll(PDO::FETCH_ASSOC)
     );
@@ -1020,6 +1050,7 @@ function portalCalendarSchedules(PDO $pdo, int $viewerUserId): array
 
 try {
     $pdo = entrivo_pdo();
+    (new OverrideScheduleService($pdo))->ensureStampColumn();
     $input = [];
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -1485,7 +1516,8 @@ try {
              SET reason = :reason,
                  override_start = :override_start,
                  override_end = :override_end
-             WHERE override_id = :override_id AND user_id = :user_id'
+             WHERE override_id = :override_id AND user_id = :user_id
+               AND approved_by IS NULL'
         );
         $update->execute([
             'reason' => $reason,
@@ -1494,6 +1526,19 @@ try {
             'override_id' => $overrideId,
             'user_id' => $userId,
         ]);
+
+        if ($update->rowCount() === 0) {
+            // An approval may have committed while this edit waited for its lock.
+            // MySQL also returns zero for unchanged pending values, which are valid.
+            $existing->execute(['override_id' => $overrideId, 'user_id' => $userId]);
+            $current = $existing->fetch(PDO::FETCH_ASSOC);
+            if (!$current) {
+                throw new InvalidArgumentException('Override request not found.');
+            }
+            if ($current['approved_by'] !== null) {
+                throw new InvalidArgumentException('Only pending override requests can be edited.');
+            }
+        }
 
         (new ActivityLogService($pdo))->record(
             $userId,
@@ -1519,37 +1564,7 @@ try {
             throw new InvalidArgumentException('A valid override id is required.');
         }
 
-        $existing = $pdo->prepare(
-            'SELECT override_id, approved_by, override_start, override_end
-             FROM access_overrides
-             WHERE override_id = :override_id AND user_id = :user_id
-             LIMIT 1'
-        );
-        $existing->execute([
-            'override_id' => $overrideId,
-            'user_id' => $userId,
-        ]);
-        $row = $existing->fetch(PDO::FETCH_ASSOC);
-
-        if (!$row) {
-            throw new InvalidArgumentException('Override request not found.');
-        }
-
-        $now = new DateTimeImmutable('now');
-        $end = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string) $row['override_end']);
-
-        if ($row['approved_by'] !== null && $end && $now > $end) {
-            throw new InvalidArgumentException('Completed override requests cannot be cancelled.');
-        }
-
-        $delete = $pdo->prepare(
-            'DELETE FROM access_overrides
-             WHERE override_id = :override_id AND user_id = :user_id'
-        );
-        $delete->execute([
-            'override_id' => $overrideId,
-            'user_id' => $userId,
-        ]);
+        (new OverrideRequestCancellationService($pdo))->cancel((int) $overrideId, $userId);
 
         (new ActivityLogService($pdo))->record(
             $userId,

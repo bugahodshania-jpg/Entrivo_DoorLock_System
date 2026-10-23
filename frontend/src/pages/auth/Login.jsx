@@ -370,7 +370,9 @@ export default function Login() {
   };
 
   return (
-    <main className={`auth-page auth-page-split auth-page-login${menuOpen ? ' is-menu-open' : ''}`}>
+    <main
+      className={`auth-page auth-page-split auth-page-login${menuOpen ? ' is-menu-open' : ''}`}
+    >
       <header className="home-header">
         <div className="home-header-inner">
           <a className="home-brand" href="/" aria-label="Entrivo home">

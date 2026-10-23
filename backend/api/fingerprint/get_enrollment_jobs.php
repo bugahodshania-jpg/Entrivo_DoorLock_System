@@ -3,6 +3,7 @@
 require_once dirname(__DIR__, 2) . '/config/connection.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? $allowedOrigins[0];
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
@@ -26,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 $query = [
     'limit' => filter_input(INPUT_GET, 'limit', FILTER_VALIDATE_INT) ?: 12,
     'job_id' => filter_input(INPUT_GET, 'job_id', FILTER_VALIDATE_INT) ?: null,
+    'events' => filter_input(INPUT_GET, 'events', FILTER_VALIDATE_INT) ?: 0,
 ];
 
 require_once dirname(__DIR__, 2) . '/controllers/FingerprintEnrollmentController.php';

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
+import TableEmptyState from '../../components/TableEmptyState';
 import { portalHref } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 
@@ -325,7 +326,7 @@ export default function SuperAdminDashboard() {
               <div className="dashboard-panel-header">
                 <div>
                   <h2>Override Requests</h2>
-                  <p>Overridden schedules for this week only. Resets every Monday.</p>
+                  <p>Approved override schedules for this week only. Resets every Monday.</p>
                 </div>
               </div>
 
@@ -348,11 +349,11 @@ export default function SuperAdminDashboard() {
                     </div>
                   ))
                 ) : (
-                  <p>No overridden schedules right now.</p>
+                  <p>No approved override schedules right now.</p>
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules?tab=all&status=overridden')}>
+              <a className="dashboard-schedule-button" href={portalHref('/super-admin/schedules?tab=all&kind=override&status=approved')}>
                 View All Overrides
               </a>
             </aside>
@@ -406,7 +407,9 @@ export default function SuperAdminDashboard() {
                   ) : (
                     <tr>
                       <td className="dashboard-recent-empty" colSpan="6">
-                        No recent access logs.
+                        <TableEmptyState description="Recorded access attempts will appear here.">
+                          No recent access logs.
+                        </TableEmptyState>
                       </td>
                     </tr>
                   )}

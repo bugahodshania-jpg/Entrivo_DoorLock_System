@@ -3,6 +3,8 @@
 date_default_timezone_set('Asia/Manila');
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 $allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://127.0.0.1:5173';
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
@@ -49,6 +51,9 @@ $todayCounts = $pdo->query(
     $accessTypeColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch()
         ? 'access_log.access_type'
         : "'IN'";
+    $rfidUidColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'rfid_uid'")->fetch()
+        ? "CASE WHEN access_log.method_access = 'RFID' THEN NULLIF(access_log.rfid_uid, '') ELSE NULL END"
+        : 'NULL';
 
     $statement = $pdo->prepare(
         "SELECT
@@ -82,6 +87,7 @@ $todayCounts = $pdo->query(
             TIME_FORMAT(schedules.time_start, '%h:%i %p') AS schedule_time_start,
             TIME_FORMAT(schedules.time_end, '%h:%i %p') AS schedule_time_end,
             access_log.method_access,
+            {$rfidUidColumn} AS rfid_uid,
             {$accessTypeColumn} AS access_type,
             access_log.access_status
          FROM access_log
@@ -91,7 +97,7 @@ $todayCounts = $pdo->query(
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
-         ORDER BY access_log.access_timestamp DESC
+         ORDER BY access_log.access_timestamp DESC, access_log.log_id DESC
          LIMIT :limit OFFSET :offset"
     );
     $statement->bindValue(':limit', (int) $limit, PDO::PARAM_INT);
@@ -126,6 +132,7 @@ $todayCounts = $pdo->query(
             'scheduleId' => $log['schedule_id'] !== null ? (int) $log['schedule_id'] : null,
             'scheduleWindow' => $scheduleWindow,
             'method' => $log['method_access'],
+            'rfidUid' => $log['rfid_uid'],
             'accessType' => $log['access_type'],
             'status' => $log['access_status'],
             ];

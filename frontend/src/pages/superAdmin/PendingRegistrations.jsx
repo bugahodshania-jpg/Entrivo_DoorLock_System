@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Clock, Expand, Eye, MoreVertical, Search, Trash2, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import DeleteRequestModal from '../../components/DeleteRequestModal';
+import DeleteRequestToast from '../../components/DeleteRequestToast';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
+import TableEmptyState from '../../components/TableEmptyState';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 
-export default function PendingRegistrations() {
+export default function PendingRegistrations({ user }) {
   const confirmAction = useActionConfirm();
   const [registrations, setRegistrations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -18,9 +22,10 @@ export default function PendingRegistrations() {
   const [approvingId, setApprovingId] = useState(null);
   const [menuState, setMenuState] = useState(null);
   const [review, setReview] = useState(null);
-  const [reviewError, setReviewError] = useState('');
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
+  const [deleteRequest, setDeleteRequest] = useState(null);
+  const [deleteNotice, setDeleteNotice] = useState('');
   const columns = ['User', 'School ID', 'Program', 'Year / Section', 'RFID UID', 'Submitted', 'Follow up by', 'Action'];
 
   useEffect(() => {
@@ -144,6 +149,49 @@ export default function PendingRegistrations() {
     }
   }
 
+  async function deleteRegistration(registration) {
+    setMenuState(null);
+
+    if (user?.role === 'admin') {
+      setDeleteRequest({
+        targetType: 'pending_registration',
+        targetId: registration.id,
+        targetLabel: `${registration.name} · ${registration.schoolId || 'Pending registration'}`,
+        detail: registration.email || 'Pending student registration',
+      });
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Delete registration',
+      danger: true,
+      message: `Permanently delete the pending registration for ${registration.name}? This cannot be undone.`,
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await axiosClient.post('/api/delete_requests.php', {
+        action: 'delete_now',
+        actorId: user?.id,
+        targetType: 'pending_registration',
+        targetId: registration.id,
+      });
+      setRegistrations((current) => current.filter((item) => item.id !== registration.id));
+      if (review?.id === registration.id) {
+        setReview(null);
+      }
+      const toastId = Date.now();
+      setToast({ id: toastId, message: 'Pending registration deleted.' });
+      window.setTimeout(() => {
+        setToast((current) => (current?.id === toastId ? null : current));
+      }, 5000);
+    } catch (error) {
+      setErrorMessage(error.response?.data?.message || 'Unable to delete that registration.');
+    }
+  }
+
   function toggleMenu(event, registration) {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -154,7 +202,7 @@ export default function PendingRegistrations() {
     }
 
     const width = 188;
-    const height = 156;
+    const height = 196;
     const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8);
     const top = rect.bottom + 6 + height < window.innerHeight
       ? rect.bottom + 6
@@ -171,7 +219,6 @@ export default function PendingRegistrations() {
   async function openReview(registration) {
     setMenuState(null);
     setReview(registration);
-    setReviewError('');
     setIsReviewLoading(true);
 
     try {
@@ -180,7 +227,10 @@ export default function PendingRegistrations() {
       });
       setReview(response.data.registration || registration);
     } catch (error) {
-      setReviewError(error.response?.data?.message || 'Unable to load this registration right now.');
+      setReview(null);
+      setErrorMessage(
+        error.response?.data?.message || 'Unable to load this registration right now.',
+      );
     } finally {
       setIsReviewLoading(false);
     }
@@ -293,8 +343,6 @@ export default function PendingRegistrations() {
           </label>
         </div>
 
-        {errorMessage && !isLoading ? <p className="pending-registration-error" role="alert">{errorMessage}</p> : null}
-
         <div className="dashboard-recent-table-wrap pending-registrations-table-wrap">
           <table className="dashboard-recent-table pending-registrations-table">
             <thead>
@@ -313,12 +361,14 @@ export default function PendingRegistrations() {
                 </tr>
               )}
 
-              {!isLoading && !errorMessage && visibleRegistrations.length === 0 && (
+              {!isLoading && visibleRegistrations.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {normalizedSearchQuery
-                      ? 'No pending registrations match your search.'
-                      : 'No student registrations are waiting for approval.'}
+                    <TableEmptyState description={normalizedSearchQuery ? 'Try searching for another name or school ID.' : 'New student registrations will appear here for review.'}>
+                      {normalizedSearchQuery
+                        ? 'No pending registrations match your search.'
+                        : 'No student registrations are waiting for approval.'}
+                    </TableEmptyState>
                   </td>
                 </tr>
               )}
@@ -358,7 +408,7 @@ export default function PendingRegistrations() {
           </table>
         </div>
 
-        {!isLoading && !errorMessage && visibleRegistrations.length > 0 && (
+        {!isLoading && visibleRegistrations.length > 0 && (
           <div className="manage-users-pagination" aria-label="Pending registrations pagination">
             <p>
               Showing {(currentPage - 1) * rowsPerPage + 1}-
@@ -387,6 +437,20 @@ export default function PendingRegistrations() {
         )}
       </section>
     </main>
+    <DeleteRequestModal
+      open={Boolean(deleteRequest)}
+      actorId={user?.id}
+      targetType={deleteRequest?.targetType}
+      targetId={deleteRequest?.targetId}
+      targetLabel={deleteRequest?.targetLabel || ''}
+      detail={deleteRequest?.detail || ''}
+      onClose={() => setDeleteRequest(null)}
+      onSubmitted={(message) => {
+        setDeleteNotice(message);
+        window.setTimeout(() => setDeleteNotice(''), 4000);
+      }}
+    />
+    <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
     {menuState
       ? createPortal(
           <div
@@ -413,6 +477,15 @@ export default function PendingRegistrations() {
               <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" />
               Reject
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="is-danger"
+              onClick={() => deleteRegistration(menuState.registration)}
+            >
+              <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" />
+              Delete
+            </button>
           </div>,
           document.body,
         )
@@ -437,8 +510,7 @@ export default function PendingRegistrations() {
                 </button>
               </header>
               {isReviewLoading ? <p className="pending-registration-review-note">Loading registration...</p> : null}
-              {reviewError ? <p className="pending-registration-error" role="alert">{reviewError}</p> : null}
-              {!isReviewLoading && !reviewError ? (
+              {!isReviewLoading ? (
                 <div className="pending-registration-review-body">
                   <div className="pending-registration-review-identity">
                     <div className="pending-registration-review-photo">
@@ -543,6 +615,11 @@ export default function PendingRegistrations() {
           document.body,
         )
       : null}
+    <ErrorNoticeModal
+      open={Boolean(errorMessage)}
+      message={errorMessage}
+      onClose={() => setErrorMessage('')}
+    />
     </>
   );
 }

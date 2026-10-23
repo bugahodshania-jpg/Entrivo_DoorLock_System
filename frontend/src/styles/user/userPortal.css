@@ -307,6 +307,15 @@
   align-items: start;
 }
 
+.user-override-request-container {
+  display: contents;
+}
+
+.user-override-mobile-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .user-override-form-card {
   max-width: 340px;
   padding-left: 20px;
@@ -399,6 +408,14 @@
 .user-override-history-card .schedules-table-filters.user-override-toolbar {
   margin-left: 0;
   margin-right: 0;
+}
+
+.user-override-table-wrap {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .user-override-history-card .dashboard-recent-table.user-override-table {
@@ -566,6 +583,41 @@
   width: 100%;
 }
 
+@media (max-width: 900px) {
+  .user-override-history-card .dashboard-recent-table.user-override-table {
+    min-width: 760px;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th {
+    white-space: nowrap;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(1),
+  .user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(1) {
+    width: 30%;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(2),
+  .user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(2) {
+    width: 25%;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(3),
+  .user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(3) {
+    width: 19%;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(4),
+  .user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(4) {
+    width: 16%;
+  }
+
+  .user-override-history-card .dashboard-recent-table.user-override-table th:nth-child(5),
+  .user-override-history-card .dashboard-recent-table.user-override-table td:nth-child(5) {
+    width: 10%;
+  }
+}
+
 .user-form-full {
   grid-column: 1 / -1;
 }
@@ -597,6 +649,61 @@
   margin-left: auto;
 }
 
+.my-schedule-page .schedules-table > thead > tr > th {
+  background: #f7f9f8;
+  border-bottom: 1px solid #e6ece9;
+  color: #62736a;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  padding: 12px 10px;
+  text-transform: none;
+}
+
+.my-schedule-page .schedules-table > tbody > tr > td {
+  border-bottom: 1px solid #eaf0ec;
+  color: #344b3e;
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+.my-schedule-page .schedules-table > tbody > tr > td strong {
+  color: #293d32;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.my-schedule-page .schedules-table .schedules-window-cell > span,
+.my-schedule-page .schedules-table td:nth-child(2) > span {
+  color: #8a978e;
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  margin-top: 3px;
+}
+
+.my-schedule-page .schedules-table .dashboard-log-status {
+  border: 1px solid #e2e8e4;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 3px 7px;
+  text-transform: none;
+}
+
+.my-schedule-page .schedules-pagination {
+  border-top: 0;
+  margin-top: 0;
+}
+
+.my-schedule-page .dashboard-schedule-button {
+  margin-top: 0;
+}
+
 @media (max-width: 980px) {
   .user-schedule-filters .user-schedule-dates {
     margin-left: 0;
@@ -608,6 +715,104 @@
   justify-content: center;
   padding: 0;
   width: 34px;
+}
+
+.my-schedule-calendar-label-short {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .user-override-page .user-override-page-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-override-request-overlay.schedules-modal-overlay {
+    padding: 12px;
+  }
+
+  .user-override-request-modal.user-override-form-card {
+    max-height: calc(100dvh - 24px);
+    max-width: 420px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding: 18px;
+  }
+
+  .user-override-request-modal .dashboard-panel-header {
+    display: block;
+    padding-right: 44px;
+    position: relative;
+  }
+
+  .user-override-request-modal .dashboard-panel-header > div {
+    min-width: 0;
+  }
+
+  .user-override-request-modal .schedules-modal-close {
+    position: absolute;
+    right: 0;
+    top: 0;
+  }
+
+  .user-override-form-card .dashboard-panel-header h2,
+  .user-override-history-card .dashboard-panel-header h2 {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .user-override-form-card .dashboard-panel-header .user-override-form-icon {
+    display: none;
+  }
+
+  .my-schedule-page .schedules-calendar-export-row {
+    align-items: center;
+    gap: 6px;
+  }
+
+  .my-schedule-page .schedules-calendar-export {
+    flex: 0 0 auto;
+    font-size: 12px;
+    gap: 5px;
+    height: 34px;
+    line-height: 1;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
+
+  .my-schedule-page .schedules-calendar-export svg {
+    flex: 0 0 auto;
+  }
+
+  .my-schedule-page .schedules-calendar-minimize {
+    padding: 0;
+    width: 34px;
+  }
+
+  .my-schedule-page .schedules-calendar-header {
+    gap: 8px;
+  }
+
+  .my-schedule-page .schedules-calendar-header span {
+    flex: 1 1 auto;
+    font-size: clamp(14px, 4vw, 18px);
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .my-schedule-page .schedules-calendar-nav {
+    flex: 0 0 26px;
+  }
+}
+
+@media (max-width: 360px) {
+  .my-schedule-page .my-schedule-calendar-label-full {
+    display: none;
+  }
+
+  .my-schedule-page .my-schedule-calendar-label-short {
+    display: inline;
+  }
 }
 
 .user-schedule-override-link {
@@ -694,7 +899,9 @@
 .user-portal-page.activity-logs-page .user-activity-logs-table-wrap {
   margin-top: 0;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -805,6 +1012,56 @@
   width: 100%;
 }
 
+@media (max-width: 900px) {
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table {
+    min-width: 960px;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(1),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(1) {
+    width: 14%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(2),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(2) {
+    width: 12%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(3),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(3) {
+    width: 10%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(4),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(4) {
+    width: 26%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(5),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(5) {
+    width: 10%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(6),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(6) {
+    width: 20%;
+  }
+
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table th:nth-child(7),
+  .user-portal-page.activity-logs-page .dashboard-recent-table.user-activity-logs-table td:nth-child(7) {
+    width: 8%;
+  }
+
+  .user-portal-page.activity-logs-page .user-activity-logs-description {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+
 /* Status badges */
 .user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-success {
   background: #e7f6ed;
@@ -814,6 +1071,16 @@
 .user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-failed {
   background: #fbeaea;
   color: #b93636;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-pending {
+  background: #fbf3e6;
+  color: #8a5a12;
+}
+
+.user-portal-page.activity-logs-page .dashboard-log-status.activity-logs-status-cancelled {
+  background: #eef2f0;
+  color: #5f6f68;
 }
 
 /* Activity category color coding */
@@ -848,6 +1115,105 @@
 }
 
 .activity-logs-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.user-security-question-select {
+  min-width: 0;
+  position: relative;
+  width: 100%;
+}
+
+.user-security-question-trigger {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d7e2dc;
+  border-radius: 4px;
+  color: #243d34;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 6px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.user-security-question-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-security-question-trigger > svg {
+  flex: 0 0 auto;
+}
+
+.user-security-question-trigger:focus-visible {
+  border-color: #0c4b2d;
+  outline: 2px solid rgba(12, 75, 45, 0.2);
+  outline-offset: 1px;
+}
+
+.user-security-question-menu {
+  background: #ffffff;
+  border: 1px solid #d7e2dc;
+  border-radius: 4px;
+  box-shadow: 0 8px 20px rgba(16, 37, 29, 0.14);
+  left: 0;
+  max-height: 176px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+}
+
+.user-security-question-option {
+  align-items: start;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: #243d34;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  font-size: 12px;
+  gap: 6px;
+  grid-template-columns: 13px minmax(0, 1fr);
+  line-height: 1.35;
+  padding: 6px;
+  text-align: left;
+  width: 100%;
+}
+
+.user-security-question-option > svg {
+  margin-top: 1px;
+  visibility: hidden;
+}
+
+.user-security-question-option[aria-selected='true'] {
+  color: #0c4b2d;
+  font-weight: 700;
+}
+
+.user-security-question-option[aria-selected='true'] > svg {
+  visibility: visible;
+}
+
+.user-security-question-option.is-focused:not(:disabled) {
+  background: #e8f5ed;
+}
+
+.user-security-question-trigger:disabled,
+.user-security-question-option:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -922,6 +1288,56 @@ button.user-table-link:hover {
 
 .user-portal-page .schedules-calendar-event.is-other strong {
   color: #5c6772;
+}
+
+/* Match My Schedule / super admin table chrome on every user portal table. */
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table > thead > tr > th {
+  background: #f7f9f8;
+  border-top: 0;
+  border-bottom: 1px solid #e6ece9;
+  color: #62736a;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table > tbody > tr > td {
+  border-bottom: 1px solid #eaf0ec;
+  color: #344b3e;
+  font-size: 12px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table > tbody > tr > td strong {
+  color: #293d32;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table .schedules-window-cell > span,
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table > tbody > tr > td > strong + span:not([class]) {
+  color: #8a978e;
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page .dashboard-recent-table :is(.dashboard-log-status, .reports-pill) {
+  border: 1px solid #e2e8e4;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.5;
+  min-width: 0;
+  padding: 3px 7px;
+  text-transform: none;
+}
+
+.user-portal-layout .super-admin-content .super-admin-page.user-portal-page :is(.schedules-pagination, .activity-logs-pagination) {
+  border-top: 0;
 }
 
 @media (max-width: 1100px) {

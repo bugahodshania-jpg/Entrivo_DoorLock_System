@@ -12,6 +12,7 @@ import {
 import axiosClient from '../../api/axiosClient';
 import RowActionMenu from '../../components/RowActionMenu';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import PortalToast from '../../components/PortalToast';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import '../../styles/superAdmin/dashboard.css';
@@ -36,6 +37,8 @@ const emptyEditForm = {
   timeEnd: '17:00',
   reason: '',
 };
+
+const SMALL_SCREEN_QUERY = '(max-width: 640px)';
 
 function getInitialOverrideForm() {
   const params = new URLSearchParams(window.location.search);
@@ -124,6 +127,12 @@ function getOverrideRequestedParts(override) {
 export default function RequestOverride({ user }) {
   const confirmAction = useActionConfirm();
   const statusFilterMenuRef = useRef(null);
+  const requestButtonRef = useRef(null);
+  const requestDialogRef = useRef(null);
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    () => window.matchMedia(SMALL_SCREEN_QUERY).matches,
+  );
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [form, setForm] = useState(getInitialOverrideForm);
   const [overrides, setOverrides] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -142,6 +151,45 @@ export default function RequestOverride({ user }) {
   const [cancelOverride, setCancelOverride] = useState(null);
   const [isCancelSubmitting, setIsCancelSubmitting] = useState(false);
   const rowsPerPage = 7;
+
+  useEffect(() => {
+    const media = window.matchMedia(SMALL_SCREEN_QUERY);
+
+    function handleChange() {
+      setIsSmallScreen(media.matches);
+      if (!media.matches) {
+        setIsRequestModalOpen(false);
+      }
+    }
+
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isSmallScreen || !isRequestModalOpen) {
+      return undefined;
+    }
+
+    const scrollContainer = requestDialogRef.current?.closest('.super-admin-content');
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousContainerOverflow = scrollContainer?.style.overflowY;
+    const trigger = requestButtonRef.current;
+
+    document.body.style.overflow = 'hidden';
+    if (scrollContainer) {
+      scrollContainer.style.overflowY = 'hidden';
+    }
+    requestDialogRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      if (scrollContainer) {
+        scrollContainer.style.overflowY = previousContainerOverflow;
+      }
+      trigger?.focus({ preventScroll: true });
+    };
+  }, [isRequestModalOpen, isSmallScreen]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -313,6 +361,46 @@ export default function RequestOverride({ user }) {
     setCancelOverride(override);
   }
 
+  function closeRequestModal() {
+    if (!isSubmitting) {
+      setIsRequestModalOpen(false);
+      setFormError('');
+    }
+  }
+
+  function handleRequestDialogKeyDown(event) {
+    // Confirmation and error dialogs must receive keyboard input above this form.
+    if (document.querySelector('.action-confirm-backdrop')) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeRequestModal();
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const dialog = requestDialogRef.current;
+    const controls = dialog.querySelectorAll(
+      'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+    );
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -371,6 +459,7 @@ export default function RequestOverride({ user }) {
       }));
       setStatusFilter('all');
       setCurrentPage(1);
+      setIsRequestModalOpen(false);
     } catch (error) {
       setErrorMessage(error?.response?.data?.message || 'Unable to submit override request.');
     } finally {
@@ -494,13 +583,29 @@ export default function RequestOverride({ user }) {
           onClose={() => setToast(null)}
         />
       ) : null}
-      {errorMessage ? <p className="user-portal-error">{errorMessage}</p> : null}
-
+      {isSmallScreen ? (
+        <div className="user-override-mobile-actions">
+          <button
+            ref={requestButtonRef}
+            type="button"
+            className="schedules-primary-button"
+            aria-haspopup="dialog"
+            aria-controls="override-request-form"
+            aria-expanded={isRequestModalOpen}
+            onClick={() => {
+              setIsStatusFilterMenuOpen(false);
+              setIsRequestModalOpen(true);
+            }}
+          >
+            Request Override
+          </button>
+        </div>
+      ) : null}
       <div className="user-override-page-layout">
         <section className="dashboard-recent-card schedules-card user-override-history-card">
           <div className="dashboard-panel-header">
             <div>
-              <h2>Your override requests</h2>
+              <h2>My Override Requests</h2>
               <p>Track pending, active, and completed requests.</p>
             </div>
           </div>
@@ -571,7 +676,12 @@ export default function RequestOverride({ user }) {
             </div>
           </div>
 
-          <div className="dashboard-recent-table-wrap">
+          <div
+            className="dashboard-recent-table-wrap user-override-table-wrap"
+            role="region"
+            aria-label="Override request history"
+            tabIndex={0}
+          >
             {isLoading || pageRows.length ? (
               <table className="dashboard-recent-table user-override-table">
                 <thead>
@@ -698,92 +808,136 @@ export default function RequestOverride({ user }) {
           ) : null}
         </section>
 
-        <section className="dashboard-recent-card schedules-card user-override-form-card">
-          <div className="dashboard-panel-header">
-            <div>
-              <h2>Request Override</h2>
-              <p>Request a single-day access window outside your normal schedule.</p>
-            </div>
-            <span className="user-override-form-icon" aria-hidden="true">
-              <ShieldAlert size={18} />
-            </span>
+        {!isSmallScreen || isRequestModalOpen ? (
+          <div
+            className={isSmallScreen
+              ? 'schedules-modal-overlay user-override-request-overlay'
+              : 'user-override-request-container'}
+            onClick={(event) => {
+              if (isSmallScreen && event.target === event.currentTarget) {
+                closeRequestModal();
+              }
+            }}
+          >
+            <section
+              ref={requestDialogRef}
+              id="override-request-form"
+              className={`dashboard-recent-card schedules-card user-override-form-card${
+                isSmallScreen ? ' schedules-modal user-override-request-modal' : ''
+              }`}
+              role={isSmallScreen ? 'dialog' : undefined}
+              aria-modal={isSmallScreen ? true : undefined}
+              aria-labelledby="override-request-title"
+              tabIndex={isSmallScreen ? -1 : undefined}
+              onKeyDown={isSmallScreen ? handleRequestDialogKeyDown : undefined}
+            >
+              <div className="dashboard-panel-header">
+                <div>
+                  <h2 id="override-request-title">Request Override</h2>
+                  <p>Request a single-day access window outside your normal schedule.</p>
+                </div>
+                {isSmallScreen ? (
+                  <button
+                    type="button"
+                    className="schedules-modal-close"
+                    aria-label="Close request override form"
+                    disabled={isSubmitting}
+                    onClick={closeRequestModal}
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="user-override-form-icon" aria-hidden="true">
+                    <ShieldAlert size={18} />
+                  </span>
+                )}
+              </div>
+
+              <form className="user-override-form" onSubmit={handleSubmit}>
+                <div className="schedules-form-grid">
+                  <div className="schedules-form-row">
+                    <div className="schedules-field">
+                      <label htmlFor="override-page-type">Schedule Type</label>
+                      <input
+                        id="override-page-type"
+                        type="text"
+                        value="Single"
+                        readOnly
+                        disabled
+                      />
+                    </div>
+                    <div className="schedules-field">
+                      <label htmlFor="override-page-date">Schedule Date</label>
+                      <input
+                        id="override-page-date"
+                        type="date"
+                        value={form.scheduleDate}
+                        onChange={(event) => updateField('scheduleDate', event.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="schedules-form-row">
+                    <div className="schedules-field">
+                      <label htmlFor="override-page-time-start">Time Start</label>
+                      <input
+                        id="override-page-time-start"
+                        type="time"
+                        value={form.timeStart}
+                        onChange={(event) => updateField('timeStart', event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="schedules-field">
+                      <label htmlFor="override-page-time-end">Time End</label>
+                      <input
+                        id="override-page-time-end"
+                        type="time"
+                        value={form.timeEnd}
+                        onChange={(event) => updateField('timeEnd', event.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="schedules-field">
+                    <label htmlFor="override-page-reason">Reason</label>
+                    <textarea
+                      id="override-page-reason"
+                      rows={4}
+                      value={form.reason}
+                      onChange={(event) => updateField('reason', event.target.value)}
+                      placeholder="Explain why you need temporary access..."
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="schedules-form-actions">
+                  {isSmallScreen ? (
+                    <button
+                      type="button"
+                      className="schedules-secondary-button"
+                      disabled={isSubmitting}
+                      onClick={closeRequestModal}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                  <button
+                    type="submit"
+                    className="schedules-primary-button"
+                    disabled={isSubmitting || !isSubmitReady}
+                  >
+                    <Send size={15} aria-hidden="true" />
+                    {isSubmitting ? 'Submitting…' : 'Submit for review'}
+                  </button>
+                </div>
+              </form>
+            </section>
           </div>
-
-          <form className="user-override-form" onSubmit={handleSubmit}>
-            <div className="schedules-form-grid">
-              <div className="schedules-form-row">
-                <div className="schedules-field">
-                  <label htmlFor="override-page-type">Schedule Type</label>
-                  <input
-                    id="override-page-type"
-                    type="text"
-                    value="Single"
-                    readOnly
-                    disabled
-                  />
-                </div>
-                <div className="schedules-field">
-                  <label htmlFor="override-page-date">Schedule Date</label>
-                  <input
-                    id="override-page-date"
-                    type="date"
-                    value={form.scheduleDate}
-                    onChange={(event) => updateField('scheduleDate', event.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="schedules-form-row">
-                <div className="schedules-field">
-                  <label htmlFor="override-page-time-start">Time Start</label>
-                  <input
-                    id="override-page-time-start"
-                    type="time"
-                    value={form.timeStart}
-                    onChange={(event) => updateField('timeStart', event.target.value)}
-                    required
-                  />
-                </div>
-                <div className="schedules-field">
-                  <label htmlFor="override-page-time-end">Time End</label>
-                  <input
-                    id="override-page-time-end"
-                    type="time"
-                    value={form.timeEnd}
-                    onChange={(event) => updateField('timeEnd', event.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="schedules-field">
-                <label htmlFor="override-page-reason">Reason</label>
-                <textarea
-                  id="override-page-reason"
-                  rows={4}
-                  value={form.reason}
-                  onChange={(event) => updateField('reason', event.target.value)}
-                  placeholder="Explain why you need temporary access..."
-                  required
-                />
-              </div>
-            </div>
-
-            {formError ? <p className="schedules-form-error">{formError}</p> : null}
-
-            <div className="schedules-form-actions">
-              <button
-                type="submit"
-                className="schedules-primary-button"
-                disabled={isSubmitting || !isSubmitReady}
-              >
-                <Send size={15} aria-hidden="true" />
-                {isSubmitting ? 'Submitting…' : 'Submit for review'}
-              </button>
-            </div>
-          </form>
-        </section>
+        ) : null}
       </div>
 
       {viewOverride ? (
@@ -956,8 +1110,6 @@ export default function RequestOverride({ user }) {
                 </div>
               </div>
 
-              {editError ? <p className="schedules-form-error">{editError}</p> : null}
-
               <div className="schedules-form-actions">
                 <button
                   type="button"
@@ -1041,6 +1193,21 @@ export default function RequestOverride({ user }) {
           </div>
         </div>
       ) : null}
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(formError)}
+        message={formError}
+        onClose={() => setFormError('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(editError)}
+        message={editError}
+        onClose={() => setEditError('')}
+      />
     </main>
   );
 }

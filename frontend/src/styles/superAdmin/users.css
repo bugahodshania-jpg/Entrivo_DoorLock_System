@@ -215,35 +215,18 @@
   margin-bottom: 0;
 }
 
-.manage-users-download-button {
+.manage-users-filter-actions {
   align-items: center;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  gap: 6px;
-  padding: 0 0 9px;
-}
-
-.manage-users-download-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.manage-users-header-actions {
-  align-items: flex-end;
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
+  margin-left: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
-.manage-users-search-stack {
-  align-items: flex-end;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 8px;
+.manage-users-filter-actions .manage-users-search {
+  width: 250px;
 }
 
 .manage-users-search {
@@ -571,6 +554,19 @@
   outline: none;
 }
 
+.manage-users-edit-modal .manage-users-edit-field input[aria-invalid='true'],
+.manage-users-edit-modal .manage-users-edit-field select[aria-invalid='true'] {
+  border-color: #b42318;
+}
+
+.manage-users-edit-field-error {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 6px 0 0;
+}
+
 .manage-users-edit-modal .manage-users-edit-field input:read-only,
 .manage-users-edit-modal .manage-users-edit-field select:disabled {
   background: #eef2f0;
@@ -878,41 +874,13 @@
     width: 100%;
   }
 
-  .manage-users .manage-users-header-actions {
-    align-items: center;
-    display: grid;
-    gap: 10px 12px;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+  .manage-users-filter-actions {
+    margin-left: 0;
     width: 100%;
   }
 
-  .manage-users .manage-users-search-stack {
-    display: contents;
-  }
-
-  .manage-users .manage-users-download-button {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    padding-bottom: 0;
-  }
-
-  .manage-users .manage-users-register-button {
-    grid-column: 3;
-    grid-row: 1;
-    justify-self: end;
-    width: fit-content;
-  }
-
-  .manage-users .manage-users-search {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    max-width: none;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .manage-users-search {
+  .manage-users-filter-actions .manage-users-search {
+    flex: 1 1 200px;
     max-width: none;
     min-width: 0;
     width: 100%;

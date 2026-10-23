@@ -113,8 +113,105 @@
   }
 }
 
-.pending-overrides-page .rfid-summary-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.pending-overrides-top {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.pending-overrides-summary-stack {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+  min-width: 0;
+}
+
+.pending-overrides-recent-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 214px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+}
+
+.pending-overrides-recent-card > .dashboard-panel-header {
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pending-overrides-recent-card > .dashboard-panel-header span {
+  font-size: 14px;
+}
+
+.pending-overrides-recent-card > .dashboard-panel-header p {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.pending-overrides-add-button {
+  flex: 0 0 auto;
+  font-size: 12px;
+  gap: 6px;
+  margin-top: 0;
+  min-height: 30px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.pending-overrides-recent-list {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.pending-overrides-recent-item {
+  align-items: center;
+  background: #f8faf9;
+  border: 1px solid #eef2f0;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 40px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 10px;
+}
+
+.pending-overrides-recent-copy {
+  min-width: 0;
+}
+
+.pending-overrides-recent-item span {
+  color: #243d34;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-overrides-recent-item strong {
+  color: #7a8882;
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-overrides-recent-empty {
+  color: #60716a;
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .pending-overrides-page .dashboard-recent-card > .dashboard-panel-header {
@@ -123,6 +220,53 @@
 
 .pending-overrides-toolbar {
   margin-bottom: 6px;
+}
+
+.pending-overrides-page .pending-registrations-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pending-overrides-page .pending-overrides-table {
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.pending-overrides-page .pending-overrides-table th,
+.pending-overrides-page .pending-overrides-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(1),
+.pending-overrides-page .pending-overrides-table td:nth-child(1) {
+  width: 16%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(2),
+.pending-overrides-page .pending-overrides-table td:nth-child(2) {
+  width: 8%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(3),
+.pending-overrides-page .pending-overrides-table td:nth-child(3) {
+  width: 12%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(4),
+.pending-overrides-page .pending-overrides-table td:nth-child(4) {
+  width: 14%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(5),
+.pending-overrides-page .pending-overrides-table td:nth-child(5) {
+  width: 18%;
+}
+
+.pending-overrides-page .pending-overrides-table th:nth-child(6),
+.pending-overrides-page .pending-overrides-table td:nth-child(6) {
+  width: 12%;
 }
 
 .pending-overrides-page .pending-overrides-table th:nth-child(7),
@@ -135,6 +279,12 @@
 .pending-overrides-page .pending-overrides-table td:nth-child(8) {
   text-align: center;
   width: 8%;
+}
+
+@media (max-width: 1100px) {
+  .pending-overrides-page .pending-overrides-table {
+    min-width: 980px;
+  }
 }
 
 .pending-overrides-page .dashboard-log-status {
@@ -157,8 +307,13 @@
   color: #147a45;
 }
 
-@media (max-width: 760px) {
-  .pending-overrides-page .rfid-summary-grid {
+.pending-overrides-recent-item .dashboard-log-status {
+  font-size: 0.62rem;
+  padding: 3px 8px;
+}
+
+@media (max-width: 900px) {
+  .pending-overrides-top {
     grid-template-columns: 1fr;
   }
 }
@@ -216,6 +371,12 @@
   min-width: 1180px;
   table-layout: fixed;
   width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .super-admin-portal .pending-registrations-page:not(.pending-overrides-page) .pending-registrations-table {
+    min-width: 0;
+  }
 }
 
 .pending-registrations-page .pending-registrations-table th,
@@ -1017,6 +1178,91 @@
   word-break: break-all;
 }
 
+.manage-users-edit-modal .manage-users-edit-field select.rfid-edit-status {
+  height: 24px;
+  line-height: 22px;
+  max-height: 24px;
+  min-height: 24px;
+  padding-bottom: 0;
+  padding-top: 0;
+}
+
+.manage-users-edit-modal .rfid-edit-status-field {
+  align-self: start;
+}
+
+.manage-users-edit-modal .rfid-edit-uid-field {
+  position: relative;
+  z-index: 1;
+}
+
+.manage-users-edit-modal .rfid-edit-uid-field .rfid-edit-field-error,
+.manage-users-edit-modal .rfid-edit-uid-field .rfid-edit-field-ok {
+  left: 12px;
+  margin: 6px 0 0;
+  position: absolute;
+  right: 12px;
+  top: 100%;
+}
+
+.rfid-edit-uid {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rfid-edit-uid input {
+  flex: 1;
+  min-width: 0;
+}
+
+.rfid-edit-identify {
+  background: #ffffff;
+  border: 1px solid #0c4b2d;
+  border-radius: 4px;
+  color: #0c4b2d;
+  cursor: pointer;
+  flex: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.rfid-edit-identify:hover {
+  background: #f4fbf7;
+}
+
+.rfid-edit-identify.is-matched {
+  background: #f4fbf7;
+}
+
+.rfid-edit-identify:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.rfid-edit-identify.is-busy:disabled {
+  cursor: wait;
+}
+
+.rfid-edit-field-error,
+.rfid-edit-field-ok {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 6px 0 0;
+}
+
+.rfid-edit-field-error {
+  color: #b42318;
+}
+
+.rfid-edit-field-ok {
+  color: #0c7a43;
+}
+
 .rfid-status {
   justify-content: center;
 }
@@ -1068,7 +1314,6 @@
   gap: 16px;
 }
 
-.rfid-download-button,
 .rfid-scan-button {
   align-items: center;
   background: transparent;
@@ -1101,11 +1346,6 @@
 
 .rfid-header-scan-button {
   display: none;
-}
-
-.rfid-download-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 @media (max-width: 900px) {

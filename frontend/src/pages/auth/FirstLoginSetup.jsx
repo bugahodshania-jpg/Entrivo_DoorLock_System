@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import {
+  calculateAge,
+  normalizeContactNumber,
+  toTitleCase,
+  validatePersonalInformation,
+} from '../../utils/registrationValidation';
+import {
   departmentOptions,
   programsForCollege,
   sectionOptions,
@@ -12,6 +18,7 @@ import {
 
 const AUTH_API_URL = 'http://127.0.0.1:8000/api/auth.php';
 const setupSteps = ['otp', 'password', 'profile', 'security'];
+const CONTACT_EXISTS_MESSAGE = 'Contact number already exists. Use a different contact number.';
 
 const emptyProfile = {
   middle_name: '',
@@ -32,29 +39,6 @@ const emptyProfile = {
   work_position: '',
   rfid_uid: '',
 };
-
-function calculateAge(dateOfBirth) {
-  if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
-    return '';
-  }
-
-  const [birthYear, birthMonth, birthDay] = dateOfBirth.split('-').map(Number);
-  const [todayYear, todayMonth, todayDay] = getManilaDateStamp().split('-').map(Number);
-  let age = todayYear - birthYear;
-  const hasBirthdayPassed = todayMonth > birthMonth || (todayMonth === birthMonth && todayDay >= birthDay);
-
-  if (!hasBirthdayPassed) {
-    age -= 1;
-  }
-
-  return age >= 0 ? String(age) : '';
-}
-
-function toTitleCase(value) {
-  return value
-    .toLowerCase()
-    .replace(/(^|[\s-])([a-z])/g, (match, separator, letter) => `${separator}${letter.toUpperCase()}`);
-}
 
 export default function FirstLoginSetup({
   challengeId,
@@ -85,6 +69,11 @@ export default function FirstLoginSetup({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [touchedFields, setTouchedFields] = useState({});
+  const [serverErrors, setServerErrors] = useState({});
+  const [contactAvailability, setContactAvailability] = useState(null);
+  const [serverContactError, setServerContactError] = useState(null);
+  const contactRequestRef = useRef({ id: 0, controller: null });
   const otpRefs = useRef([]);
   const isStudent = (accountSetup?.role || '') === 'student';
   const programOptions = useMemo(
@@ -110,7 +99,57 @@ export default function FirstLoginSetup({
     return () => window.clearInterval(timer);
   }, [expiresAt, step]);
 
+  function cancelContactCheck() {
+    contactRequestRef.current.id += 1;
+    contactRequestRef.current.controller?.abort();
+    contactRequestRef.current.controller = null;
+  }
+
+  useEffect(() => {
+    cancelContactCheck();
+    const value = profile.contact_number;
+    if (step !== 'profile' || busy || !activeChallengeId || !/^09[0-9]{9}$/.test(value)) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const requestId = contactRequestRef.current.id;
+    contactRequestRef.current.controller = controller;
+    const timer = window.setTimeout(async () => {
+      if (controller.signal.aborted || contactRequestRef.current.id !== requestId) return;
+      try {
+        const response = await fetch(AUTH_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            action: 'first_login_contact_availability',
+            challenge_id: activeChallengeId,
+            contact_number: value,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (controller.signal.aborted || contactRequestRef.current.id !== requestId) return;
+        if (!response.ok || typeof data.available !== 'boolean') return;
+        setContactAvailability({
+          value,
+          challengeId: activeChallengeId,
+          message: data.available ? '' : data.errors?.contact_number || CONTACT_EXISTS_MESSAGE,
+        });
+      } catch {
+        // Saving checks availability again and reports any service failure.
+      }
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (contactRequestRef.current.id === requestId) cancelContactCheck();
+    };
+  }, [activeChallengeId, busy, profile.contact_number, step]);
+
   async function submit(payload, onSuccess) {
+    if (payload.action === 'first_login_profile') cancelContactCheck();
     setBusy(true);
     setError('');
     setNotice('');
@@ -124,10 +163,26 @@ export default function FirstLoginSetup({
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setError(data.message || 'Something went wrong. Try again.');
+        if (data.errors && typeof data.errors === 'object' && Object.keys(data.errors).length) {
+          const nextErrors = { ...data.errors };
+          if (payload.action === 'first_login_profile' && nextErrors.contact_number) {
+            setServerContactError({
+              value: payload.contact_number,
+              challengeId: payload.challenge_id,
+              message: nextErrors.contact_number,
+            });
+            delete nextErrors.contact_number;
+          }
+          setServerErrors(nextErrors);
+          markFieldsTouched(Object.keys(data.errors));
+        } else {
+          setError(data.message || 'Something went wrong. Try again.');
+        }
         return;
       }
 
+      setServerErrors({});
+      if (payload.action === 'first_login_profile') setServerContactError(null);
       onSuccess(data);
     } catch {
       setError('The login service could not be reached.');
@@ -157,7 +212,38 @@ export default function FirstLoginSetup({
   }
 
   function updateProfile(field, value) {
-    setProfile((current) => ({ ...current, [field]: value }));
+    if (field === 'contact_number' && value !== profile.contact_number) {
+      cancelContactCheck();
+      setContactAvailability(null);
+      setServerContactError(null);
+    }
+    setProfile((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'date_of_birth' ? { age: calculateAge(value) } : {}),
+    }));
+    touchField(field);
+    if (field === 'date_of_birth') touchField('age');
+  }
+
+  function markFieldsTouched(fields) {
+    setTouchedFields((current) => ({
+      ...current,
+      ...Object.fromEntries(fields.map((field) => [field, true])),
+    }));
+  }
+
+  function touchField(field) {
+    markFieldsTouched([field]);
+    setServerErrors((current) => ({ ...current, [field]: '' }));
+    setError('');
+  }
+
+  function updateQuestion(index, field, value) {
+    setQuestions((current) => current.map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, [field]: value } : entry
+    )));
+    touchField(`security_${field}_${index + 1}`);
   }
 
   function profilePayload() {
@@ -189,32 +275,85 @@ export default function FirstLoginSetup({
   }
 
   function validateProfile() {
-    if (!profile.sex) return 'Sex is required.';
-    if (!/^\d{11}$/.test(profile.contact_number)) return 'Contact number must be 11 digits.';
-    if (!profile.date_of_birth || calculateAge(profile.date_of_birth) === '') {
-      return 'Date of birth must be a valid past date.';
-    }
-    if (!profile.barangay.trim() || !profile.city_municipality.trim() || !profile.province.trim()) {
-      return 'Barangay, city, and province are required.';
-    }
+    const errors = validatePersonalInformation(profile, {
+      requireStreet: false,
+      includeCountry: false,
+      includeZip: false,
+      includeNames: false,
+    });
     if (isStudent) {
-      if (!profile.college || !profile.program_department || !profile.year_level) {
-        return 'College, program, and year level are required.';
-      }
-    } else if (!profile.office_department.trim() || !profile.work_position.trim()) {
-      return 'Department and position are required.';
+      if (!profile.college) errors.college = 'College is required.';
+      if (!profile.program_department) errors.program_department = 'Program / Department is required.';
+      if (!profile.year_level) errors.year_level = 'Year level is required.';
+    } else {
+      if (!profile.office_department.trim()) errors.office_department = 'Department / Office is required.';
+      if (!profile.work_position.trim()) errors.work_position = 'Position is required.';
     }
-    return '';
+    return errors;
+  }
+
+  function validatePassword() {
+    const errors = {};
+    if (!password) errors.password = 'Password is required.';
+    else if (new TextEncoder().encode(password).length > 72) errors.password = 'Password is too long. Use a shorter password.';
+    else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password)) {
+      errors.password = 'Use at least 8 characters with uppercase and lowercase letters, a number, and a special character.';
+    }
+    if (!confirmPassword) errors.confirm_password = 'Confirm your password.';
+    else if (password !== confirmPassword) errors.confirm_password = 'Password confirmation does not match.';
+    return errors;
   }
 
   function validateQuestions() {
-    if (questions.some((item) => !item.question || item.answer.trim().length < 2)) {
-      return 'Choose three questions and give each answer at least 2 characters.';
-    }
-    if (new Set(questions.map((item) => item.question)).size !== 3) {
-      return 'Choose three different security questions.';
-    }
-    return '';
+    const errors = {};
+    questions.forEach((item, index) => {
+      if (!item.question) errors[`security_question_${index + 1}`] = 'Select a security question.';
+      else if (questions.some((entry, entryIndex) => entryIndex !== index && entry.question === item.question)) {
+        errors[`security_question_${index + 1}`] = 'Choose a different security question.';
+      }
+      const answer = item.answer.trim();
+      if (answer.length < 2) errors[`security_answer_${index + 1}`] = 'Enter an answer with at least 2 characters.';
+      else if (new TextEncoder().encode(answer).length > 100) errors[`security_answer_${index + 1}`] = 'Answer is too long. Use a shorter answer.';
+    });
+    return errors;
+  }
+
+  const contactErrorForValue = (result) => (
+    result?.value === profile.contact_number && result?.challengeId === activeChallengeId
+      ? result.message
+      : ''
+  );
+  const contactNumberError = contactErrorForValue(serverContactError) || contactErrorForValue(contactAvailability);
+  const fieldErrors = {
+    ...(step === 'profile' && contactNumberError ? { contact_number: contactNumberError } : {}),
+    ...Object.fromEntries(Object.entries(serverErrors).filter(([, message]) => message)),
+    ...(step === 'profile' ? validateProfile() : step === 'password' ? validatePassword() : step === 'security' ? validateQuestions() : {}),
+  };
+
+  function getFieldError(field) {
+    return touchedFields[field] ? fieldErrors[field] || '' : '';
+  }
+
+  function fieldAttributes(field) {
+    return {
+      'aria-invalid': Boolean(getFieldError(field)),
+      'aria-describedby': `first-login-${field}-error`,
+      onBlur: () => markFieldsTouched([field]),
+    };
+  }
+
+  function FieldError({ field }) {
+    const message = getFieldError(field);
+    return (
+      <small
+        id={`first-login-${field}-error`}
+        className="password-reset-field-error"
+        style={{ display: 'block', minHeight: '16px' }}
+        aria-live="polite"
+      >
+        {message || ' '}
+      </small>
+    );
   }
 
   const stepIndex = Math.max(0, setupSteps.indexOf(step));
@@ -238,11 +377,12 @@ export default function FirstLoginSetup({
         role="dialog"
         aria-modal="true"
         aria-labelledby="first-login-title"
+        style={{ overflowY: 'auto' }}
       >
         <div className="password-reset-heading">
           <div className="password-reset-step-row">
             <p className="password-reset-step">Step {stepIndex + 1} of 4</p>
-            <button type="button" className="password-reset-close" onClick={onClose} aria-label="Close">
+            <button type="button" className="password-reset-close" onClick={() => { cancelContactCheck(); onClose(); }} aria-label="Close">
               <X size={16} />
             </button>
           </div>
@@ -346,12 +486,13 @@ export default function FirstLoginSetup({
 
         {step === 'password' ? (
           <form
+            noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              if (password !== confirmPassword) {
-                setError('Password confirmation does not match.');
-                return;
-              }
+              const errors = validatePassword();
+              markFieldsTouched(['password', 'confirm_password']);
+              setError('');
+              if (Object.keys(errors).length) return;
               submit(
                 {
                   action: 'first_login_password',
@@ -372,7 +513,12 @@ export default function FirstLoginSetup({
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    touchField('password');
+                    setServerErrors((current) => ({ ...current, confirm_password: '' }));
+                  }}
+                  {...fieldAttributes('password')}
                   autoComplete="new-password"
                   autoFocus
                   required
@@ -385,6 +531,7 @@ export default function FirstLoginSetup({
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </span>
+              <FieldError field="password" />
             </label>
             <label>
               Confirm password
@@ -392,7 +539,11 @@ export default function FirstLoginSetup({
                 <input
                   type={showConfirm ? 'text' : 'password'}
                   value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  onChange={(event) => {
+                    setConfirmPassword(event.target.value);
+                    touchField('confirm_password');
+                  }}
+                  {...fieldAttributes('confirm_password')}
                   autoComplete="new-password"
                   required
                 />
@@ -404,6 +555,7 @@ export default function FirstLoginSetup({
                   {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </span>
+              <FieldError field="confirm_password" />
             </label>
             {error ? <p className="password-reset-error">{error}</p> : null}
             <button type="submit" disabled={busy}>
@@ -414,13 +566,14 @@ export default function FirstLoginSetup({
 
         {step === 'profile' ? (
           <form
+            noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              const message = validateProfile();
-              if (message) {
-                setError(message);
-                return;
-              }
+              const errors = validateProfile();
+              if (!errors.contact_number && contactNumberError) errors.contact_number = contactNumberError;
+              markFieldsTouched(Object.keys(errors));
+              setError('');
+              if (Object.keys(errors).length) return;
               submit(profilePayload(), (data) => {
                 if (data.next_step === 'security') {
                   setStep('security');
@@ -457,23 +610,27 @@ export default function FirstLoginSetup({
                   placeholder="Optional"
                   value={profile.middle_name}
                   onChange={(event) => updateProfile('middle_name', toTitleCase(event.target.value))}
+                  {...fieldAttributes('middle_name')}
                 />
+                <FieldError field="middle_name" />
               </label>
               <label>
                 Suffix
-                <select value={profile.extension_name} onChange={(event) => updateProfile('extension_name', event.target.value)}>
+                <select value={profile.extension_name} onChange={(event) => updateProfile('extension_name', event.target.value)} {...fieldAttributes('extension_name')}>
                   {suffixOptions.map((suffix) => (
                     <option key={suffix || 'none'} value={suffix}>{suffix || 'None'}</option>
                   ))}
                 </select>
+                <FieldError field="extension_name" />
               </label>
               <label>
                 Sex
-                <select value={profile.sex} onChange={(event) => updateProfile('sex', event.target.value)} required>
+                <select value={profile.sex} onChange={(event) => updateProfile('sex', event.target.value)} {...fieldAttributes('sex')} required>
                   <option value="">Select sex</option>
                   <option value="Male">Male</option>
                   <option value="Female">Female</option>
                 </select>
+                <FieldError field="sex" />
               </label>
               <label>
                 Contact number
@@ -482,9 +639,11 @@ export default function FirstLoginSetup({
                   maxLength={11}
                   placeholder="09*********"
                   value={profile.contact_number}
-                  onChange={(event) => updateProfile('contact_number', event.target.value.replace(/\D/g, '').slice(0, 11))}
+                  onChange={(event) => updateProfile('contact_number', normalizeContactNumber(event.target.value))}
+                  {...fieldAttributes('contact_number')}
                   required
                 />
+                <FieldError field="contact_number" />
               </label>
               <label>
                 Birthdate
@@ -492,20 +651,16 @@ export default function FirstLoginSetup({
                   type="date"
                   max={getManilaDateStamp()}
                   value={profile.date_of_birth}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setProfile((current) => ({
-                      ...current,
-                      date_of_birth: value,
-                      age: calculateAge(value),
-                    }));
-                  }}
+                  onChange={(event) => updateProfile('date_of_birth', event.target.value)}
+                  {...fieldAttributes('date_of_birth')}
                   required
                 />
+                <FieldError field="date_of_birth" />
               </label>
               <label>
                 Age
-                <input readOnly value={profile.age} placeholder="Calculated from birthdate" />
+                <input readOnly value={profile.age} placeholder="Calculated from birthdate" {...fieldAttributes('age')} />
+                <FieldError field="age" />
               </label>
               <hr className="password-reset-divider is-span" />
               <label>
@@ -514,31 +669,39 @@ export default function FirstLoginSetup({
                   placeholder="Optional"
                   value={profile.street_address}
                   onChange={(event) => updateProfile('street_address', event.target.value)}
+                  {...fieldAttributes('street_address')}
                 />
+                <FieldError field="street_address" />
               </label>
               <label>
                 Barangay
                 <input
                   value={profile.barangay}
                   onChange={(event) => updateProfile('barangay', toTitleCase(event.target.value))}
+                  {...fieldAttributes('barangay')}
                   required
                 />
+                <FieldError field="barangay" />
               </label>
               <label>
                 City / Municipality
                 <input
                   value={profile.city_municipality}
                   onChange={(event) => updateProfile('city_municipality', toTitleCase(event.target.value))}
+                  {...fieldAttributes('city_municipality')}
                   required
                 />
+                <FieldError field="city_municipality" />
               </label>
               <label>
                 Province
                 <input
                   value={profile.province}
                   onChange={(event) => updateProfile('province', toTitleCase(event.target.value))}
+                  {...fieldAttributes('province')}
                   required
                 />
+                <FieldError field="province" />
               </label>
               <hr className="password-reset-divider is-span" />
               {isStudent ? (
@@ -555,7 +718,10 @@ export default function FirstLoginSetup({
                           college,
                           program_department: nextPrograms.includes(current.program_department) ? current.program_department : '',
                         }));
+                        touchField('college');
+                        setServerErrors((current) => ({ ...current, program_department: '' }));
                       }}
+                      {...fieldAttributes('college')}
                       required
                     >
                       <option value="">Select college</option>
@@ -563,6 +729,7 @@ export default function FirstLoginSetup({
                         <option key={college} value={college}>{college}</option>
                       ))}
                     </select>
+                    <FieldError field="college" />
                   </label>
                   <label className="is-span">
                     Program / Department
@@ -570,6 +737,7 @@ export default function FirstLoginSetup({
                       value={profile.program_department}
                       disabled={!profile.college}
                       onChange={(event) => updateProfile('program_department', event.target.value)}
+                      {...fieldAttributes('program_department')}
                       required
                     >
                       <option value="">{profile.college ? 'Select program' : 'Select college first'}</option>
@@ -577,24 +745,27 @@ export default function FirstLoginSetup({
                         <option key={program} value={program}>{program}</option>
                       ))}
                     </select>
+                    <FieldError field="program_department" />
                   </label>
                   <label>
                     Year level
-                    <select value={profile.year_level} onChange={(event) => updateProfile('year_level', event.target.value)} required>
+                    <select value={profile.year_level} onChange={(event) => updateProfile('year_level', event.target.value)} {...fieldAttributes('year_level')} required>
                       <option value="">Select year level</option>
                       {yearLevelOptions.map((yearLevel) => (
                         <option key={yearLevel} value={yearLevel}>{yearLevel}</option>
                       ))}
                     </select>
+                    <FieldError field="year_level" />
                   </label>
                   <label>
                     Section
-                    <select value={profile.section} onChange={(event) => updateProfile('section', event.target.value)}>
+                    <select value={profile.section} onChange={(event) => updateProfile('section', event.target.value)} {...fieldAttributes('section')}>
                       <option value="">Optional</option>
                       {sectionOptions.map((section) => (
                         <option key={section} value={section}>{section}</option>
                       ))}
                     </select>
+                    <FieldError field="section" />
                   </label>
                   <label className="is-span">
                     RFID UID
@@ -603,7 +774,9 @@ export default function FirstLoginSetup({
                       placeholder="Optional"
                       value={profile.rfid_uid}
                       onChange={(event) => updateProfile('rfid_uid', event.target.value.replace(/\s/g, '').toUpperCase().slice(0, 30))}
+                      {...fieldAttributes('rfid_uid')}
                     />
+                    <FieldError field="rfid_uid" />
                   </label>
                 </>
               ) : (
@@ -614,6 +787,7 @@ export default function FirstLoginSetup({
                       list="onboarding-department-options"
                       value={profile.office_department}
                       onChange={(event) => updateProfile('office_department', event.target.value)}
+                      {...fieldAttributes('office_department')}
                       required
                     />
                     <datalist id="onboarding-department-options">
@@ -621,14 +795,17 @@ export default function FirstLoginSetup({
                         <option key={department} value={department} />
                       ))}
                     </datalist>
+                    <FieldError field="office_department" />
                   </label>
                   <label>
                     Position
                     <input
                       value={profile.work_position}
                       onChange={(event) => updateProfile('work_position', event.target.value)}
+                      {...fieldAttributes('work_position')}
                       required
                     />
+                    <FieldError field="work_position" />
                   </label>
                 </>
               )}
@@ -642,13 +819,13 @@ export default function FirstLoginSetup({
 
         {step === 'security' ? (
           <form
+            noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              const message = validateQuestions();
-              if (message) {
-                setError(message);
-                return;
-              }
+              const errors = validateQuestions();
+              markFieldsTouched(questions.flatMap((unused, index) => [`security_question_${index + 1}`, `security_answer_${index + 1}`]));
+              setError('');
+              if (Object.keys(errors).length) return;
               submit(
                 {
                   action: 'first_login_security',
@@ -675,12 +852,8 @@ export default function FirstLoginSetup({
                     Question {index + 1}
                     <select
                       value={item.question}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setQuestions((current) => current.map((entry, entryIndex) => (
-                          entryIndex === index ? { ...entry, question: value } : entry
-                        )));
-                      }}
+                      onChange={(event) => updateQuestion(index, 'question', event.target.value)}
+                      {...fieldAttributes(`security_question_${index + 1}`)}
                       required
                     >
                       <option value="">Select a question</option>
@@ -694,6 +867,7 @@ export default function FirstLoginSetup({
                         </option>
                       ))}
                     </select>
+                    <FieldError field={`security_question_${index + 1}`} />
                   </label>
                   <label>
                     Answer
@@ -701,12 +875,8 @@ export default function FirstLoginSetup({
                       <input
                         type={showAnswers[index] ? 'text' : 'password'}
                         value={item.answer}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setQuestions((current) => current.map((entry, entryIndex) => (
-                            entryIndex === index ? { ...entry, answer: value } : entry
-                          )));
-                        }}
+                        onChange={(event) => updateQuestion(index, 'answer', event.target.value)}
+                        {...fieldAttributes(`security_answer_${index + 1}`)}
                         autoComplete="off"
                         required
                       />
@@ -720,6 +890,7 @@ export default function FirstLoginSetup({
                         {showAnswers[index] ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </span>
+                    <FieldError field={`security_answer_${index + 1}`} />
                   </label>
                 </div>
               ))}

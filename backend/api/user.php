@@ -437,11 +437,205 @@ function calculateEditableAge(?string $dateOfBirth): ?int
     }
 }
 
+function assertEditablePersonName(string $name, string $label, bool $required = true): void
+{
+    if ($name === '') {
+        if ($required) {
+            throw new InvalidArgumentException("{$label} is required.");
+        }
+
+        return;
+    }
+
+    if (mb_strlen($name) < 2 || mb_strlen($name) > 50) {
+        throw new InvalidArgumentException("{$label} must be 2 to 50 characters.");
+    }
+
+    if (preg_match('/\p{N}/u', $name)) {
+        throw new InvalidArgumentException("{$label} cannot contain numbers.");
+    }
+
+    if (preg_match('/[^A-Za-zÑñ -]/u', $name)) {
+        throw new InvalidArgumentException("{$label} can only include letters, Ñ, spaces, and hyphens.");
+    }
+
+    if (!preg_match('/^[A-ZÑ]/u', $name)) {
+        throw new InvalidArgumentException("{$label} must start with a capital letter.");
+    }
+
+    if (!preg_match('/^[A-ZÑ][A-Za-zÑñ]*(?:[ -][A-Za-zÑñ]+)*$/u', $name)) {
+        throw new InvalidArgumentException("{$label} cannot start or end with a hyphen, or repeat spaces and hyphens.");
+    }
+}
+
+function assertEditableUsername(string $username): void
+{
+    if ($username === '') {
+        throw new InvalidArgumentException('Username is required.');
+    }
+
+    if ($username !== strtolower($username)) {
+        throw new InvalidArgumentException('Username must be all lowercase.');
+    }
+
+    if (preg_match('/\p{N}/u', $username)) {
+        throw new InvalidArgumentException('Username cannot contain numbers.');
+    }
+
+    if (!preg_match('/^[a-z.]+$/', $username)) {
+        throw new InvalidArgumentException('Username can only use lowercase letters and a dot.');
+    }
+
+    if (!str_contains($username, '.')) {
+        throw new InvalidArgumentException('Username must include a dot (.).');
+    }
+
+    if (!preg_match('/^[a-z]+(?:\.[a-z]+)+$/', $username) || strlen($username) > 50) {
+        throw new InvalidArgumentException('Use lowercase letters separated by a dot, such as firstname.lastname.');
+    }
+}
+
+function assertEditableSchoolEmail(string $email): void
+{
+    $suffix = '@csucc.edu.ph';
+
+    if ($email === '') {
+        throw new InvalidArgumentException('School email is required.');
+    }
+
+    if (!str_ends_with($email, $suffix) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new InvalidArgumentException('Email must use the @csucc.edu.ph domain.');
+    }
+
+    $localPart = substr($email, 0, -strlen($suffix));
+
+    if (!preg_match('/^[a-z][a-z0-9._-]{2,49}$/', $localPart)) {
+        throw new InvalidArgumentException('Use 3 to 50 characters, starting with a letter. Letters, numbers, dots, underscores, and hyphens only.');
+    }
+}
+
+function assertEditableIdentifier(string $identifier, bool $isStudent, string $label): void
+{
+    if ($identifier === '') {
+        throw new InvalidArgumentException("{$label} is required.");
+    }
+
+    $pattern = $isStudent ? '/^\d{4}-\d{4}$/' : '/^\d{6}-\d{6}$/';
+    $format = $isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
+
+    if (!preg_match($pattern, $identifier)) {
+        throw new InvalidArgumentException("{$label} must use {$format} format.");
+    }
+}
+
+function assertEditableBoundedText(string $value, string $label, int $max, bool $required): void
+{
+    if ($value === '') {
+        if ($required) {
+            throw new InvalidArgumentException("{$label} is required.");
+        }
+
+        return;
+    }
+
+    if (strlen($value) > $max) {
+        throw new InvalidArgumentException("{$label} must be {$max} characters or fewer.");
+    }
+}
+
+function editableStudentPrograms(): array
+{
+    return [
+        '(CEIT) College of Engineering and Information Technology' => [
+            '(BSIT) Bachelor of Science in Information Technology',
+            '(BSEE) Bachelor of Science in Electrical Engineering',
+            '(BSCpE) Bachelor of Science in Computer Engineering',
+        ],
+        '(CTHM) College of Tourism and Hospitality Management' => [
+            '(BSHM) Bachelor of Science in Hospitality Management',
+            '(BSTM) Bachelor of Science in Tourism Management',
+        ],
+        '(CITTE) College of Industrial and Technical Teacher Education' => [
+            '(BSIndTech) - Architectural Drafting Technology',
+            '(BSIndTech) - Automotive Technology',
+            '(BSIndTech) - Civil Technology',
+            '(BSIndTech) - (BSIndTech)',
+            '(BSIndTech) - Electronics Technology',
+            '(BTVTED) Bachelor of Technical Vocational Teacher Education',
+        ],
+        '(CBA) College of Business and Accountancy' => [
+            '(BSA) Bachelor of Science in Accountancy',
+            '(BSMA) Bachelor of Science in Management Accounting',
+            '(BSOA) Bachelor of Science in Office Administration',
+            '(BSBA) Bachelor of Science in Business Administration',
+            '(BSEntrep) Bachelor of Science in Entrepreneurship',
+        ],
+    ];
+}
+
+function assertEditableAccountIsUnique(PDO $pdo, int $userId, string $username, string $email, string $identifier, bool $isStudent): void
+{
+    $usernameStatement = $pdo->prepare(
+        'SELECT id FROM users WHERE username = :username AND id <> :id LIMIT 1'
+    );
+    $usernameStatement->execute([
+        'username' => $username,
+        'id' => $userId,
+    ]);
+
+    if ($usernameStatement->fetch()) {
+        throw new InvalidArgumentException('Username already exists. Choose another username.');
+    }
+
+    $emailStatement = $pdo->prepare(
+        'SELECT id FROM users WHERE email = :email AND id <> :id LIMIT 1'
+    );
+    $emailStatement->execute([
+        'email' => $email,
+        'id' => $userId,
+    ]);
+
+    if ($emailStatement->fetch()) {
+        throw new InvalidArgumentException('Email already exists. Use a different school email.');
+    }
+
+    if ($isStudent) {
+        $identifierStatement = $pdo->prepare(
+            'SELECT user_id FROM student_info WHERE school_id = :identifier AND user_id <> :user_id LIMIT 1'
+        );
+        $identifierStatement->execute([
+            'identifier' => $identifier,
+            'user_id' => $userId,
+        ]);
+
+        if ($identifierStatement->fetch()) {
+            throw new InvalidArgumentException('School ID already exists.');
+        }
+
+        return;
+    }
+
+    foreach (['faculty_info', 'staff_info', 'admin_info'] as $table) {
+        $identifierStatement = $pdo->prepare(
+            "SELECT user_id FROM {$table} WHERE employee_id = :identifier AND user_id <> :user_id LIMIT 1"
+        );
+        $identifierStatement->execute([
+            'identifier' => $identifier,
+            'user_id' => $userId,
+        ]);
+
+        if ($identifierStatement->fetch()) {
+            throw new InvalidArgumentException('Employee ID already exists.');
+        }
+    }
+}
+
 function updateUserById(PDO $pdo, int $userId, array $input): array
 {
-    $roleStatement = $pdo->prepare('SELECT role FROM users WHERE id = :id LIMIT 1');
+    $roleStatement = $pdo->prepare('SELECT role, is_active FROM users WHERE id = :id LIMIT 1');
     $roleStatement->execute(['id' => $userId]);
-    $role = $roleStatement->fetchColumn();
+    $account = $roleStatement->fetch(PDO::FETCH_ASSOC) ?: null;
+    $role = $account['role'] ?? null;
 
     if (!$role) {
         throw new InvalidArgumentException('That user was not found.');
@@ -470,12 +664,26 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
     $identifier = normalizeEditableText($input['identifier'] ?? '');
     $status = strtolower(normalizeEditableText($input['status'] ?? 'active'));
 
+    $keepCurrentActive = $status === 'pending_login';
+
     if ($status === 'blocked') {
         $status = 'inactive';
     }
 
-    if ($firstName === '' || $lastName === '') {
-        throw new InvalidArgumentException('First name and last name are required.');
+    if (!in_array($status, ['active', 'inactive', 'pending_login'], true)) {
+        throw new InvalidArgumentException('Status must be active, inactive, or blocked.');
+    }
+
+    $isActive = $keepCurrentActive
+        ? ((int) ($account['is_active'] ?? 0) === 1 ? 1 : 0)
+        : ($status === 'active' ? 1 : 0);
+
+    assertEditablePersonName($firstName, 'First name');
+    assertEditablePersonName($middleName, 'Middle name', false);
+    assertEditablePersonName($lastName, 'Last name');
+
+    if ($extensionName !== '' && !in_array($extensionName, ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'], true)) {
+        throw new InvalidArgumentException('Extension must be Jr., Sr., II, III, IV, or V.');
     }
 
     if ($sex === null) {
@@ -496,21 +704,14 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
         throw new InvalidArgumentException('Contact number must be 11 digits.');
     }
 
-    if ($username === '') {
-        throw new InvalidArgumentException('Username is required.');
-    }
-
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        throw new InvalidArgumentException('A valid email is required.');
-    }
-
-    if ($identifier === '') {
-        throw new InvalidArgumentException($profile['identifierLabel'] . ' is required.');
-    }
-
-    if (!in_array($status, ['active', 'inactive'], true)) {
-        throw new InvalidArgumentException('Status must be active or inactive.');
-    }
+    assertEditableUsername($username);
+    assertEditableSchoolEmail($email);
+    assertEditableIdentifier($identifier, $isStudent, $profile['identifierLabel']);
+    assertEditableBoundedText($streetAddress, 'Street address', 255, false);
+    assertEditableBoundedText($barangay, 'Barangay', 100, true);
+    assertEditableBoundedText($cityMunicipality, 'City / Municipality', 100, true);
+    assertEditableBoundedText($province, 'Province', 100, true);
+    assertEditableAccountIsUnique($pdo, $userId, $username, $email, $identifier, $isStudent);
 
     $college = normalizeEditableText($input['college'] ?? '');
     $programDepartment = normalizeEditableText(
@@ -524,11 +725,30 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
     $workPosition = normalizeEditableText($input['workPosition'] ?? $input['work_position'] ?? '');
 
     if ($isStudent) {
-        if ($college === '' || $programDepartment === '' || $yearLevel === '') {
-            throw new InvalidArgumentException('College, program, and year level are required.');
+        $programs = editableStudentPrograms();
+
+        if ($college === '') {
+            throw new InvalidArgumentException('College is required.');
         }
-    } elseif ($officeDepartment === '' || $workPosition === '') {
-        throw new InvalidArgumentException('Department and position are required.');
+
+        if ($programDepartment === '') {
+            throw new InvalidArgumentException('Program is required.');
+        }
+
+        if (isset($programs[$college]) && !in_array($programDepartment, $programs[$college], true)) {
+            throw new InvalidArgumentException('Select a program for the chosen college.');
+        }
+
+        if (!in_array($yearLevel, ['First Year', 'Second Year', 'Third Year', 'Fourth Year'], true)) {
+            throw new InvalidArgumentException('Year level is required.');
+        }
+
+        if ($section !== '' && !in_array($section, ['Block A', 'Block B', 'Block C', 'Block D'], true)) {
+            throw new InvalidArgumentException('Section must be Block A, Block B, Block C, or Block D.');
+        }
+    } else {
+        assertEditableBoundedText($officeDepartment, 'Department', 150, true);
+        assertEditableBoundedText($workPosition, 'Position', 150, true);
     }
 
     $rfidUid = null;
@@ -574,7 +794,7 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
         $userUpdate->execute([
             'username' => $username,
             'email' => $email,
-            'is_active' => $status === 'active' ? 1 : 0,
+            'is_active' => $isActive,
             'id' => $userId,
         ]);
 
@@ -718,7 +938,7 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
         try {
             $dashboardSession = new SuperAdminDashboardSession($pdo);
 
-            if ($status === 'inactive') {
+            if ($isActive === 0) {
                 $dashboardSession->removeFromStandby($userId);
                 $dashboardSession->releaseIfHeldBy($userId);
             } else {
@@ -1300,11 +1520,11 @@ try {
         $actorId = filter_var($input['actor_id'] ?? $input['created_by'] ?? null, FILTER_VALIDATE_INT) ?: null;
         $requestedRole = strtolower(trim((string) ($input['role'] ?? '')));
 
-        if (in_array($requestedRole, ['faculty', 'staff', 'super_admin', 'superadmin'], true)) {
+        if (in_array($requestedRole, ['admin', 'faculty', 'staff', 'super_admin', 'superadmin'], true)) {
             require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
             (new UserPrivilegeService($pdo))->assertActorCanDeleteRecords(
                 (int) $actorId,
-                'Only a Super Admin can create faculty, staff, and super admin accounts.'
+                'Only a Super Admin can create admin, faculty, staff, and super admin accounts.'
             );
         }
 
@@ -1374,6 +1594,12 @@ try {
             'admins' => fetchUsersByRole($pdo, 'admins'),
             'students' => fetchUsersByRole($pdo, 'students'),
         ],
+    ]);
+} catch (RegistrationDuplicateException $error) {
+    http_response_code(409);
+    echo json_encode([
+        'message' => $error->getMessage(),
+        'errors' => $error->fieldErrors,
     ]);
 } catch (InvalidArgumentException $error) {
     http_response_code(422);

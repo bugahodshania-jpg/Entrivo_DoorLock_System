@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, Fingerprint, KeyRound, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import {
   composeSchoolEmail,
   formatRole,
@@ -16,7 +17,7 @@ import '../../styles/superAdmin/registerUser.css';
 
 const registrationDraftKey = 'entrivo_register_user_draft';
 
-const adminBlockedRoles = new Set(['faculty', 'staff', 'super_admin']);
+const adminBlockedRoles = new Set(['admin', 'faculty', 'staff', 'super_admin']);
 
 function normalizeInitialRole(role) {
   const normalizedRole = (role || '').toLowerCase();
@@ -28,10 +29,34 @@ function normalizeInitialRole(role) {
   return roleOptions.some((option) => option.value === normalizedRole) ? normalizedRole : 'faculty';
 }
 
-function toTitleCase(value) {
-  return value
-    .toLowerCase()
-    .replace(/(^|[\s-])([a-z])/g, (match, separator, letter) => `${separator}${letter.toUpperCase()}`);
+function personNameError(value, label) {
+  const name = value.trim();
+
+  if (!name) return `${label} is required.`;
+  if (name.length < 2 || name.length > 50) return `${label} must be 2 to 50 characters.`;
+  if (/\p{N}/u.test(name)) return `${label} cannot contain numbers.`;
+  if (/[^A-Za-zÑñ -]/.test(name)) return `${label} can only include letters, Ñ, spaces, and hyphens.`;
+  if (!/^[A-ZÑ]/.test(name)) return `${label} must start with a capital letter.`;
+  if (!/^[A-ZÑ][A-Za-zÑñ]*(?:[ -][A-Za-zÑñ]+)*$/.test(name)) {
+    return `${label} cannot start or end with a hyphen, or repeat spaces and hyphens.`;
+  }
+
+  return '';
+}
+
+function usernameError(value) {
+  const username = value.trim();
+
+  if (!username) return 'Username is required.';
+  if (username !== username.toLowerCase()) return 'Username must be all lowercase.';
+  if (/\p{N}/u.test(username)) return 'Username cannot contain numbers.';
+  if (!/^[a-z.]+$/.test(username)) return 'Username can only use lowercase letters and a dot.';
+  if (!username.includes('.')) return 'Username must include a dot (.).';
+  if (!/^[a-z]+(?:\.[a-z]+)+$/.test(username) || username.length > 50) {
+    return 'Use lowercase letters separated by a dot, such as firstname.lastname.';
+  }
+
+  return '';
 }
 
 function readDraft(role) {
@@ -42,6 +67,7 @@ function readDraft(role) {
     first_name: '',
     last_name: '',
     username: '',
+    rfid_uid: '',
   };
 
   try {
@@ -69,7 +95,12 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
       ? initialRole
       : isLimitedAdmin && adminBlockedRoles.has(draft.role) ? 'student' : draft.role;
 
-    return { ...draft, role: draftRole };
+    return {
+      ...draft,
+      role: draftRole,
+      username: String(draft.username || '').replace(/\s/g, '').toLowerCase(),
+      rfid_uid: String(draft.rfid_uid || '').replace(/\s/g, '').toUpperCase().slice(0, 30),
+    };
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,8 +109,18 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
   const [submitted, setSubmitted] = useState(false);
   const [superAdminSlotsFull, setSuperAdminSlotsFull] = useState(false);
   const [savedUser, setSavedUser] = useState(null);
+  const [identifierAvailability, setIdentifierAvailability] = useState({ value: '', role: '', message: '' });
+  const [emailAvailability, setEmailAvailability] = useState({ value: '', message: '' });
+  const [usernameAvailability, setUsernameAvailability] = useState({ value: '', message: '' });
+  const [rfidIdentify, setRfidIdentify] = useState({ uid: '', ok: false, message: '' });
+  const [isIdentifyingRfid, setIsIdentifyingRfid] = useState(false);
   const schoolEmailInputRef = useRef(null);
   const schoolEmailCursorRef = useRef(null);
+  const identifierRequestRef = useRef(0);
+  const identifierTimerRef = useRef(0);
+  const emailRequestRef = useRef(0);
+  const emailTimerRef = useRef(0);
+  const checkingOnSubmitRef = useRef(false);
 
   const isStudent = form.role === 'student';
   const idKind = isStudent ? 'student' : 'employee';
@@ -89,9 +130,10 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
   const composedEmail = composeSchoolEmail(form.school_email);
   const schoolEmailValue = form.school_email ? `${form.school_email}@${schoolEmailDomain}` : '';
   const roleLabel = formatRole(form.role);
+  const passwordPattern = isStudent ? 'firstname.lastname@xxxx' : 'firstname.lastname@xxxxxx';
   const passwordExample = isStudent
-    ? 'Example: username firstname.lastname and ID 2023-0471 becomes firstname.lastname@0471.'
-    : 'Example: username firstname.lastname and ID 202301-004712 becomes firstname.lastname@004712.';
+    ? 'Example: firstname.lastname@xxxx uses the last 4 digits of the School ID.'
+    : 'Example: firstname.lastname@xxxxxx uses the last 6 digits of the Employee ID.';
 
   const errors = useMemo(() => {
     const next = {};
@@ -102,24 +144,47 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
     if (!form.identifier.trim()) next.identifier = `${idLabel} is required.`;
     else if (!(isStudent ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/).test(form.identifier)) {
       next.identifier = `${idLabel} must use ${idFormat} format.`;
+    } else if (
+      identifierAvailability.value === form.identifier
+      && identifierAvailability.role === (isStudent ? 'student' : 'employee')
+      && identifierAvailability.message
+    ) {
+      next.identifier = identifierAvailability.message;
     }
     if (!form.school_email.trim()) next.school_email = 'School email is required.';
     else if (!composedEmail) {
       next.school_email = 'Use 3 to 50 characters, starting with a letter. Letters, numbers, dots, underscores, and hyphens only.';
+    } else if (emailAvailability.value === composedEmail && emailAvailability.message) {
+      next.school_email = emailAvailability.message;
     }
-    if (!form.first_name.trim()) next.first_name = 'First name is required.';
-    if (!form.last_name.trim()) next.last_name = 'Last name is required.';
-    if (!form.username.trim()) next.username = 'Username is required.';
-    else if (!/^[A-Za-z][A-Za-z0-9._-]{2,49}$/.test(form.username.trim())) {
-      next.username = 'Use 3 to 50 characters, starting with a letter. Letters, numbers, dots, underscores, and hyphens only.';
-    } else if (isStudent && !form.username.includes('.')) {
-      next.username = 'Username must include a dot (.).';
+    const firstNameError = personNameError(form.first_name, 'First name');
+    const lastNameError = personNameError(form.last_name, 'Last name');
+    if (firstNameError) next.first_name = firstNameError;
+    if (lastNameError) next.last_name = lastNameError;
+    const nextUsernameError = usernameError(form.username);
+    if (nextUsernameError) next.username = nextUsernameError;
+    else if (
+      usernameAvailability.value === form.username.trim().toLowerCase()
+      && usernameAvailability.message
+    ) {
+      next.username = usernameAvailability.message;
     }
     if (form.username.trim() && form.identifier && !generatedPassword) {
       next.password = 'Enter a valid username and ID to generate the temporary password.';
     }
+    if (isStudent) {
+      const rfidUid = form.rfid_uid.trim();
+      if (!rfidUid) next.rfid_uid = 'RFID UID is required.';
+      else if (!/^[A-Z0-9]{1,30}$/.test(rfidUid)) next.rfid_uid = 'The UID must match the scanner exactly.';
+      else if (isIdentifyingRfid) {
+        // Keep the field clear until Identify finishes.
+      } else if (rfidIdentify.uid === rfidUid && rfidIdentify.message && !rfidIdentify.ok) next.rfid_uid = rfidIdentify.message;
+      else if (!(rfidIdentify.ok && rfidIdentify.uid === rfidUid)) {
+        next.rfid_uid = 'Identify this UID against the scanned school ID before creating the account.';
+      }
+    }
     return next;
-  }, [composedEmail, form, generatedPassword, idFormat, idLabel, isStudent, superAdminSlotsFull]);
+  }, [composedEmail, emailAvailability, form, generatedPassword, idFormat, idLabel, identifierAvailability, isIdentifyingRfid, isStudent, rfidIdentify, superAdminSlotsFull, usernameAvailability]);
 
   function updateField(field, value) {
     setForm((current) => {
@@ -189,8 +254,86 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
   }, [form.school_email]);
 
   function fieldError(field) {
-    return submitted || touched[field] ? errors[field] || '' : '';
+    const message = errors[field] || '';
+    if (!message) return '';
+    if (submitted || touched[field]) return message;
+    if (
+      field === 'identifier'
+      && identifierAvailability.message
+      && identifierAvailability.value === form.identifier
+      && identifierAvailability.role === (isStudent ? 'student' : 'employee')
+    ) {
+      return message;
+    }
+    if (
+      field === 'school_email'
+      && emailAvailability.message
+      && emailAvailability.value === composedEmail
+    ) {
+      return message;
+    }
+    if (
+      field === 'rfid_uid'
+      && !rfidIdentify.ok
+      && rfidIdentify.message
+      && rfidIdentify.uid === form.rfid_uid
+    ) {
+      return message;
+    }
+    return '';
   }
+
+  const checkIdentifierAvailability = useCallback(async (identifier, student) => {
+    const requestId = identifierRequestRef.current + 1;
+    identifierRequestRef.current = requestId;
+    const formatOk = (student ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/).test(identifier);
+    const roleKey = student ? 'student' : 'employee';
+
+    if (!formatOk) {
+      setIdentifierAvailability((current) => (
+        current.message ? { value: identifier, role: roleKey, message: '' } : current
+      ));
+      return true;
+    }
+
+    const field = student ? 'school_id' : 'employee_id';
+
+    try {
+      const response = await axiosClient.post('/api/registration_availability.php', {
+        [field]: identifier,
+      });
+      if (requestId !== identifierRequestRef.current) return false;
+
+      const message = response.data?.errors?.[field] || '';
+      setIdentifierAvailability({ value: identifier, role: roleKey, message });
+      return !message;
+    } catch {
+      if (requestId !== identifierRequestRef.current) return false;
+      return null;
+    }
+  }, []);
+
+  const checkEmailAvailability = useCallback(async (email) => {
+    const requestId = emailRequestRef.current + 1;
+    emailRequestRef.current = requestId;
+
+    if (!email) {
+      setEmailAvailability((current) => (current.message ? { value: '', message: '' } : current));
+      return true;
+    }
+
+    try {
+      const response = await axiosClient.post('/api/registration_availability.php', { email });
+      if (requestId !== emailRequestRef.current) return false;
+
+      const message = response.data?.errors?.email || '';
+      setEmailAvailability({ value: email, message });
+      return !message;
+    } catch {
+      if (requestId !== emailRequestRef.current) return false;
+      return null;
+    }
+  }, []);
 
   function fieldMessage(field, hint = '') {
     const error = fieldError(field);
@@ -199,7 +342,53 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
       return <small className="register-create-field-error">{error}</small>;
     }
 
+    if (field === 'rfid_uid' && rfidIdentify.ok && rfidIdentify.uid === form.rfid_uid) {
+      return <small className="register-create-field-ok">{rfidIdentify.message}</small>;
+    }
+
     return hint ? <small>{hint}</small> : null;
+  }
+
+  function updateRfidUid(value) {
+    const uid = value.replace(/\s/g, '').toUpperCase().slice(0, 30);
+    setForm((current) => ({ ...current, rfid_uid: uid }));
+    setRfidIdentify((current) => (current.uid === uid ? current : { uid: '', ok: false, message: '' }));
+  }
+
+  async function identifyRfidUid() {
+    const uid = form.rfid_uid.replace(/\s/g, '').toUpperCase();
+    setTouched((current) => ({ ...current, rfid_uid: true }));
+    setErrorMessage('');
+
+    if (!uid || !/^[A-Z0-9]{1,30}$/.test(uid)) {
+      setRfidIdentify({
+        uid,
+        ok: false,
+        message: uid ? 'The UID must match the scanner exactly.' : '',
+      });
+      return;
+    }
+
+    setIsIdentifyingRfid(true);
+
+    try {
+      const response = await axiosClient.post('/api/verify_rfid_uid.php', { rfid_uid: uid });
+      const verifiedUid = String(response.data?.rfid_uid || uid).replace(/\s/g, '').toUpperCase();
+      setForm((current) => ({ ...current, rfid_uid: verifiedUid }));
+      setRfidIdentify({
+        uid: verifiedUid,
+        ok: true,
+        message: 'This UID matches a scanned school ID.',
+      });
+    } catch (error) {
+      setRfidIdentify({
+        uid,
+        ok: false,
+        message: error.response?.data?.message || 'Unable to verify the RFID UID right now.',
+      });
+    } finally {
+      setIsIdentifyingRfid(false);
+    }
   }
 
   function leaveRegistration() {
@@ -218,7 +407,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
     if (userId) nextParams.set('enroll_user_id', String(userId));
     if (fingerprintId) nextParams.set('fingerprint_id', String(fingerprintId));
     window.sessionStorage.removeItem(registrationDraftKey);
-    window.location.assign(portalHref(`/super-admin/fingerprint?${nextParams.toString()}`));
+    window.location.assign(portalHref(`/super-admin/fingerprint-direct?${nextParams.toString()}`));
   }
 
   useEffect(() => {
@@ -242,6 +431,31 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
   }, []);
 
   useEffect(() => {
+    if (savedUser) return undefined;
+
+    const identifier = form.identifier;
+    const student = form.role === 'student';
+    identifierTimerRef.current = window.setTimeout(() => {
+      if (checkingOnSubmitRef.current) return;
+      void checkIdentifierAvailability(identifier, student);
+    }, 300);
+
+    return () => window.clearTimeout(identifierTimerRef.current);
+  }, [checkIdentifierAvailability, form.identifier, form.role, savedUser]);
+
+  useEffect(() => {
+    if (savedUser) return undefined;
+
+    const email = composedEmail;
+    emailTimerRef.current = window.setTimeout(() => {
+      if (checkingOnSubmitRef.current) return;
+      void checkEmailAvailability(email);
+    }, 300);
+
+    return () => window.clearTimeout(emailTimerRef.current);
+  }, [checkEmailAvailability, composedEmail, savedUser]);
+
+  useEffect(() => {
     if (savedUser) return;
     try {
       window.sessionStorage.setItem(registrationDraftKey, JSON.stringify(form));
@@ -256,12 +470,43 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
     setErrorMessage('');
 
     if (isLimitedAdmin && adminBlockedRoles.has(form.role)) {
-      setErrorMessage('Admin accounts cannot create super admin, faculty, or staff users.');
+      setErrorMessage('Admin accounts cannot create admin, faculty, staff, or super admin users.');
       return;
     }
 
     if (Object.keys(errors).length > 0) {
       setErrorMessage('Please correct the highlighted fields before creating the account.');
+      return;
+    }
+
+    window.clearTimeout(identifierTimerRef.current);
+    window.clearTimeout(emailTimerRef.current);
+    checkingOnSubmitRef.current = true;
+    let identifierIsUnique;
+    let emailIsUnique;
+    try {
+      [identifierIsUnique, emailIsUnique] = await Promise.all([
+        checkIdentifierAvailability(form.identifier, isStudent),
+        checkEmailAvailability(composedEmail),
+      ]);
+    } finally {
+      checkingOnSubmitRef.current = false;
+    }
+    if (identifierIsUnique === false || emailIsUnique === false) {
+      setTouched((current) => ({
+        ...current,
+        identifier: identifierIsUnique === false || current.identifier,
+        school_email: emailIsUnique === false || current.school_email,
+      }));
+      setErrorMessage('Please correct the highlighted fields before creating the account.');
+      return;
+    }
+    if (identifierIsUnique === null) {
+      setErrorMessage(`Unable to check whether this ${idLabel.toLowerCase()} is already in use. Please try again.`);
+      return;
+    }
+    if (emailIsUnique === null) {
+      setErrorMessage('Unable to check whether this school email is already in use. Please try again.');
       return;
     }
 
@@ -289,7 +534,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
         username: form.username.trim(),
         email: composedEmail,
         ...(isStudent
-          ? { school_id: form.identifier }
+          ? { school_id: form.identifier, rfid_uid: form.rfid_uid }
           : { employee_id: form.identifier }),
         actor_id: actorId,
       });
@@ -298,7 +543,37 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
       setShowPassword(false);
       setSavedUser(response.data.user);
     } catch (error) {
-      setErrorMessage(error.response?.data?.message || 'Unable to save this user. Please check the required details.');
+      const duplicateErrors = error.response?.data?.errors || {};
+      const duplicateMessage = duplicateErrors.employee_id || duplicateErrors.school_id || '';
+      if (duplicateMessage) {
+        setIdentifierAvailability({
+          value: form.identifier,
+          role: isStudent ? 'student' : 'employee',
+          message: duplicateMessage,
+        });
+        setTouched((current) => ({ ...current, identifier: true }));
+      }
+      if (duplicateErrors.email) {
+        setEmailAvailability({ value: composedEmail, message: duplicateErrors.email });
+        setTouched((current) => ({ ...current, school_email: true }));
+      }
+      if (duplicateErrors.username) {
+        setUsernameAvailability({
+          value: form.username.trim().toLowerCase(),
+          message: duplicateErrors.username,
+        });
+        setTouched((current) => ({ ...current, username: true }));
+      }
+      const saveMessage = error.response?.data?.message || 'Unable to save this user. Please check the required details.';
+      if (duplicateErrors.rfid_uid || (isStudent && /uid/i.test(saveMessage))) {
+        setRfidIdentify({
+          uid: form.rfid_uid,
+          ok: false,
+          message: duplicateErrors.rfid_uid || saveMessage,
+        });
+        setTouched((current) => ({ ...current, rfid_uid: true }));
+      }
+      setErrorMessage(saveMessage);
     } finally {
       setIsSaving(false);
     }
@@ -327,7 +602,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
           <span>
             {savedUser
               ? 'Choose whether to enroll a fingerprint now. The user still completes the rest of the profile on first login.'
-              : 'Save the identity details only. The temporary password is created from the username and the second part of the ID.'}
+              : `Save the identity details only. The temporary password is ${passwordPattern}, using the last ${isStudent ? '4 digits of the School ID' : '6 digits of the Employee ID'}.`}
           </span>
         </div>
 
@@ -342,6 +617,12 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
                 <dt>School email</dt>
                 <dd>{savedUser.email}</dd>
               </div>
+              {savedUser.rfid?.rfid_uid ? (
+                <div>
+                  <dt>RFID UID</dt>
+                  <dd>{savedUser.rfid.rfid_uid}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Temporary password</dt>
                 <dd className="register-create-secret">
@@ -376,7 +657,6 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
           </div>
         ) : (
           <form className="register-create-form" onSubmit={handleSubmit} noValidate>
-            {errorMessage ? <p className="register-create-error">{errorMessage}</p> : null}
             <label className="is-span">
               <span>Role<i>*</i></span>
               <select
@@ -398,6 +678,31 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
               </select>
               {fieldMessage('role')}
             </label>
+            {isStudent ? (
+              <label className="is-span">
+                <span>RFID UID<i>*</i></span>
+                <span className="register-create-rfid">
+                  <input
+                    autoComplete="off"
+                    maxLength={30}
+                    placeholder="Enter scanned UID"
+                    aria-invalid={Boolean(fieldError('rfid_uid'))}
+                    value={form.rfid_uid}
+                    onBlur={() => setTouched((current) => ({ ...current, rfid_uid: true }))}
+                    onChange={(event) => updateRfidUid(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className={`register-create-identify${isIdentifyingRfid ? ' is-busy' : ''}${rfidIdentify.ok && rfidIdentify.uid === form.rfid_uid ? ' is-matched' : ''}`}
+                    disabled={isIdentifyingRfid || (rfidIdentify.ok && rfidIdentify.uid === form.rfid_uid)}
+                    onClick={identifyRfidUid}
+                  >
+                    {isIdentifyingRfid ? 'Identifying...' : rfidIdentify.ok && rfidIdentify.uid === form.rfid_uid ? 'Identified' : 'Identify'}
+                  </button>
+                </span>
+                {fieldMessage('rfid_uid', 'Scan the school ID, then identify the UID shown on the scanner.')}
+              </label>
+            ) : null}
             <label>
               <span>{idLabel}<i>*</i></span>
               <input
@@ -437,7 +742,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
                 aria-invalid={Boolean(fieldError('first_name'))}
                 value={form.first_name}
                 onBlur={() => setTouched((current) => ({ ...current, first_name: true }))}
-                onChange={(event) => updateField('first_name', toTitleCase(event.target.value))}
+                onChange={(event) => updateField('first_name', event.target.value)}
               />
               {fieldMessage('first_name')}
             </label>
@@ -448,7 +753,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
                 aria-invalid={Boolean(fieldError('last_name'))}
                 value={form.last_name}
                 onBlur={() => setTouched((current) => ({ ...current, last_name: true }))}
-                onChange={(event) => updateField('last_name', toTitleCase(event.target.value))}
+                onChange={(event) => updateField('last_name', event.target.value)}
               />
               {fieldMessage('last_name')}
             </label>
@@ -459,14 +764,14 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
                 aria-invalid={Boolean(fieldError('username'))}
                 value={form.username}
                 onBlur={() => setTouched((current) => ({ ...current, username: true }))}
-                onChange={(event) => updateField('username', event.target.value.replace(/\s/g, ''))}
+                onChange={(event) => updateField('username', event.target.value.replace(/\s/g, '').toLowerCase())}
               />
-              {fieldMessage('username', isStudent ? 'Use firstname.lastname.' : '')}
+              {fieldMessage('username')}
             </label>
             <label className="is-span">
               <span>Temporary password</span>
               <span className="register-create-secret">
-                <input readOnly type={showPassword ? 'text' : 'password'} value={generatedPassword} placeholder={isStudent ? 'Username@0471' : 'Username@004712'} />
+                <input readOnly type={showPassword ? 'text' : 'password'} value={generatedPassword} placeholder={passwordPattern} />
                 <button
                   type="button"
                   aria-label={showPassword ? 'Hide temporary password' : 'Show temporary password'}
@@ -485,13 +790,18 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
               <button type="button" className="register-create-secondary" onClick={leaveRegistration} disabled={isSaving}>
                 Cancel
               </button>
-              <button type="submit" className="register-create-primary" disabled={isSaving}>
+              <button type="submit" className="register-create-primary" disabled={isSaving || isIdentifyingRfid}>
                 {isSaving ? 'Creating...' : 'Create account'}
               </button>
             </div>
           </form>
         )}
       </section>
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
     </div>
   );
 }

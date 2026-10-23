@@ -66,6 +66,7 @@ export default function RowActionMenu({ label, items, disabled = false }) {
         role="menuitem"
         className={item.danger ? 'is-danger' : undefined}
         disabled={item.disabled}
+        title={item.title || undefined}
         onClick={() => {
           setMenu(null);
           item.onClick?.();

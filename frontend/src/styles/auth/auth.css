@@ -266,11 +266,11 @@
 }
 
 .auth-showcase-card.is-left::after {
-  background: linear-gradient(90deg, transparent 35%, rgba(247, 250, 248, 0.85));
+  background: linear-gradient(90deg, transparent 35%, rgba(255, 255, 255, 0.92));
 }
 
 .auth-showcase-card.is-right::after {
-  background: linear-gradient(270deg, transparent 35%, rgba(247, 250, 248, 0.85));
+  background: linear-gradient(270deg, transparent 35%, rgba(255, 255, 255, 0.92));
 }
 
 .auth-showcase-card.is-center:hover,
@@ -968,6 +968,7 @@
 
 .auth-page.auth-page-register .auth-site-footer {
   background: #08281c;
+  border-top: 4px solid var(--gold);
   box-sizing: border-box;
   color: rgba(255, 255, 255, 0.72);
   font-size: 13px;
@@ -2763,6 +2764,7 @@
 
 .auth-page.auth-page-login {
   align-items: stretch;
+  background: #ffffff;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 56px 1fr auto;
@@ -2798,6 +2800,7 @@
 }
 
 .auth-page.auth-page-login .auth-site-footer {
+  border-top: 4px solid var(--gold);
   position: relative;
 }
 

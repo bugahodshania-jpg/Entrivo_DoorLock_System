@@ -78,14 +78,17 @@ export default function UserDashboard({ user }) {
     }
 
     let isActive = true;
+    let requestVersion = 0;
 
     async function loadDashboard() {
+      const version = ++requestVersion;
       try {
         const response = await axiosClient.get('/api/user_portal.php', {
           params: { action: 'dashboard', user_id: user.id },
+          timeout: 10000,
         });
 
-        if (!isActive) {
+        if (!isActive || version !== requestVersion) {
           return;
         }
 
@@ -99,7 +102,7 @@ export default function UserDashboard({ user }) {
         setPendingOverrides(response.data.pendingOverrides || []);
         setRecentAccessLogs((response.data.recentAccessLogs || []).slice(0, 5));
       } catch {
-        if (isActive) {
+        if (isActive && version === requestVersion) {
           setSummary(initialSummary);
           setAccessTrend([]);
           setTodayAccessTrend([]);
@@ -108,16 +111,18 @@ export default function UserDashboard({ user }) {
           setRecentAccessLogs([]);
         }
       } finally {
-        if (isActive) {
+        if (isActive && version === requestVersion) {
           setIsLoading(false);
         }
       }
     }
 
     loadDashboard();
+    window.addEventListener('entrivo:override-notifications', loadDashboard);
 
     return () => {
       isActive = false;
+      window.removeEventListener('entrivo:override-notifications', loadDashboard);
     };
   }, [user?.id]);
 
@@ -409,8 +414,8 @@ export default function UserDashboard({ user }) {
             <aside className="dashboard-schedule-card dashboard-override-card" aria-label="Pending override requests">
               <div className="dashboard-panel-header">
                 <div>
-                  <h2>Override Requests</h2>
-                  <p>Your override requests waiting for review.</p>
+                  <h2>My Override Requests</h2>
+                  <p>Override requests you sent, waiting for review.</p>
                 </div>
               </div>
 

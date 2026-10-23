@@ -19,9 +19,12 @@ import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
 import WeeklyScheduleGrid from '../../components/WeeklyScheduleGrid';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import PortalToast from '../../components/PortalToast';
 import { formatDateInManila, getManilaDateStamp } from '../../utils/dateTime';
 import { buildTablePdf, downloadFile } from '../../utils/exportFiles';
+import ScheduleKindBadges from '../../components/ScheduleKindBadges';
+import ScheduleDayTable, { ScheduleDayRow } from '../../components/ScheduleDayTable';
 import {
   buildCalendarPdf,
   buildScheduleCsv,
@@ -30,7 +33,9 @@ import {
   formatScheduleKindLabel,
   formatScheduleStatusLabel,
   getScheduleKind,
+  getScheduleDateParts,
   getScheduleTimeLabel,
+  getScheduleTimeParts,
   getWeekStartStamp,
   parseDateStamp,
   shiftDateStamp,
@@ -64,7 +69,6 @@ const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
   { value: 'approved', label: 'Approved' },
   { value: 'pending', label: 'Pending' },
-  { value: 'overridden', label: 'Overridden' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'expired', label: 'Expired' },
@@ -160,7 +164,7 @@ function toCalendarEntry(schedule, dateKey, selfName) {
   return {
     ...schedule,
     scheduleDate: dateKey,
-    scheduleKind: String(schedule.status || '').toLowerCase() === 'overridden' ? 'override' : 'regular',
+    scheduleKind: getScheduleKind(schedule),
     window: schedule.time || '',
     ownerName: schedule.isMine ? selfName : schedule.ownerName || 'Other faculty',
   };
@@ -170,22 +174,14 @@ function UserCalendarEvent({ schedule }) {
   const ownerLabel = schedule.isMine
     ? 'You'
     : schedule.ownerName || 'Other faculty';
-  const status = String(schedule.status || '').toLowerCase();
-  const occupancyLabel = schedule.isMine
-    ? 'Yours'
-    : status === 'overridden'
-      ? 'Override'
-      : 'Occupied';
 
   return (
     <div
       className={`schedules-calendar-event${schedule.isMine ? ' is-mine' : ' is-other'}`}
     >
       <strong>{ownerLabel}</strong>
-      <span>{schedule.time || 'No time set'}</span>
-      <span>
-        {formatScheduleStatusLabel(schedule.status)} · {occupancyLabel}
-      </span>
+      <span className="schedules-calendar-event-meta">{schedule.time || 'No time set'}</span>
+      <ScheduleKindBadges schedule={schedule} />
     </div>
   );
 }
@@ -229,14 +225,17 @@ export default function MySchedule({ user }) {
     }
 
     let isActive = true;
+    let requestVersion = 0;
 
     async function loadSchedules() {
+      const version = ++requestVersion;
       try {
         const response = await axiosClient.get('/api/user_portal.php', {
           params: { action: 'schedules', user_id: user.id },
+          timeout: 10000,
         });
 
-        if (!isActive) {
+        if (!isActive || version !== requestVersion) {
           return;
         }
 
@@ -244,22 +243,24 @@ export default function MySchedule({ user }) {
         setCalendarSchedules(response.data.calendarSchedules || []);
         setErrorMessage('');
       } catch {
-        if (isActive) {
+        if (isActive && version === requestVersion) {
           setSchedules([]);
           setCalendarSchedules([]);
           setErrorMessage('Unable to load schedules right now.');
         }
       } finally {
-        if (isActive) {
+        if (isActive && version === requestVersion) {
           setIsLoading(false);
         }
       }
     }
 
     loadSchedules();
+    window.addEventListener('entrivo:override-notifications', loadSchedules);
 
     return () => {
       isActive = false;
+      window.removeEventListener('entrivo:override-notifications', loadSchedules);
     };
   }, [user?.id]);
 
@@ -337,7 +338,7 @@ export default function MySchedule({ user }) {
       }
 
       return true;
-    });
+    }).sort(compareSchedulesChronologically);
   }, [dateFrom, dateTo, schedules, statusFilter, todayStr, viewFilter]);
 
   const viewFilterCounts = useMemo(() => {
@@ -411,7 +412,7 @@ export default function MySchedule({ user }) {
         return;
       }
 
-      if (status !== 'approved' && status !== 'overridden') {
+      if (status !== 'approved') {
         return;
       }
 
@@ -717,7 +718,7 @@ export default function MySchedule({ user }) {
     const rows = filteredSchedules.map((schedule) => [
       schedule.dateValue,
       schedule.time,
-      formatScheduleTypeLabel(schedule.scheduleType),
+      formatScheduleKindLabel(getScheduleKind(schedule)),
       formatScheduleStatusLabel(schedule.status),
       schedule.gracePeriodMinutes,
       schedule.id,
@@ -733,7 +734,7 @@ export default function MySchedule({ user }) {
     const rows = filteredSchedules.map((schedule) => [
       schedule.dateLabel || formatScheduleDate(schedule.dateValue),
       schedule.time || '—',
-      formatScheduleTypeLabel(schedule.scheduleType),
+      formatScheduleKindLabel(getScheduleKind(schedule)),
       formatScheduleStatusLabel(schedule.status),
       Number.isFinite(Number(schedule.gracePeriodMinutes)) ? `${schedule.gracePeriodMinutes} min` : '—',
     ]);
@@ -794,7 +795,7 @@ export default function MySchedule({ user }) {
     const weekSchedules = getExportableSchedules(isInDisplayedWeek);
     const pdf = buildWeeklyPdf({
       title: `Weekly Schedule: ${weekRangeLabel}`,
-      note: 'Approved and overridden schedules, including other faculty occupancy.',
+      note: 'Approved regular and override schedules, including other faculty occupancy.',
       days: weekDays.map((day) => ({
         ...day,
         entries: weekSchedules.filter((schedule) => schedule.scheduleDate === day.dateStr),
@@ -826,7 +827,7 @@ export default function MySchedule({ user }) {
     });
     const pdf = buildCalendarPdf({
       title: `${monthNames[calMonth]} ${calYear}`,
-      note: 'Approved and overridden schedules, including other faculty occupancy.',
+      note: 'Approved regular and override schedules, including other faculty occupancy.',
       dayHeaders,
       cells,
     });
@@ -857,25 +858,25 @@ export default function MySchedule({ user }) {
   }
 
   return (
-    <main className="admin-dashboard schedules-page user-portal-page" aria-label="My schedule">
+    <main className="admin-dashboard schedules-page user-portal-page my-schedule-page" aria-label="My schedule">
       <div className={`schedules-layout${isCalendarExpanded ? ' is-calendar-expanded' : ''}`}>
         <section className="dashboard-recent-card schedules-card">
           <div className="dashboard-panel-header">
             <div>
               <span>My Schedule</span>
-              <p>View-only list of your assigned schedules. Request an override if you need temporary access.</p>
+              <p>Your assigned schedules. Request an override for temporary access.</p>
             </div>
             <div className="schedules-header-actions">
-              <button type="button" className="schedules-csv-button" onClick={() => setExportTarget('table')}>
-                <Download size={14} />
+              <button type="button" className="dashboard-export-button" onClick={() => setExportTarget('table')}>
+                <Download size={15} aria-hidden="true" />
                 Export
               </button>
               <button
                 type="button"
-                className="settings-primary-button user-schedule-override-link"
+                className="dashboard-schedule-button schedules-add-button"
                 onClick={() => openOverrideModal(focusedCalendarDate || todayStr)}
               >
-                <ShieldAlert size={15} aria-hidden="true" />
+                <ShieldAlert size={16} aria-hidden="true" />
                 Request Override
               </button>
             </div>
@@ -1044,47 +1045,83 @@ export default function MySchedule({ user }) {
             </div>
           </div>
 
-          <div className="dashboard-recent-table-wrap">
-            <table className="dashboard-recent-table">
+          <div className="dashboard-recent-table-wrap schedules-table-wrap">
+            <table className="dashboard-recent-table schedules-table">
               <thead>
                 <tr>
+                  <th>ID</th>
+                  <th>User</th>
                   <th>Date</th>
                   <th>Time</th>
                   <th>Type</th>
                   <th>Status</th>
-                  <th>Grace</th>
+                  <th>Created</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td className="dashboard-recent-empty" colSpan="5">
+                    <td className="dashboard-recent-empty" colSpan="8">
                       Loading schedules…
                     </td>
                   </tr>
-                ) : errorMessage ? (
-                  <tr>
-                    <td className="dashboard-recent-empty" colSpan="5">
-                      {errorMessage}
-                    </td>
-                  </tr>
                 ) : pageRows.length ? (
-                  pageRows.map((schedule) => (
+                  pageRows.map((schedule) => {
+                    const dateParts = getScheduleDateParts(schedule);
+                    const timeParts = getScheduleTimeParts(schedule);
+
+                    return (
                     <tr key={schedule.id}>
-                      <td>{schedule.dateLabel || formatScheduleDate(schedule.dateValue)}</td>
-                      <td>{schedule.time}</td>
-                      <td>{schedule.scheduleType || '—'}</td>
+                      <td>{schedule.id}</td>
+                      <td>
+                        <strong>{getSelfName(user)}</strong>
+                        <span>{user?.employee_id || '—'}</span>
+                      </td>
+                      <td>
+                        <div className="schedules-window-cell">
+                          <strong>{dateParts.date || schedule.dateLabel || formatScheduleDate(schedule.dateValue)}</strong>
+                          {dateParts.weekday ? <span>{dateParts.weekday}</span> : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="schedules-window-cell">
+                          {timeParts.start && timeParts.end ? (
+                            <>
+                              <strong>{timeParts.start}</strong>
+                              <span>{timeParts.end}</span>
+                            </>
+                          ) : (
+                            <strong>{timeParts.start || schedule.time || '—'}</strong>
+                          )}
+                        </div>
+                      </td>
+                      <td><ScheduleKindBadges schedule={schedule} /></td>
                       <td>
                         <span className={`dashboard-log-status dashboard-log-status-${schedule.status}`}>
-                          {schedule.status}
+                          {formatScheduleStatusLabel(schedule.status)}
                         </span>
                       </td>
-                      <td>{schedule.gracePeriodMinutes} min</td>
+                      <td>
+                        <div className="schedules-window-cell">
+                          <strong>{schedule.createdDateLabel || '—'}</strong>
+                          {schedule.createdTimeLabel ? <span>{schedule.createdTimeLabel}</span> : null}
+                        </div>
+                      </td>
+                      <td>
+                        <RowActionMenu
+                          label={`Actions for schedule ${schedule.id}`}
+                          items={[
+                            { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
+                          ]}
+                        />
+                      </td>
                     </tr>
-                  ))
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td className="dashboard-recent-empty" colSpan="5">
+                    <td className="dashboard-recent-empty" colSpan="8">
                       No schedules match the current filters.
                     </td>
                   </tr>
@@ -1093,25 +1130,33 @@ export default function MySchedule({ user }) {
             </table>
           </div>
 
-          <div className="activity-logs-pagination">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-            >
-              Previous
-            </button>
-            <span>
-              Page {currentPage} of {totalPages}
-            </span>
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-            >
-              Next
-            </button>
-          </div>
+          {!isLoading && filteredSchedules.length > 0 ? (
+            <div className="schedules-pagination" aria-label="My schedule pagination">
+              <p>
+                Showing {(currentPage - 1) * rowsPerPage + 1}-
+                {Math.min(currentPage * rowsPerPage, filteredSchedules.length)} of {filteredSchedules.length}
+              </p>
+              <div className="schedules-pagination-controls">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <aside className="schedules-calendar-card">
@@ -1121,19 +1166,27 @@ export default function MySchedule({ user }) {
                 <button
                   type="button"
                   className="schedules-calendar-export"
+                  aria-label="Export schedule"
                   onClick={() => setExportTarget('calendar')}
                 >
                   <Download size={14} />
-                  Export schedule
+                  <span className="my-schedule-calendar-label-full">Export schedule</span>
+                  <span className="my-schedule-calendar-label-short" aria-hidden="true">Export</span>
                 </button>
                 <button
                   type="button"
                   className="schedules-calendar-export schedules-calendar-view-toggle"
+                  aria-label={isWeekView ? 'Monthly Calendar' : 'Weekly Schedule'}
                   aria-pressed={isWeekView}
                   onClick={isWeekView ? openMonthlyView : openWeeklyView}
                 >
                   {isWeekView ? <CalendarDays size={14} /> : <CalendarRange size={14} />}
-                  {isWeekView ? 'Monthly Calendar' : 'Weekly Schedule'}
+                  <span className="my-schedule-calendar-label-full">
+                    {isWeekView ? 'Monthly Calendar' : 'Weekly Schedule'}
+                  </span>
+                  <span className="my-schedule-calendar-label-short" aria-hidden="true">
+                    {isWeekView ? 'Monthly' : 'Weekly'}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1259,23 +1312,35 @@ export default function MySchedule({ user }) {
                   ) : null}
                 </div>
                 {focusedCell.entries.length > 0 ? (
-                  <div className="schedules-calendar-day-table">
+                  <ScheduleDayTable>
                     {focusedCell.entries.map((schedule) => (
-                      <div className="schedules-calendar-day-row" key={schedule.id}>
-                        <UserCalendarEvent schedule={schedule} />
-                        <RowActionMenu
-                          label={`Actions for ${schedule.ownerName || 'schedule'}`}
-                          items={[
-                            {
-                              label: 'View',
-                              icon: Eye,
-                              onClick: () => handleView(schedule),
-                            },
-                          ]}
-                        />
-                      </div>
+                      <ScheduleDayRow
+                        key={schedule.id}
+                        schedule={schedule}
+                        name={schedule.isMine ? 'You' : schedule.ownerName || 'Other faculty'}
+                        dateLabel={
+                          schedule.scheduleDateLabel
+                          || schedule.dateLabel
+                          || formatScheduleDate(schedule.scheduleDate || schedule.dateValue || focusedCell.dateStr)
+                        }
+                        timeStartLabel={schedule.timeStartLabel}
+                        timeEndLabel={schedule.timeEndLabel}
+                        timeLabel={schedule.time || getScheduleTimeLabel(schedule) || 'No time set'}
+                        actions={
+                          <RowActionMenu
+                            label={`Actions for ${schedule.ownerName || 'schedule'}`}
+                            items={[
+                              {
+                                label: 'View',
+                                icon: Eye,
+                                onClick: () => handleView(schedule),
+                              },
+                            ]}
+                          />
+                        }
+                      />
                     ))}
-                  </div>
+                  </ScheduleDayTable>
                 ) : (
                   <p>No approved schedules on this day — looks vacant for an override request.</p>
                 )}
@@ -1472,6 +1537,10 @@ export default function MySchedule({ user }) {
                 <dl>
                   <div>
                     <dt>Type</dt>
+                    <dd><ScheduleKindBadges schedule={viewSchedule} /></dd>
+                  </div>
+                  <div>
+                    <dt>Schedule pattern</dt>
                     <dd>{formatScheduleTypeLabel(viewSchedule.scheduleType)}</dd>
                   </div>
                   <div>
@@ -1536,7 +1605,7 @@ export default function MySchedule({ user }) {
         prompt={
           exportTarget === 'table'
             ? 'Only the schedules matching the current table filters will be exported. Choose the file format.'
-            : 'Approved and overridden schedules on the calendar will be exported. Choose the file format.'
+            : 'Approved regular and override schedules on the calendar will be exported. Choose the file format.'
         }
         pdfHint={
           exportTarget === 'table'
@@ -1639,8 +1708,6 @@ export default function MySchedule({ user }) {
                 </div>
               </div>
 
-              {overrideError ? <p className="schedules-form-error">{overrideError}</p> : null}
-
               <div className="schedules-form-actions">
                 <button
                   type="button"
@@ -1662,6 +1729,16 @@ export default function MySchedule({ user }) {
           </div>
         </div>
       ) : null}
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(overrideError)}
+        message={overrideError}
+        onClose={() => setOverrideError('')}
+      />
     </main>
   );
 }

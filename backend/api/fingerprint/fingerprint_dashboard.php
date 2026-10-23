@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 require_once dirname(__DIR__, 2) . '/config/connection.php';
 require_once dirname(__DIR__, 2) . '/services/SuperAdminDashboardSession.php';
+require_once dirname(__DIR__, 2) . '/services/FingerprintEnrollmentReadiness.php';
 
 function getFingerprintStandbyMap(PDO $pdo): array
 {
@@ -43,6 +44,21 @@ function resolveFingerprintUserStatus(bool $isActive, string $role, int $userId,
     }
 
     return 'blocked';
+}
+
+function ensurePendingFingerprintsForAccounts(PDO $pdo): void
+{
+    // Registration creates one pending fingerprint per account. Recreate that
+    // row when an account has none, so Enroll stays available after a reset.
+    $pdo->exec(
+        "INSERT INTO fingerprints (user_id, finger_name, status, enrolled_at)
+         SELECT users.id, NULL, 'pending', NULL
+         FROM users
+         WHERE users.role IN ('faculty', 'staff', 'admin', 'super_admin')
+           AND NOT EXISTS (
+                SELECT 1 FROM fingerprints WHERE fingerprints.user_id = users.id
+           )"
+    );
 }
 
 function fetchFingerprintsByRole(PDO $pdo, string $roleKey, array $standbyMap = []): array
@@ -116,8 +132,11 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey, array $standbyMap = 
 
     $statement->execute();
 
+    $rows = $statement->fetchAll();
+    $verifiedMap = FingerprintEnrollmentReadiness::verifiedMap($pdo, array_column($rows, 'fingerprint_id'));
+
     return array_map(
-        static function ($row) use ($standbyMap) {
+        static function ($row) use ($standbyMap, $verifiedMap) {
             $nameParts = [
                 $row['first_name'],
                 $row['middle_name'],
@@ -149,7 +168,9 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey, array $standbyMap = 
                 'doorSyncStatus' => $row['door_sync_status'],
                 'syncedAt' => $row['door_synced_at'],
                 'hasTemplateData' => (bool) ($row['has_template_data'] ?? false),
-                'templateBytes' => (int) ($row['template_bytes'] ?? 0),
+                'templateBytes' => (int) ($verifiedMap[(int) $row['fingerprint_id']]['template_bytes'] ?? $row['template_bytes'] ?? 0),
+                'enrollmentVerified' => isset($verifiedMap[(int) $row['fingerprint_id']]),
+                'enrollmentVerification' => $verifiedMap[(int) $row['fingerprint_id']] ?? null,
                 'userStatus' => resolveFingerprintUserStatus(
                     (bool) $row['is_active'],
                     $role,
@@ -159,12 +180,13 @@ function fetchFingerprintsByRole(PDO $pdo, string $roleKey, array $standbyMap = 
                 'joinedAt' => $row['joined_at'],
             ];
         },
-        $statement->fetchAll()
+        $rows
     );
 }
 
 try {
     $pdo = entrivo_pdo();
+    ensurePendingFingerprintsForAccounts($pdo);
     $standbyMap = getFingerprintStandbyMap($pdo);
     echo json_encode([
         'message' => 'Fingerprints loaded.',

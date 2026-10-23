@@ -19,6 +19,19 @@
   margin-top: 0;
 }
 
+.fingerprint-finished-toolbar {
+  margin-top: 16px;
+}
+
+.fingerprint-jobs-table-card .fingerprint-jobs-table {
+  margin-top: 10px;
+}
+
+.fingerprint-jobs-table-card .fingerprint-jobs-table thead th {
+  border-top: 1px solid #dfe8e3;
+  padding-top: 14px;
+}
+
 .fingerprint-jobs-pagination {
   align-items: center;
   display: flex;
@@ -141,6 +154,91 @@
   max-width: 42ch;
 }
 
+.fingerprint-sync-toolbar {
+  border-bottom: 0;
+  border-top: 1px solid #e6ece9;
+  margin-bottom: 8px;
+  padding: 12px 0 0;
+  position: relative;
+  z-index: 5;
+}
+
+.fingerprint-sync-toolbar-end {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.fingerprint-sync-live-button {
+  align-items: center;
+  background: #0c4b2d;
+  border: 1px solid #0c4b2d;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.fingerprint-sync-live-button:hover {
+  background: #103e2b;
+  border-color: #103e2b;
+}
+
+.fingerprint-sync-live-count {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  min-width: 18px;
+  padding: 0 6px;
+  text-align: center;
+}
+
+.fingerprint-sync-live-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: min(760px, calc(100dvh - 36px));
+  max-width: 860px;
+}
+
+.fingerprint-sync-live-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.fingerprint-sync-live-card {
+  background: #f8fbf9;
+  border: 1px solid #e2ebe6;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.fingerprint-sync-live-person {
+  color: #60716a;
+  font-size: 12px;
+  font-weight: 600;
+  margin: -4px 0 0;
+}
+
+.fingerprint-sync-live-card .fingerprint-sync-step span {
+  display: none;
+}
+
 .fingerprint-table-filters {
   margin: 10px 0 6px;
 }
@@ -160,13 +258,20 @@
   font-size: 11px;
 }
 
-.fingerprint-header-actions {
-  align-items: flex-end;
+.fingerprint-filter-actions {
+  align-items: center;
   display: flex;
-  flex-direction: column;
+  flex: 1 1 250px;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.fingerprint-filter-actions .fingerprint-search {
+  flex: 1 1 180px;
+  min-width: 180px;
 }
 
 .fingerprint-job-link-row {
@@ -337,9 +442,24 @@
   width: 6%;
 }
 
+.fingerprint-direct-table th:nth-child(4),
+.fingerprint-direct-table td:nth-child(4) {
+  width: 140px;
+}
+
+.fingerprint-direct-table th:nth-child(7),
+.fingerprint-direct-table td:nth-child(7) {
+  width: calc(11% + 60px);
+}
+
 .fingerprint-enrollment-enrolled {
   background: #e7f6ed;
   color: #0c7a43;
+}
+
+.fingerprint-enrollment-unverified {
+  background: #fff8e9;
+  color: #946c25;
 }
 
 .fingerprint-enrollment-not_enrolled {
@@ -495,12 +615,13 @@
 
 .fingerprint-sync-progress-panel {
   display: grid;
-  gap: 16px;
+  gap: 10px;
 }
 
 .fingerprint-sync-progress-header {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: space-between;
 }
@@ -522,26 +643,47 @@
   padding: 6px 10px;
 }
 
+.fingerprint-sync-queue-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.fingerprint-sync-progress-header .fingerprint-sync-countdown {
+  align-items: center;
+  color: #60716a;
+  display: inline-flex;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  gap: 5px;
+  white-space: nowrap;
+}
+
 .fingerprint-sync-progress-failed .fingerprint-live-progress-bar {
   background: linear-gradient(90deg, #b42318 0%, #ef4444 100%);
 }
 
 .fingerprint-sync-stepper {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .fingerprint-sync-step {
-  align-items: flex-start;
+  align-items: center;
   background: #f8fbf9;
   border: 1px solid #e2ebe6;
   border-radius: 8px;
   display: grid;
-  gap: 9px;
-  grid-template-columns: 32px minmax(0, 1fr);
-  min-height: 74px;
-  padding: 12px;
+  gap: 6px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  min-height: 0;
+  padding: 8px 6px;
+  text-align: center;
 }
 
 .fingerprint-sync-step-marker {
@@ -550,9 +692,9 @@
   border-radius: 999px;
   color: #60716a;
   display: inline-flex;
-  height: 32px;
+  height: 26px;
   justify-content: center;
-  width: 32px;
+  width: 26px;
 }
 
 .fingerprint-sync-step-current,
@@ -567,6 +709,16 @@
   color: #ffffff;
 }
 
+.fingerprint-sync-step-failed {
+  background: #fff6f5;
+  border-color: #f3c7c3;
+}
+
+.fingerprint-sync-step-failed .fingerprint-sync-step-marker {
+  background: #b42318;
+  color: #ffffff;
+}
+
 .fingerprint-sync-step strong {
   color: #13251f;
   display: block;
@@ -578,10 +730,10 @@
 .fingerprint-sync-step span {
   color: #60716a;
   display: block;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  line-height: 1.3;
-  margin-top: 3px;
+  line-height: 1.25;
+  margin-top: 2px;
 }
 
 .fingerprint-sync-live-detail {
@@ -590,9 +742,9 @@
   border: 1px solid #e2ebe6;
   border-radius: 8px;
   display: grid;
-  gap: 10px;
+  gap: 8px;
   grid-template-columns: 22px minmax(0, 1fr);
-  padding: 12px;
+  padding: 8px 10px;
 }
 
 .fingerprint-sync-live-detail svg {
@@ -660,7 +812,7 @@
 
 .fingerprint-jobs-table th:nth-child(6),
 .fingerprint-jobs-table td:nth-child(6) {
-  text-align: center;
+  text-align: left;
   width: 13%;
 }
 
@@ -672,6 +824,11 @@
 
 .fingerprint-jobs-table td {
   white-space: normal;
+}
+
+.fingerprint-job-updated strong,
+.fingerprint-job-updated span {
+  display: block;
 }
 
 .fingerprint-jobs-table td strong {
@@ -687,12 +844,13 @@
 }
 
 .fingerprint-sync-table {
-  border-top: 1px solid #dfe8e3;
+  border-top: 0;
   margin-top: 10px;
   min-width: 1120px;
 }
 
 .fingerprint-sync-table thead th {
+  border-top: 1px solid #dfe8e3;
   padding-top: 14px;
 }
 
@@ -704,7 +862,7 @@
 
 .fingerprint-sync-table th:nth-child(2),
 .fingerprint-sync-table td:nth-child(2) {
-  width: 16%;
+  width: 21%;
 }
 
 .fingerprint-sync-table th:nth-child(3),
@@ -715,7 +873,7 @@
 .fingerprint-sync-table th:nth-child(4),
 .fingerprint-sync-table td:nth-child(4) {
   text-align: left;
-  width: 14%;
+  width: 9%;
 }
 
 .fingerprint-sync-table th:nth-child(5),
@@ -3330,9 +3488,10 @@
     width: calc(100vw - 24px);
   }
 
-  .fingerprint-header-actions {
-    align-items: flex-start;
-    flex-direction: column;
+  .fingerprint-filter-actions {
+    flex: auto;
+    justify-content: flex-start;
+    margin-left: 0;
     width: 100%;
   }
 
@@ -3340,7 +3499,7 @@
     width: auto;
   }
 
-  .fingerprint-search {
+  .fingerprint-filter-actions .fingerprint-search {
     max-width: none;
     min-width: 0;
     width: 100%;
@@ -6942,4 +7101,94 @@
 .fingerprint-progress-modal .fingerprint-progress-scan-card-warning .fingerprint-progress-status-panel {
   background: #fbf8f1;
   border-color: #eadfbe;
+}
+
+.pending-registration-review.fingerprint-sync-view {
+  max-height: min(720px, calc(100dvh - 32px));
+  max-width: min(760px, calc(100vw - 32px));
+  width: min(760px, calc(100vw - 32px));
+}
+
+.fingerprint-sync-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 14px 16px 16px;
+}
+
+.fingerprint-sync-timeline li {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  position: relative;
+}
+
+.fingerprint-sync-timeline li:not(:last-child) {
+  padding-bottom: 16px;
+}
+
+.fingerprint-sync-timeline li:not(:last-child)::before {
+  background: #d7e4dc;
+  bottom: 0;
+  content: '';
+  left: 7px;
+  position: absolute;
+  top: 16px;
+  width: 2px;
+}
+
+.fingerprint-sync-timeline-dot {
+  background: #ffffff;
+  border: 3px solid #0c4b2d;
+  border-radius: 50%;
+  height: 16px;
+  margin-top: 2px;
+  position: relative;
+  width: 16px;
+  z-index: 1;
+}
+
+.fingerprint-sync-timeline-dot.is-failed {
+  border-color: #b42318;
+}
+
+.fingerprint-sync-timeline-dot.is-pending {
+  border-color: #8a5a12;
+}
+
+.fingerprint-sync-timeline-dot.is-cancelled {
+  border-color: #5f6f68;
+}
+
+.fingerprint-sync-timeline-copy strong,
+.fingerprint-sync-timeline-copy span,
+.fingerprint-sync-timeline-copy p {
+  display: block;
+}
+
+.fingerprint-sync-timeline-copy strong {
+  color: #1c2b25;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fingerprint-sync-timeline-copy span {
+  color: #5f6f68;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.fingerprint-sync-timeline-copy p {
+  color: #3f4a55;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.fingerprint-sync-timeline-empty {
+  color: #5f6f68;
+  font-size: 12px;
+  margin: 0;
+  padding: 14px 16px 16px;
 }

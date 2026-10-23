@@ -18,6 +18,7 @@ import axiosClient from '../../api/axiosClient';
 import { formatDateTimeInManila } from '../../utils/dateTime';
 import '../../styles/superAdmin/dashboard.css';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
 
@@ -692,10 +693,6 @@ export default function ViewProfile({ user }) {
             </div>
           </div>
 
-          {adminProfileError && !isEditingAdminPassword ? (
-            <p className="settings-admin-error">{adminProfileError}</p>
-          ) : null}
-
           <div className="settings-admin-dashboard">
             <section className="settings-admin-profile-summary" aria-label="Admin profile summary">
               <div className="settings-admin-profile-avatar">
@@ -1075,8 +1072,6 @@ export default function ViewProfile({ user }) {
                   </aside>
                 </div>
 
-                {securityError ? <p className="pending-registration-error" role="alert">{securityError}</p> : null}
-
                 <footer>
                   <button
                     type="button"
@@ -1125,8 +1120,6 @@ export default function ViewProfile({ user }) {
                     <X size={16} aria-hidden="true" />
                   </button>
                 </header>
-
-                {adminProfileError ? <p className="pending-registration-error" role="alert">{adminProfileError}</p> : null}
 
                 <div className="pending-registration-review-body">
                   <section className="pending-registration-review-card">
@@ -1244,6 +1237,16 @@ export default function ViewProfile({ user }) {
           ) : null}
         </article>
       </section>
+      <ErrorNoticeModal
+        open={Boolean(adminProfileError)}
+        message={adminProfileError}
+        onClose={() => setAdminProfileError('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(securityError)}
+        message={securityError}
+        onClose={() => setSecurityError('')}
+      />
     </main>
   );
 }

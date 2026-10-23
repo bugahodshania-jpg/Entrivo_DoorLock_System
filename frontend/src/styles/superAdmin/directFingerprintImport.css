@@ -1,0 +1,285 @@
+.fingerprint-import-modal {
+  box-sizing: border-box;
+  max-height: calc(100dvh - 36px);
+  max-width: 760px;
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.fingerprint-modal-overlay.fingerprint-import-progress-overlay {
+  background: rgba(4, 20, 13, 0.32);
+  z-index: 80;
+}
+
+.fingerprint-modal.fingerprint-import-progress-modal {
+  box-sizing: border-box;
+  max-height: calc(100dvh - 36px);
+  max-width: 600px;
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.fingerprint-import-progress-modal:focus {
+  outline: none;
+}
+
+.fingerprint-import-progress-modal > .fingerprint-modal-actions {
+  border-top: 1px solid #e2ebe6;
+  margin-top: 24px;
+  padding-top: 18px;
+}
+
+.fingerprint-import-search {
+  align-items: flex-end;
+  display: flex;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.fingerprint-import-search label {
+  flex: 1;
+  min-width: 0;
+}
+
+.fingerprint-import-search input,
+.fingerprint-import-search > .fingerprint-secondary-action {
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+}
+
+.fingerprint-import-search > .fingerprint-secondary-action {
+  flex: 0 0 auto;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.fingerprint-import-search input {
+  background: #fff;
+  border: 1px solid #d7e2dc;
+  border-radius: 4px;
+  color: #13251f;
+  font: inherit;
+  font-size: 14px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.fingerprint-import-modal > .fingerprint-modal-actions {
+  border-top: 1px solid #e2ebe6;
+  margin-top: 28px;
+  padding-top: 20px;
+}
+
+.fingerprint-import-search input:focus-visible {
+  border-color: #0d6b43;
+  outline: 2px solid rgba(13, 107, 67, 0.14);
+  outline-offset: 1px;
+}
+
+.fingerprint-import-user {
+  background: #f7faf8;
+  border: 1px solid #e2ebe6;
+  border-radius: 6px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.fingerprint-import-user-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.fingerprint-import-user h4,
+.fingerprint-import-section-title {
+  color: #13251f;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.fingerprint-import-user dl {
+  display: grid;
+  gap: 12px 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 14px 0 0;
+}
+
+.fingerprint-import-user dt {
+  color: #697a73;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.fingerprint-import-user dd {
+  color: #24352e;
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fingerprint-import-backups {
+  border: 0;
+  display: grid;
+  gap: 9px;
+  margin: 18px 0 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.fingerprint-import-backups legend {
+  margin-bottom: 10px;
+  padding: 0;
+}
+
+.fingerprint-import-backup {
+  align-items: flex-start;
+  border: 1px solid #dfe8e3;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+}
+
+.fingerprint-import-backup.is-selected {
+  background: #f3faf6;
+  border-color: #0d6b43;
+}
+
+.fingerprint-import-backup.is-disabled {
+  background: #fafbf9;
+  cursor: default;
+}
+
+.fingerprint-import-backup input {
+  accent-color: #0d6b43;
+  flex: 0 0 auto;
+  margin: 3px 0 0;
+}
+
+.fingerprint-import-backup-copy {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-width: 0;
+}
+
+.fingerprint-import-backup-copy strong {
+  color: #24352e;
+  font-size: 13px;
+}
+
+.fingerprint-import-backup-copy small {
+  color: #697a73;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fingerprint-import-notice,
+.fingerprint-import-empty {
+  align-items: flex-start;
+  background: #f7faf8;
+  border: 1px solid #e2ebe6;
+  border-radius: 5px;
+  color: #52645a;
+  display: flex;
+  font-size: 13px;
+  gap: 9px;
+  line-height: 1.5;
+  margin: 14px 0 0;
+  padding: 12px;
+}
+
+.fingerprint-import-notice svg,
+.fingerprint-import-progress-heading svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.fingerprint-import-notice-error {
+  background: #fff7f5;
+  border-color: #f0d4ce;
+  color: #8b3027;
+}
+
+.fingerprint-import-progress {
+  background: #f8fbf9;
+  border: 1px solid #e2ebe6;
+  border-radius: 6px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.fingerprint-import-progress-heading {
+  align-items: flex-start;
+  color: #0d6b43;
+  display: flex;
+  gap: 9px;
+  justify-content: space-between;
+}
+
+.fingerprint-import-progress-heading > div {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+}
+
+.fingerprint-import-progress-heading strong {
+  font-size: 14px;
+}
+
+.fingerprint-import-progress-heading > span {
+  color: #697a73;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fingerprint-import-progress p {
+  color: #52645a;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+
+.fingerprint-import-progress.is-failed .fingerprint-import-progress-heading {
+  color: #9d3030;
+}
+
+.fingerprint-import-progress.is-failed .fingerprint-live-progress-bar {
+  background: #bd5a4f;
+}
+
+.fingerprint-import-progress .fingerprint-live-progress {
+  height: 7px;
+  margin-top: 12px;
+}
+
+.fingerprint-import-progress .fingerprint-import-progress-meta {
+  font-size: 12px;
+}
+
+.fingerprint-import-progress .fingerprint-import-countdown {
+  color: #0d6b43;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .fingerprint-import-modal,
+  .fingerprint-modal.fingerprint-import-progress-modal {
+    padding: 18px;
+  }
+
+  .fingerprint-import-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fingerprint-import-user dl {
+    grid-template-columns: 1fr;
+  }
+}

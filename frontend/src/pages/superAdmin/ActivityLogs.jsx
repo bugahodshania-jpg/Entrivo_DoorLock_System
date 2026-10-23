@@ -1,41 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Download, RefreshCw, Search, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import ExportFormatModal from '../../components/ExportFormatModal';
+import TableEmptyState from '../../components/TableEmptyState';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import { categoryOptionsForGroup, logBelongsToGroup, logGroupConfig } from '../../utils/logGroups';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/activityLogs.css';
 
-const activityFilterOptions = [
-  { value: 'all', label: 'All categories' },
-  { value: 'login', label: 'Login' },
-  { value: 'logout', label: 'Logout' },
-  { value: 'access', label: 'Access' },
-  { value: 'password', label: 'Password' },
-  { value: 'recovery', label: 'Recovery' },
-  { value: 'account', label: 'Account' },
-  { value: 'security', label: 'Security' },
-  { value: 'user', label: 'User' },
-  { value: 'registration', label: 'Registration' },
-  { value: 'schedule', label: 'Schedule' },
-  { value: 'override', label: 'Override' },
-  { value: 'job', label: 'Job' },
-  { value: 'enroll', label: 'Enroll' },
-  { value: 'update', label: 'Update' },
-  { value: 'delete', label: 'Delete' },
-  { value: 'sync', label: 'Sync' },
-  { value: 'rfid', label: 'RFID' },
-];
-
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
   { value: 'success', label: 'Success' },
+  { value: 'pending', label: 'Pending' },
   { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export default function ActivityLogs() {
+  const logGroup = logGroupConfig();
+  const activityFilterOptions = categoryOptionsForGroup(logGroup.key);
   const activityFilterMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
   const [logs, setLogs] = useState([]);
@@ -68,7 +54,7 @@ export default function ActivityLogs() {
       } catch {
         if (isActive) {
           setLogs([]);
-          setErrorMessage('Unable to load activity logs right now.');
+          setErrorMessage(logGroup.loadError);
         }
       } finally {
         if (isActive) {
@@ -82,7 +68,16 @@ export default function ActivityLogs() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [logGroup.loadError]);
+
+  useEffect(() => {
+    setActivityFilter('all');
+    setStatusFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    setSearchQuery('');
+    setCurrentPage(1);
+  }, [logGroup.key]);
 
   useEffect(() => {
     if (!isActivityFilterMenuOpen && !isStatusFilterMenuOpen) {
@@ -121,6 +116,10 @@ export default function ActivityLogs() {
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const visibleLogs = useMemo(() => {
     return logs.filter((log) => {
+      if (!logBelongsToGroup(log.activity, logGroup.key)) {
+        return false;
+      }
+
       if (activityFilter !== 'all' && String(log.activity || '').toLowerCase() !== activityFilter) {
         return false;
       }
@@ -145,26 +144,33 @@ export default function ActivityLogs() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
     });
-  }, [activityFilter, statusFilter, dateFrom, dateTo, logs, normalizedSearchQuery]);
+  }, [activityFilter, statusFilter, dateFrom, dateTo, logGroup.key, logs, normalizedSearchQuery]);
+
+  const groupedLogs = useMemo(
+    () => logs.filter((log) => logBelongsToGroup(log.activity, logGroup.key)),
+    [logGroup.key, logs],
+  );
 
   const statusFilterCounts = useMemo(() => {
     const activityLogs =
       activityFilter === 'all'
-        ? logs
-        : logs.filter((log) => log.activity.toLowerCase() === activityFilter);
+        ? groupedLogs
+        : groupedLogs.filter((log) => log.activity.toLowerCase() === activityFilter);
 
     return {
       all: activityLogs.length,
       success: activityLogs.filter((log) => log.status.toLowerCase() === 'success').length,
+      pending: activityLogs.filter((log) => log.status.toLowerCase() === 'pending').length,
       failed: activityLogs.filter((log) => log.status.toLowerCase() === 'failed').length,
+      cancelled: activityLogs.filter((log) => log.status.toLowerCase() === 'cancelled').length,
     };
-  }, [activityFilter, logs]);
+  }, [activityFilter, groupedLogs]);
 
   const activityFilterCounts = useMemo(() => {
     const statusLogs =
       statusFilter === 'all'
-        ? logs
-        : logs.filter((log) => log.status.toLowerCase() === statusFilter);
+        ? groupedLogs
+        : groupedLogs.filter((log) => log.status.toLowerCase() === statusFilter);
 
     const counts = { all: statusLogs.length };
 
@@ -179,7 +185,7 @@ export default function ActivityLogs() {
     });
 
     return counts;
-  }, [logs, statusFilter]);
+  }, [activityFilterOptions, groupedLogs, statusFilter]);
 
   const activeActivityFilterConfig =
     activityFilterOptions.find((option) => option.value === activityFilter) ||
@@ -230,27 +236,24 @@ export default function ActivityLogs() {
         log.date,
         log.time,
       ]),
-      fileBaseName: `activity_logs_${getManilaDateStamp()}`,
+      fileBaseName: `${logGroup.fileBase}_${getManilaDateStamp()}`,
       pdf: {
-        title: 'Activity Logs',
+        title: logGroup.exportTitle,
         note: buildExportNote(visibleLogs.length, 'record', exportFilters),
         widths: [55, 90, 70, 55, 55, 170, 45, 50, 75, 60, 50],
         emphasizeColumn: 1,
-        emptyMessage: 'No activity logs match the selected filters.',
+        emptyMessage: logGroup.filteredEmpty,
       },
     });
   }
 
   return (
-    <main className="admin-dashboard activity-logs-page" aria-label="Activity logs">
+    <main className="admin-dashboard activity-logs-page" aria-label={logGroup.title}>
       <section className="dashboard-recent-card activity-logs-card">
         <div className="dashboard-panel-header activity-logs-header">
           <div>
-            <span>Activity Logs</span>
-            <p>
-              Sign-in, door access, password and account recovery, user changes, schedules,
-              credentials, and the other transactions recorded in the system.
-            </p>
+            <span>{logGroup.title}</span>
+            <p>{logGroup.description}</p>
           </div>
           <button
             type="button"
@@ -447,8 +450,6 @@ export default function ActivityLogs() {
           </label>
         </div>
 
-        {errorMessage ? <p className="activity-logs-error" role="alert">{errorMessage}</p> : null}
-
         <div className="dashboard-recent-table-wrap activity-logs-table-wrap">
           <table className="dashboard-recent-table activity-logs-table">
             <thead>
@@ -462,23 +463,24 @@ export default function ActivityLogs() {
               {isLoading && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    Loading activity logs...
+                    {logGroup.loading}
                   </td>
                 </tr>
               )}
 
-              {!isLoading && !errorMessage && visibleLogs.length === 0 && (
+              {!isLoading && visibleLogs.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={columns.length}>
-                    {logs.length === 0
-                      ? 'No activity has been recorded yet.'
-                      : 'No activity matches these filters.'}
+                    <TableEmptyState description={groupedLogs.length === 0 ? 'Recorded events for this log category will appear here.' : 'Try adjusting your search, status, activity, or date filters.'}>
+                      {groupedLogs.length === 0
+                        ? logGroup.empty
+                        : logGroup.filteredEmpty}
+                    </TableEmptyState>
                   </td>
                 </tr>
               )}
 
               {!isLoading &&
-                !errorMessage &&
                 paginatedLogs.map((log) => (
                   <tr key={log.id}>
                     <td>{log.userId}</td>
@@ -524,8 +526,8 @@ export default function ActivityLogs() {
           </table>
         </div>
 
-        {!isLoading && !errorMessage && visibleLogs.length > 0 && (
-          <div className="activity-logs-pagination" aria-label="Activity logs pagination">
+        {!isLoading && visibleLogs.length > 0 && (
+          <div className="activity-logs-pagination" aria-label={`${logGroup.title} pagination`}>
             <p>
               Showing {(currentPage - 1) * rowsPerPage + 1}-
               {Math.min(currentPage * rowsPerPage, visibleLogs.length)} of {visibleLogs.length}
@@ -554,12 +556,17 @@ export default function ActivityLogs() {
       </section>
       <ExportFormatModal
         open={isExportModalOpen}
-        title="Export Activity Logs"
+        title={`Export ${logGroup.exportTitle}`}
         subtitle={`${visibleLogs.length} log${visibleLogs.length === 1 ? '' : 's'} in the current view`}
-        prompt="Only the activity logs matching the current filters will be exported. Choose the file format."
-        pdfHint="Printable activity log table"
+        prompt={logGroup.exportPrompt}
+        pdfHint={`Printable ${logGroup.title.toLowerCase()} table`}
         onSelect={handleExport}
         onClose={() => setIsExportModalOpen(false)}
+      />
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
       />
     </main>
   );

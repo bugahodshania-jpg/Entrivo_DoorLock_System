@@ -171,6 +171,12 @@ try {
     $activityLog = new ActivityLogService($pdo);
     $activityLog->ensureTable();
     $activityLog->syncFingerprintEnrollmentActivities();
+    $activityLog->correctUnfinishedSyncStatuses();
+
+    require_once dirname(__DIR__) . '/services/FingerprintSyncService.php';
+    require_once dirname(__DIR__) . '/models/FingerprintSyncQueue.php';
+    require_once dirname(__DIR__) . '/models/Fingerprint.php';
+    (new FingerprintSyncService())->expireIdleSyncJobs();
 
     $previewLimit = filter_input(INPUT_GET, 'limit', FILTER_VALIDATE_INT);
     if (!is_int($previewLimit) || $previewLimit < 1) {
@@ -256,7 +262,7 @@ try {
     $transactionLogs = array_map(static function ($row) {
         $user = activityUserDisplayName($row, (string) ($row['account_username'] ?? 'system'));
         [$device, $deviceDetail] = activityDevice($row['user_agent']);
-        $status = strcasecmp((string) $row['status'], 'Failed') === 0 ? 'Failed' : 'Success';
+        $status = ActivityLogService::normalizeStatus((string) $row['status']);
 
         return [
             'id' => 'txn-' . (int) $row['transaction_id'],

@@ -16,10 +16,14 @@ export function ActionConfirmProvider({ user, children }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const resolver = useRef(null);
+  const optionsRef = useRef({ returnPassword: false });
+  const passwordRef = useRef('');
 
   const confirmAction = (details) =>
     new Promise((resolve) => {
       resolver.current = resolve;
+      optionsRef.current = { returnPassword: Boolean(details.returnPassword) };
+      passwordRef.current = '';
       setPassword('');
       setShowPassword(false);
       setError('');
@@ -29,13 +33,20 @@ export function ActionConfirmProvider({ user, children }) {
         title: details.title,
         message: details.message,
         danger: Boolean(details.danger),
+        confirmLabel: details.confirmLabel || 'Continue',
         requirePassword: details.requirePassword !== false,
       });
     });
 
   const finish = (allowed) => {
-    resolver.current?.(allowed);
+    const passwordValue = passwordRef.current;
+    const result = allowed
+      ? (optionsRef.current.returnPassword ? passwordValue : true)
+      : false;
+    resolver.current?.(result === '' ? false : result);
     resolver.current = null;
+    optionsRef.current = { returnPassword: false };
+    passwordRef.current = '';
     setRequest(null);
     setPassword('');
     setError('');
@@ -60,6 +71,7 @@ export function ActionConfirmProvider({ user, children }) {
         user_id: user.id,
         password,
       });
+      passwordRef.current = password;
       finish(true);
     } catch (verifyError) {
       setError(
@@ -96,7 +108,7 @@ export function ActionConfirmProvider({ user, children }) {
                       setRequest((current) => ({ ...current, step: 'password' }));
                     }}
                   >
-                    Continue
+                    {request.confirmLabel}
                   </button>
                 </div>
               </>
@@ -111,6 +123,7 @@ export function ActionConfirmProvider({ user, children }) {
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(event) => {
+                        passwordRef.current = event.target.value;
                         setPassword(event.target.value);
                         setError('');
                       }}

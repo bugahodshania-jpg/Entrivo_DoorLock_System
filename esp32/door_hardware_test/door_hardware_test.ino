@@ -1,8 +1,8 @@
 // Standalone hardware test for the door ESP32.
-// Upload this sketch to check each part, then upload door_controller again.
+// Upload this sketch to check each part, then upload door_controller_for_sync again.
 // Serial monitor: 115200 baud.
 //
-// Pins match esp32/door_controller/Config.h.
+// Pins match esp32/door_controller_for_sync/Config.h.
 
 #include <Adafruit_Fingerprint.h>
 #include <WiFi.h>
@@ -26,8 +26,9 @@ constexpr uint8_t DFPLAYER_TX_PIN = 26;
 constexpr uint32_t DFPLAYER_BAUDRATE = 9600;
 
 constexpr uint8_t DOOR_RELAY_PIN = 4;
-constexpr uint8_t DOOR_RELAY_ACTIVE_LEVEL = HIGH;
-constexpr uint8_t DOOR_RELAY_IDLE_LEVEL = LOW;
+constexpr uint8_t DOOR_RELAY2_PIN = 17;
+constexpr uint8_t DOOR_RELAY_ACTIVE_LEVEL = LOW;
+constexpr uint8_t DOOR_RELAY_IDLE_LEVEL = HIGH;
 constexpr uint32_t DOOR_UNLOCK_DURATION_MS = 3000;
 
 constexpr char WIFI_SSID[] = "ESP32_HOTSPOT";
@@ -44,15 +45,18 @@ void printMenu()
 {
     Serial.println();
     Serial.println("Door hardware test");
+    Serial.println("These are the parts wired for door_controller_for_sync.");
     Serial.println("Type a letter and press Enter.");
-    Serial.println("A  Fingerprint sensor   GPIO 32 RX, GPIO 33 TX");
-    Serial.println("B  Entrance card reader GPIO 16");
-    Serial.println("C  Exit card reader     GPIO 27");
-    Serial.println("D  RTC clock            GPIO 19 SDA, GPIO 21 SCL");
-    Serial.println("E  DFPlayer audio       GPIO 25 RX, GPIO 26 TX");
-    Serial.println("F  Door relay           GPIO 4");
-    Serial.println("G  Wi-Fi");
-    Serial.println("H  Test every component");
+    Serial.println("A  R307S fingerprint      GPIO 32 RX, GPIO 33 TX");
+    Serial.println("B  Entrance RDM6300       GPIO 16");
+    Serial.println("C  Exit RDM6300           GPIO 27");
+    Serial.println("D  RTC                    GPIO 19 SDA, GPIO 21 SCL");
+    Serial.println("E  DFPlayer Mini          GPIO 25 RX, GPIO 26 TX");
+    Serial.println("F  Amplifier and speaker  DAC_L to the GF1002, then the 4 ohm speaker");
+    Serial.println("G  Lock relay and solenoid GPIO 4, unlocks for 3 seconds");
+    Serial.println("H  Spare relay            GPIO 17, short click, then off");
+    Serial.println("I  Wi-Fi");
+    Serial.println("J  Test every component");
     Serial.println("M  Show this menu");
     Serial.println();
 }
@@ -103,6 +107,56 @@ bool userSkipped()
     }
 
     return true;
+}
+
+int askYesNo(const char *prompt)
+{
+    Serial.println(prompt);
+    Serial.println("Type Y or N, then press Enter.");
+    discardPendingInput();
+    const unsigned long startedAt = millis();
+
+    while (!timedOut(startedAt, USER_WAIT_MS))
+    {
+        if (!Serial.available())
+        {
+            delay(20);
+            continue;
+        }
+
+        const char option = static_cast<char>(toupper(Serial.read()));
+        if (option == '\r' || option == '\n' || option == ' ')
+        {
+            continue;
+        }
+
+        while (Serial.available() > 0)
+        {
+            Serial.read();
+        }
+
+        if (option == 'Y')
+        {
+            return 1;
+        }
+
+        if (option == 'N')
+        {
+            return 0;
+        }
+
+        Serial.println("Type Y or N.");
+    }
+
+    return -1;
+}
+
+void holdRelaysLocked()
+{
+    pinMode(DOOR_RELAY_PIN, OUTPUT);
+    pinMode(DOOR_RELAY2_PIN, OUTPUT);
+    digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
+    digitalWrite(DOOR_RELAY2_PIN, DOOR_RELAY_IDLE_LEVEL);
 }
 
 bool readPortByte(HardwareSerial &port, uint8_t &value, uint32_t timeoutMs)
@@ -525,26 +579,23 @@ bool waitForDfReply()
     return false;
 }
 
-bool testDfPlayer()
+bool dfPlayerReplies()
 {
-    Serial.println("DFPlayer: checking the player on GPIO 25 and GPIO 26.");
     DevicePort.begin(DFPLAYER_BAUDRATE, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
-    delay(300);
+    delay(800);
     while (DevicePort.available() > 0)
     {
         DevicePort.read();
     }
 
     sendDfCommand(0x3F, 0);
-    const bool replied = waitForDfReply();
+    return waitForDfReply();
+}
 
-    if (replied)
-    {
-        sendDfCommand(0x06, 15);
-        delay(100);
-        sendDfCommand(0x03, 1);
-    }
-
+bool testDfPlayer()
+{
+    Serial.println("DFPlayer: checking the player on GPIO 25 and GPIO 26.");
+    const bool replied = dfPlayerReplies();
     closeDevicePort();
 
     if (!replied)
@@ -552,24 +603,96 @@ bool testDfPlayer()
         printResult(
             "DFPlayer",
             false,
-            "No reply. Player TX goes to GPIO 25, and player RX comes from GPIO 26 through a 1k resistor."
+            "No reply. Player TX goes to GPIO 25, and player RX comes from GPIO 26 through a 1k resistor. The SD card can stay inserted."
         );
         return false;
     }
 
-    printResult("DFPlayer", true, "Player answered and started track 1. Audio plays when the SD card has mp3/0001.mp3.");
+    printResult("DFPlayer", true, "Player answered on the serial pins.");
     return true;
 }
 
-bool testRelay()
+bool testSpeaker()
 {
-    Serial.println("Relay: GPIO 4 will go HIGH for 3 seconds. The lock should release, then lock again.");
-    pinMode(DOOR_RELAY_PIN, OUTPUT);
+    Serial.println("Amplifier: playing track 1. The SD card needs mp3/0001.mp3. Turn the GF1002 knob clockwise past the click and listen to the 4 ohm speaker.");
+    if (!dfPlayerReplies())
+    {
+        closeDevicePort();
+        printResult("Amplifier", false, "The DFPlayer did not answer, so the amplifier and speaker could not be checked.");
+        return false;
+    }
+
+    sendDfCommand(0x06, 20);
+    delay(120);
+    sendDfCommand(0x03, 1);
+    delay(300);
+    closeDevicePort();
+
+    const int heard = askYesNo("Did sound come from the speaker?");
+    if (heard == 1)
+    {
+        printResult("Amplifier", true, "Track 1 was heard from the speaker. DAC_L, the GF1002, and the 4 ohm speaker are working.");
+        return true;
+    }
+
+    printResult(
+        "Amplifier",
+        false,
+        heard == 0
+            ? "The player answered, but no sound was heard. Check DAC_L to amplifier L, amplifier G to player ground, L+ and L- to the speaker, and the volume knob."
+            : "No answer was typed. The speaker was not confirmed."
+    );
+    return false;
+}
+
+bool testLock()
+{
+    Serial.println("Lock: GPIO 4 will go LOW for 3 seconds. Channel 1 should click and the solenoid should release, then lock again.");
+    holdRelaysLocked();
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
     delay(DOOR_UNLOCK_DURATION_MS);
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
-    printResult("Relay", true, "GPIO 4 was HIGH for 3 seconds, then returned LOW. Confirm that the relay clicked.");
-    return true;
+
+    const int moved = askYesNo("Did channel 1 click and the lock release?");
+    if (moved == 1)
+    {
+        printResult("Lock", true, "GPIO 4 unlocked the door for 3 seconds, then returned HIGH. GPIO 17 stayed HIGH.");
+        return true;
+    }
+
+    printResult(
+        "Lock",
+        false,
+        moved == 0
+            ? "GPIO 4 pulsed LOW, but the lock did not release. Check IN1, COM1 to 12V negative, NO1 to the solenoid negative, and the diode band toward solenoid positive."
+            : "No answer was typed. The lock was not confirmed."
+    );
+    return false;
+}
+
+bool testSpareRelay()
+{
+    Serial.println("Spare relay: GPIO 17 will go LOW for half a second. Channel 2 should click. The lock should stay locked.");
+    holdRelaysLocked();
+    digitalWrite(DOOR_RELAY2_PIN, DOOR_RELAY_ACTIVE_LEVEL);
+    delay(500);
+    digitalWrite(DOOR_RELAY2_PIN, DOOR_RELAY_IDLE_LEVEL);
+
+    const int clicked = askYesNo("Did channel 2 click?");
+    if (clicked == 1)
+    {
+        printResult("Spare relay", true, "GPIO 17 clicked channel 2, then returned HIGH. Channel 2 has no load.");
+        return true;
+    }
+
+    printResult(
+        "Spare relay",
+        false,
+        clicked == 0
+            ? "GPIO 17 pulsed LOW, but channel 2 did not click. Check IN2 and the relay 5V and ground."
+            : "No answer was typed. Channel 2 was not confirmed."
+    );
+    return false;
 }
 
 bool testWiFi()
@@ -603,14 +726,36 @@ bool testWiFi()
 void testAll()
 {
     Serial.println();
-    Serial.println("Running every component test.");
-    testFingerprint();
-    testRfid("Entrance RFID", RFID_ENTRANCE_RX_PIN);
-    testRfid("Exit RFID", RFID_EXIT_RX_PIN);
-    testRtc();
-    testDfPlayer();
-    testRelay();
-    testWiFi();
+    Serial.println("Running every door_controller_for_sync component.");
+    const char *names[] = {
+        "Fingerprint",
+        "Entrance RFID",
+        "Exit RFID",
+        "RTC",
+        "DFPlayer",
+        "Amplifier",
+        "Lock",
+        "Spare relay",
+        "Wi-Fi"
+    };
+    const bool passed[] = {
+        testFingerprint(),
+        testRfid("Entrance RFID", RFID_ENTRANCE_RX_PIN),
+        testRfid("Exit RFID", RFID_EXIT_RX_PIN),
+        testRtc(),
+        testDfPlayer(),
+        testSpeaker(),
+        testLock(),
+        testSpareRelay(),
+        testWiFi()
+    };
+
+    Serial.println("Component results");
+    for (size_t index = 0; index < sizeof(passed) / sizeof(passed[0]); ++index)
+    {
+        Serial.print(passed[index] ? "PASS  " : "FAIL  ");
+        Serial.println(names[index]);
+    }
     Serial.println("Component tests finished.");
     printMenu();
 }
@@ -622,11 +767,10 @@ void setup()
     Serial.begin(115200);
     delay(300);
 
-    pinMode(DOOR_RELAY_PIN, OUTPUT);
-    digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
+    holdRelaysLocked();
 
     Serial.println();
-    Serial.println("Upload door_controller again after these tests.");
+    Serial.println("Upload door_controller_for_sync again after these tests.");
     printMenu();
 }
 
@@ -661,12 +805,18 @@ void loop()
             testDfPlayer();
             break;
         case 'F':
-            testRelay();
+            testSpeaker();
             break;
         case 'G':
-            testWiFi();
+            testLock();
             break;
         case 'H':
+            testSpareRelay();
+            break;
+        case 'I':
+            testWiFi();
+            break;
+        case 'J':
             testAll();
             break;
         case 'M':

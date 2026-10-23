@@ -11,6 +11,7 @@ CREATE TABLE `access_log` (
   `log_id` int NOT NULL AUTO_INCREMENT,
   `user_id` int DEFAULT NULL,
   `card_id` int DEFAULT NULL,
+  `rfid_uid` varchar(30) DEFAULT NULL,
   `fingerprint_id` int DEFAULT NULL,
   `schedule_id` int DEFAULT NULL,
   `override_id` int DEFAULT NULL,
@@ -265,6 +266,7 @@ CREATE TABLE `schedules` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `approved_by` int DEFAULT NULL,
   `approved_at` timestamp NULL DEFAULT NULL,
+  `overridden_by_schedule_id` int DEFAULT NULL,
   PRIMARY KEY (`schedule_id`),
   KEY `idx_schedule_time` (`time_start`,`time_end`),
   KEY `idx_schedule_user` (`user_id`),
@@ -379,5 +381,25 @@ CREATE TABLE `first_login_challenges` (
   KEY `user_id` (`user_id`),
   CONSTRAINT `first_login_challenges_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Durable proof recorded only after sensor read-back and a matching fresh scan.
+DROP TABLE IF EXISTS `fingerprint_enrollment_verifications`;
+CREATE TABLE `fingerprint_enrollment_verifications` (
+  `job_id` int NOT NULL,
+  `fingerprint_id` int NOT NULL,
+  `user_id` int NOT NULL,
+  `finger_name` varchar(50) NOT NULL,
+  `enrollment_device_id` int NOT NULL,
+  `fresh_scan_verified` tinyint(1) NOT NULL,
+  `stored_slot` int NOT NULL,
+  `matched_slot` int NOT NULL,
+  `confidence` int NOT NULL,
+  `template_bytes` int NOT NULL,
+  `template_sha256` char(64) NOT NULL,
+  `verified_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`job_id`),
+  KEY `idx_enrollment_verification_fingerprint` (`fingerprint_id`,`job_id`),
+  KEY `idx_enrollment_verification_device_slot` (`enrollment_device_id`,`stored_slot`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS=1;

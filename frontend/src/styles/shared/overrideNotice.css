@@ -1,0 +1,98 @@
+.override-notice-backdrop {
+  align-items: center;
+  justify-content: center;
+  z-index: 10060;
+}
+
+.override-notice-modal {
+  margin: 0 auto;
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  width: min(460px, 100%);
+}
+
+.override-notice-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.override-notice-icon {
+  align-items: center;
+  background: #edf5ef;
+  border: 1px solid #d7e6dc;
+  border-radius: 5px;
+  color: #0c4b2d;
+  display: inline-flex;
+  flex: 0 0 44px;
+  height: 44px;
+  justify-content: center;
+}
+
+.override-notice-subtitle {
+  color: #617269;
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.override-notice-details {
+  background: #f7faf8;
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 16px;
+}
+
+.override-notice-details dt {
+  color: #617269;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.override-notice-details dd {
+  color: #10251d;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.override-notice-details dd span {
+  display: block;
+}
+
+.override-notice-reason {
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.override-notice-actions small {
+  color: #617269;
+  font-size: 12px;
+  margin-right: auto;
+}
+
+.override-notice-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.override-notice-actions button:focus-visible,
+.override-notice-reason:focus-visible {
+  outline: 2px solid #0c4b2d;
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .override-notice-modal {
+    padding: 20px;
+  }
+
+  .override-notice-modal h2 {
+    font-size: 18px;
+  }
+}

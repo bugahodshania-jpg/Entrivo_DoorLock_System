@@ -24,6 +24,10 @@ require_once dirname(__DIR__) . '/config/connection.php';
 
 try {
     $pdo = entrivo_pdo();
+    $hasScheduleKind = (bool) $pdo->query("SHOW COLUMNS FROM schedules LIKE 'schedule_kind'")->fetch();
+    $overrideCondition = $hasScheduleKind
+        ? "(schedules.schedule_kind = 'override' OR schedules.status = 'overridden')"
+        : "schedules.status = 'overridden'";
 $userCounts = $pdo->query(
         "SELECT
             COUNT(*) AS total_users,
@@ -35,7 +39,7 @@ $userCounts = $pdo->query(
     $scheduleCounts = $pdo->query(
         "SELECT COUNT(*) AS active_schedules
          FROM schedules
-         WHERE status = 'approved'"
+         WHERE status IN ('approved', 'overridden')"
     )->fetch();
 
     $accessCounts = $pdo->query(
@@ -152,7 +156,7 @@ $userCounts = $pdo->query(
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
-         WHERE schedules.status = 'approved'
+         WHERE schedules.status IN ('approved', 'overridden')
             AND schedules.schedule_date = CURDATE()
          ORDER BY schedules.time_start ASC
         "
@@ -256,7 +260,8 @@ $userCounts = $pdo->query(
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
-         WHERE schedules.status = 'overridden'
+         WHERE {$overrideCondition}
+           AND schedules.status IN ('approved', 'overridden')
             AND COALESCE(schedules.schedule_date, schedules.start_date)
                 BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
                     AND DATE_ADD(

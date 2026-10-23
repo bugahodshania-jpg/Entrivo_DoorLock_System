@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import PublicFooter from '../../components/PublicFooter';
+import { clearRegistrationSession, verifiedRfidKey } from '../../utils/registrationSession';
 import campusBuilding from '../../assets/images/csucc_noback.png';
 import campusOutline from '../../assets/images/outline_csucc.png';
 import csuccLogo from '../../assets/images/csucc_logo.png';
@@ -80,6 +81,7 @@ export default function Home() {
       return;
     }
 
+    clearRegistrationSession(window.sessionStorage);
     setEnrollmentPrompt('notice');
     params.delete('signup');
     const nextSearch = params.toString();
@@ -186,6 +188,7 @@ export default function Home() {
   const closeMenu = () => setMenuOpen(false);
 
   const openSchoolIdModal = () => {
+    clearRegistrationSession(window.sessionStorage);
     setRfidUid('');
     setRfidError('');
     setEnrollmentPrompt('notice');
@@ -203,6 +206,10 @@ export default function Home() {
 
   const verifySchoolId = async (event) => {
     event.preventDefault();
+    if (isVerifyingRfid) {
+      return;
+    }
+
     const normalizedUid = rfidUid.replace(/\s/g, '').toUpperCase();
 
     if (!normalizedUid) {
@@ -217,10 +224,21 @@ export default function Home() {
       const response = await axiosClient.post('/api/verify_rfid_uid.php', {
         rfid_uid: normalizedUid,
       });
-      window.sessionStorage.setItem('entrivo_verified_rfid_uid', response.data.rfid_uid || normalizedUid);
+      if (response.data?.verified !== true || response.data.rfid_uid !== normalizedUid) {
+        clearRegistrationSession(window.sessionStorage);
+        setRfidError('Unable to verify the RFID UID right now. Please try again.');
+        return;
+      }
+
+      window.sessionStorage.setItem(verifiedRfidKey, normalizedUid);
       window.location.assign('/register');
     } catch (error) {
-      setRfidError(error.response?.data?.message || 'Unable to verify the RFID UID right now.');
+      clearRegistrationSession(window.sessionStorage);
+      const alreadyRegistered = error.response?.status === 409 || error.response?.data?.code === 'rfid_uid_registered';
+      setRfidError(alreadyRegistered
+        ? 'This School ID UID is already registered.'
+        : error.response?.data?.errors?.rfid_uid || error.response?.data?.message || 'Unable to verify the RFID UID right now.');
+    } finally {
       setIsVerifyingRfid(false);
     }
   };
@@ -436,25 +454,31 @@ export default function Home() {
               aria-labelledby="verify-school-id-title"
             >
               <h2 id="verify-school-id-title">Verify Your School ID</h2>
-              <form onSubmit={verifySchoolId}>
-                <p>Enter the exact RFID UID displayed on the scanner to continue with enrollment.</p>
-                <p>The UID you enter must exactly match the UID from the RFID Scanner Station.</p>
-                <label>
-                  <span className="home-school-id-sr">Enter RFID UID</span>
-                  <input
-                    value={rfidUid}
-                    placeholder="Enter RFID UID"
-                    autoComplete="off"
-                    maxLength={30}
-                    aria-invalid={rfidError === 'This field is required.' || undefined}
-                    onChange={(event) => {
-                      setRfidUid(event.target.value.replace(/\s/g, '').toUpperCase().slice(0, 30));
-                      setRfidError('');
-                    }}
-                  />
-                </label>
-                {rfidError ? <p className="home-school-id-error" role="alert">{rfidError}</p> : null}
-                <p>You can proceed with enrollment once your UID has been verified.</p>
+              <form className="home-school-id-verification" onSubmit={verifySchoolId}>
+                <p id="school-id-instructions">Enter the exact RFID UID shown on the scanner to verify your School ID and continue enrollment.</p>
+                <div className="home-school-id-field">
+                  <label>
+                    <span className="home-school-id-label">RFID UID</span>
+                    <input
+                      value={rfidUid}
+                      placeholder="Enter RFID UID"
+                      autoComplete="off"
+                      maxLength={30}
+                      disabled={isVerifyingRfid}
+                      aria-invalid={Boolean(rfidError) || undefined}
+                      aria-describedby={rfidError ? 'school-id-instructions school-id-error school-id-help' : 'school-id-instructions school-id-help'}
+                      onChange={(event) => {
+                        setRfidUid(event.target.value.replace(/\s/g, '').toUpperCase().slice(0, 30));
+                        setRfidError('');
+                      }}
+                    />
+                  </label>
+                  {rfidError ? <p id="school-id-error" className="home-school-id-error" role="alert">{rfidError}</p> : null}
+                </div>
+                <aside id="school-id-help" className="home-school-id-help" aria-label="School ID assistance">
+                  <strong>Need help?</strong>
+                  <p>For account or School ID assistance, visit the Admin Office.</p>
+                </aside>
                 <div className="home-school-id-actions">
                   <button type="button" onClick={closeSchoolIdModal} disabled={isVerifyingRfid}>
                     Cancel

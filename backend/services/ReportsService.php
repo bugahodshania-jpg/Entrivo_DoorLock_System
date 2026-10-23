@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ScheduleStatusService.php';
+
 /**
  * Builds the five classroom reports from access_log and schedules.
  * Occupancy ("still inside") is reported only when this period contains
@@ -178,8 +180,8 @@ class ReportsService
                 'timeStart' => $row['time_start'],
                 'timeEnd' => $row['time_end'],
                 'grace' => $row['grace_period_minutes'] !== null ? (int) $row['grace_period_minutes'] : 15,
-                'scheduleStatus' => $row['schedule_status'],
-                'scheduleKind' => $row['schedule_kind'] ?: 'regular',
+                'scheduleStatus' => ScheduleStatusService::normalizeStatus($row['schedule_status']),
+                'scheduleKind' => $row['schedule_status'] === 'overridden' ? 'override' : ($row['schedule_kind'] ?: 'regular'),
             ];
         }, $statement->fetchAll());
     }
@@ -270,7 +272,7 @@ class ReportsService
                     'startLabel' => $this->formatClock($schedule['time_start']),
                     'endLabel' => $this->formatClock($schedule['time_end']),
                     'grace' => (int) ($schedule['grace_period_minutes'] ?? 15),
-                    'kind' => $schedule['schedule_kind'] ?: 'regular',
+                    'kind' => $schedule['status'] === 'overridden' ? 'override' : ($schedule['schedule_kind'] ?: 'regular'),
                 ];
             }
         }

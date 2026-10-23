@@ -11,8 +11,12 @@ import NotFound from './pages/shared/NotFound.jsx';
 import AccessLogs from './pages/superAdmin/AccessLogs.jsx';
 import ActivityLogs from './pages/superAdmin/ActivityLogs.jsx';
 import Fingerprint from './pages/superAdmin/Fingerprint.jsx';
+import DirectFingerprint from './pages/superAdmin/DirectFingerprint.jsx';
+import SensorMemory from './pages/superAdmin/SensorMemory.jsx';
 import ManageUsers from './pages/superAdmin/ManageUsers.jsx';
 import PendingRegistrations from './pages/superAdmin/PendingRegistrations.jsx';
+import DeleteRequests from './pages/superAdmin/DeleteRequests.jsx';
+import MyDeleteRequests from './pages/admin/MyDeleteRequests.jsx';
 import PendingOverrides from './pages/superAdmin/PendingOverrides.jsx';
 import RegisterUser from './pages/superAdmin/RegisterUser.jsx';
 import Reports from './pages/superAdmin/Reports.jsx';
@@ -23,6 +27,7 @@ import ViewProfile from './pages/superAdmin/ViewProfile.jsx';
 import SuperAdminDashboard from './pages/superAdmin/SuperAdminDashboard.jsx';
 import SuperAdminLayout from './pages/superAdmin/SuperAdminLayout.jsx';
 import UserLayout from './pages/user/UserLayout.jsx';
+import OverrideNoticeMonitor from './components/OverrideNoticeMonitor.jsx';
 import UserDashboard from './pages/user/UserDashboard.jsx';
 import MyAccount from './pages/user/MyAccount.jsx';
 import UserAccessLogs from './pages/user/UserAccessLogs.jsx';
@@ -43,25 +48,35 @@ const superAdminRoutes = {
   '/super-admin/pending-registrations': PendingRegistrations,
   '/super-admin/register-user': RegisterUser,
   '/super-admin/fingerprint': Fingerprint,
+  '/super-admin/fingerprint-direct': DirectFingerprint,
+  '/super-admin/sensor-memory': SensorMemory,
   '/super-admin/rfid-cards': RFIDCards,
   '/super-admin/schedules': Schedules,
   '/super-admin/pending-overrides': PendingOverrides,
+  '/super-admin/delete-requests': DeleteRequests,
   '/super-admin/access-logs': AccessLogs,
+  '/super-admin/login-logs': ActivityLogs,
   '/super-admin/activity-logs': ActivityLogs,
+  '/super-admin/system-logs': ActivityLogs,
   '/super-admin/reports': Reports,
   '/super-admin/profile': ViewProfile,
   '/super-admin/settings': Settings,
 };
 
 const adminRoutes = Object.fromEntries(
-  Object.entries(superAdminRoutes).map(([route, page]) => [route.replace('/super-admin', '/admin'), page]),
+  Object.entries(superAdminRoutes)
+    .filter(([route]) => route !== '/super-admin/delete-requests' && route !== '/super-admin/sensor-memory')
+    .map(([route, page]) => [route.replace('/super-admin', '/admin'), page]),
 );
+adminRoutes['/admin/delete-requests'] = MyDeleteRequests;
 
 const userPortalRoutes = {
   '/user/dashboard': UserDashboard,
   '/user/my-account': MyAccount,
   '/user/access-logs': UserAccessLogs,
+  '/user/login-logs': UserActivityLogs,
   '/user/activity-logs': UserActivityLogs,
+  '/user/system-logs': UserActivityLogs,
   '/user/request-override': RequestOverride,
   '/user/my-schedule': MySchedule,
 };
@@ -283,9 +298,12 @@ export default function App() {
     const SuperAdminPage = superAdminRoutes[path];
 
     return (
-      <SuperAdminLayout user={user} onLogout={logout}>
-        <SuperAdminPage user={user} onLogout={logout} />
-      </SuperAdminLayout>
+      <>
+        <SuperAdminLayout user={user} onLogout={logout}>
+          <SuperAdminPage user={user} onLogout={logout} />
+        </SuperAdminLayout>
+        <OverrideNoticeMonitor user={user} />
+      </>
     );
   }
 
@@ -310,9 +328,12 @@ export default function App() {
     const AdminPage = adminRoutes[path];
 
     return (
-      <AdminLayout user={user} onLogout={logout}>
-        <AdminPage user={user} onLogout={logout} />
-      </AdminLayout>
+      <>
+        <AdminLayout user={user} onLogout={logout}>
+          <AdminPage user={user} onLogout={logout} />
+        </AdminLayout>
+        <OverrideNoticeMonitor user={user} />
+      </>
     );
   }
 
@@ -327,9 +348,12 @@ export default function App() {
     const UserPage = userPortalRoutes[path];
 
     return (
-      <UserLayout user={user} onLogout={logout}>
-        <UserPage user={user} onLogout={logout} />
-      </UserLayout>
+      <>
+        <UserLayout user={user} onLogout={logout}>
+          <UserPage user={user} onLogout={logout} />
+        </UserLayout>
+        <OverrideNoticeMonitor user={user} />
+      </>
     );
   }
 

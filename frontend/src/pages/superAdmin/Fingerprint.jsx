@@ -1,6 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
+import TableEmptyState from '../../components/TableEmptyState';
+import SyncPickupCountdown from '../../components/SyncPickupCountdown';
+import EnrollmentPickupCountdown from '../../components/EnrollmentPickupCountdown';
+import { getEnrollmentFinalVerificationHint, getEnrollmentProgressValue, getEnrollmentStatusLabel, hasEnrollmentFinalVerification, hasVerifiedEnrollment, resolveEnrollmentStageKey } from '../../utils/fingerprintEnrollment';
 import {
   Activity,
   ArrowLeft,
@@ -15,6 +20,7 @@ import {
   Fingerprint as FingerprintIcon,
   IdCard,
   Plus,
+  RefreshCw,
   RotateCcw,
   Save,
   Search,
@@ -29,11 +35,19 @@ import {
 import axiosClient from '../../api/axiosClient';
 import RowActionMenu from '../../components/RowActionMenu';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
-import { formatDateTimeInManila, parseManilaDateTime } from '../../utils/dateTime';
+import { formatDateInManila, formatDateTimeInManila, parseManilaDateTime } from '../../utils/dateTime';
 import { canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
+import {
+  getSyncCancellationEventKey,
+  getSyncCancellationNoticeMessage,
+  getSyncCancellationReason,
+  getSyncJobStatus,
+  getUnseenSyncPickupTimeouts,
+} from '../../utils/fingerprintSync';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/fingerprint.css';
+import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/rfid.css';
 
 const fingerprintTableColumns = [
@@ -94,7 +108,8 @@ const fingerprintRoleFilterOptions = [allFingerprintsFilter, ...fingerprintTabs]
 
 const fingerprintEnrollmentFilterOptions = [
   { value: 'all', label: 'All enrollments' },
-  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'enrolled', label: 'Verified' },
+  { value: 'unverified', label: 'Stored (unverified)' },
   { value: 'not_enrolled', label: 'Not Enrolled' },
 ];
 
@@ -109,6 +124,25 @@ const initialFingerprints = {
   staff: [],
   admins: [],
 };
+
+function omitSuperAdminFingerprints(fingerprintsByRole) {
+  return {
+    ...fingerprintsByRole,
+    admins: (fingerprintsByRole.admins || []).filter((item) => item.role !== 'super_admin'),
+  };
+}
+
+function omitSuperAdminJobs(jobs, fingerprintsByRole) {
+  const superAdminIds = new Set(
+    (fingerprintsByRole.admins || [])
+      .filter((item) => item.role === 'super_admin')
+      .map((item) => Number(item.userId)),
+  );
+
+  return (jobs || []).filter(
+    (job) => String(job.role || '').toLowerCase() !== 'super_admin' && !superAdminIds.has(Number(job.user_id)),
+  );
+}
 
 function getFingerprintsForRoleFilter(filterKey, fingerprintsByRole) {
   if (filterKey === 'all') {
@@ -131,11 +165,13 @@ function getFingerprintsForRoleFilter(filterKey, fingerprintsByRole) {
 }
 
 function getEnrollmentKey(fingerprint) {
-  return String(fingerprint?.status || '').toLowerCase() === 'active' ? 'enrolled' : 'not_enrolled';
+  if (String(fingerprint?.status || '').toLowerCase() !== 'active') return 'not_enrolled';
+  return fingerprint.enrollmentVerified === true && hasVerifiedEnrollment({ status: 'completed', progress: 100, finished_at: fingerprint.enrollmentVerification?.verified_at, assigned_slot: fingerprint.enrollmentSlot, fingerprint_id: fingerprint.id, verification: fingerprint.enrollmentVerification }) ? 'enrolled' : 'unverified';
 }
 
 function getEnrollmentLabel(fingerprint) {
-  return getEnrollmentKey(fingerprint) === 'enrolled' ? 'Enrolled' : 'Not Enrolled';
+  const key = getEnrollmentKey(fingerprint);
+  return key === 'enrolled' ? 'Verified' : key === 'unverified' ? 'Stored (unverified)' : 'Not Enrolled';
 }
 
 function getFingerprintSyncStatusKey(fingerprint) {
@@ -258,21 +294,35 @@ const syncProgressStages = [
   {
     key: 'queued',
     label: 'Queued',
-    detail: 'Sync job created',
-    progress: 25,
+    detail: 'Waiting for the door controller; cancels after 5 minutes without pickup',
+    progress: 12,
     icon: Clock,
   },
   {
-    key: 'syncing',
-    label: 'Syncing',
-    detail: 'Sensor B is writing the template',
-    progress: 65,
+    key: 'claimed',
+    label: 'Claimed',
+    detail: 'Sensor B downloaded the template from the server',
+    progress: 35,
+    icon: Download,
+  },
+  {
+    key: 'writing',
+    label: 'Writing',
+    detail: 'Sending the fingerprint into the door sensor',
+    progress: 68,
+    icon: FingerprintIcon,
+  },
+  {
+    key: 'reporting',
+    label: 'Reporting',
+    detail: 'Telling the server the sensor write finished',
+    progress: 88,
     icon: RotateCcw,
   },
   {
     key: 'synced',
     label: 'Synced',
-    detail: 'Sensor B confirmed completion',
+    detail: 'Template is stored on Sensor B and linked to this user',
     progress: 100,
     icon: CheckCircle2,
   },
@@ -284,13 +334,22 @@ function normalizeJobText(value) {
 
 function resolveSyncStageKey(job) {
   const status = normalizeJobText(job?.status);
+  const step = normalizeJobText(job?.progress_step);
 
-  if (status === 'synced') {
+  if (status === 'synced' || step === 'synced') {
     return 'synced';
   }
 
-  if (status === 'syncing') {
-    return 'syncing';
+  if (step === 'reporting') {
+    return 'reporting';
+  }
+
+  if (step === 'writing') {
+    return 'writing';
+  }
+
+  if (status === 'syncing' || step === 'claimed') {
+    return 'claimed';
   }
 
   return 'queued';
@@ -298,131 +357,68 @@ function resolveSyncStageKey(job) {
 
 function getSyncProgressValue(job) {
   const status = normalizeJobText(job?.status);
+  const stage = syncProgressStages.find((item) => item.key === resolveSyncStageKey(job));
 
-  if (status === 'synced' || status === 'failed') {
-    return 100;
+  if (status === 'failed') {
+    return stage?.progress || 12;
   }
 
-  if (status === 'syncing') {
-    return 65;
-  }
-
-  return 25;
+  return stage?.progress || 12;
 }
 
 function getSyncStatusLabel(job) {
-  const status = normalizeJobText(job?.status);
+  const status = getSyncJobStatus(job);
+  const stage = syncProgressStages.find((item) => item.key === resolveSyncStageKey(job));
+
+  if (status === 'cancelled') {
+    return 'Sync cancelled';
+  }
+
+  if (status === 'failed') {
+    return `Sync failed during ${stage?.label || 'sync'}`;
+  }
 
   if (status === 'synced') {
     return 'Sync complete';
   }
 
-  if (status === 'failed') {
-    return 'Sync failed';
-  }
-
-  if (status === 'syncing') {
-    return 'Sensor B is syncing';
-  }
-
-  return 'Waiting for Sensor B';
+  return stage?.label || 'Waiting for Sensor B';
 }
 
 function getSyncStatusDetail(job, fallbackMessage = '') {
-  const status = normalizeJobText(job?.status);
+  const status = getSyncJobStatus(job);
+  const stageKey = resolveSyncStageKey(job);
+  const slot = Number(job?.shared_door_slot) > 0 ? `door slot ${job.shared_door_slot}` : 'its assigned door slot';
+  const attempts = Number(job?.attempts) > 0 ? ` Attempt ${job.attempts}.` : '';
 
-  if (status === 'synced') {
-    return 'The fingerprint template is now stored on Sensor B.';
+  if (status === 'cancelled') {
+    return getSyncCancellationReason(job);
   }
 
   if (status === 'failed') {
-    return job?.error_message || 'Sensor B reported that the template could not be synced.';
+    const reason = job?.error_message || 'Sensor B reported that the template could not be synced.';
+    return `${reason} The failure happened at the ${stageKey} step.${attempts}`;
   }
 
-  if (status === 'syncing') {
-    return 'Sensor B has picked up the job and is writing the fingerprint template to the door sensor.';
+  if (stageKey === 'synced') {
+    return `The fingerprint template is stored on Sensor B in ${slot} and linked to this user.`;
   }
 
-  return fallbackMessage || 'The job is queued. Sensor B will pick it up on its next sync poll.';
+  if (stageKey === 'reporting') {
+    return `The template is already on the door sensor. Sensor B is sending that result back to the server.${attempts}`;
+  }
+
+  if (stageKey === 'writing') {
+    return `Sensor B paused WiFi and is writing the fingerprint template into ${slot}. This step stays here until the sensor confirms the write.${attempts}`;
+  }
+
+  if (stageKey === 'claimed') {
+    return `Sensor B claimed queue #${job?.queue_id || job?.id || '—'} and downloaded the template. Next it will write that template to ${slot}.${attempts}`;
+  }
+
+  return `${fallbackMessage || 'The job is queued, waiting for the door controller to pick it up.'} If it is not picked up within 5 minutes, it will be cancelled automatically and a modal will explain why.`;
 }
 
-function resolveEnrollmentStageKey(job) {
-  if (!job) {
-    return 'waiting';
-  }
-
-  const status = normalizeJobText(job.status);
-  const step = normalizeJobText(job.current_step);
-  const progress = Number(job.progress) || 0;
-
-  if (status === 'completed' || step.includes('complete') || progress >= 100) {
-    return 'complete';
-  }
-
-  if (status === 'failed' || status === 'cancelled') {
-    if (progress >= 90) {
-      return 'save-download';
-    }
-
-    if (progress >= 75) {
-      return 'create-model';
-    }
-
-    if (progress >= 50) {
-      return 'place-second';
-    }
-
-    return progress >= 5 ? 'claimed' : 'waiting';
-  }
-
-  if (step.includes('download') || step.includes('upload') || step.includes('sending completion')) {
-    return 'save-download';
-  }
-
-  if (step.includes('save') || step.includes('saved') || step.includes('store') || step.includes('storing')) {
-    return 'save-download';
-  }
-
-  if (
-    step.includes('create') ||
-    step.includes('creating') ||
-    step.includes('generate') ||
-    step.includes('generating') ||
-    step.includes('model') ||
-    step.includes('process') ||
-    step.includes('processing') ||
-    step.includes('template')
-  ) {
-    return 'create-model';
-  }
-
-  if (
-    step.includes('same finger') ||
-    step.includes('again') ||
-    step.includes('second') ||
-    step.includes('2nd')
-  ) {
-    return 'place-second';
-  }
-
-  if (step.includes('remove') || step.includes('lift')) {
-    return 'remove';
-  }
-
-  if (step.includes('place') || step.includes('first scan') || step.includes('reader') || step.includes('sensor')) {
-    return 'place-first';
-  }
-
-  if (step.includes('claim') || step.includes('start') || status === 'processing') {
-    return 'claimed';
-  }
-
-  const progressMatchedStage = [...enrollmentProgressStages]
-    .reverse()
-    .find((stage) => progress >= stage.threshold);
-
-  return progressMatchedStage?.key || 'waiting';
-}
 
 function formatRoleLabel(role) {
   const normalizedRole = String(role || '').trim();
@@ -619,21 +615,117 @@ function formatJobTimestamp(value) {
   return formatted === '—' ? value : formatted;
 }
 
-const SYNC_RETRY_WINDOW_MS = 60 * 60 * 1000;
+function formatJobTimestampParts(value) {
+  if (value == null || String(value).trim() === '') {
+    return { date: 'Not yet', time: '' };
+  }
+
+  const parsed = parseManilaDateTime(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return { date: String(value), time: '' };
+  }
+
+  return {
+    date: formatDateInManila(parsed, { year: 'numeric', month: 'short', day: 'numeric' }),
+    time: formatDateInManila(parsed, {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }),
+  };
+}
+
+function JobUpdatedStamp({ value }) {
+  const parts = formatJobTimestampParts(value);
+
+  return (
+    <>
+      <strong>{parts.date}</strong>
+      {parts.time ? <span>{parts.time}</span> : null}
+    </>
+  );
+}
+
+function syncStepLabel(job) {
+  const step = String(job?.progress_step || '').toLowerCase();
+
+  if (getSyncJobStatus(job) === 'cancelled') {
+    return job?.cancellation_reason === 'pickup_timeout' ? 'Cancelled before controller pickup' : 'Cancelled';
+  }
+
+  if (step === 'claimed') {
+    return 'Claimed by Sensor B';
+  }
+
+  if (step === 'writing') {
+    return 'Writing the template';
+  }
+
+  if (step === 'reporting') {
+    return 'Confirming the stored template';
+  }
+
+  if (step === 'synced' || job?.status === 'synced') {
+    return 'Stored on Sensor B';
+  }
+
+  if (job?.status === 'failed') {
+    return 'Stopped';
+  }
+
+  if (job?.status === 'syncing') {
+    return 'Processing on Sensor B';
+  }
+
+  return 'Waiting in the queue';
+}
+
+function syncTimelineTone(status) {
+  const value = String(status || '').toLowerCase();
+
+  if (value === 'failed') {
+    return 'is-failed';
+  }
+
+  if (value === 'pending') {
+    return 'is-pending';
+  }
+
+  if (value === 'cancelled') {
+    return 'is-cancelled';
+  }
+
+  return 'is-success';
+}
 
 function canRetrySyncJob(job) {
-  if (!job?.can_retry) {
-    return false;
-  }
+  return Boolean(job?.can_retry);
+}
 
-  const timestamp = job.updated_at || job.processing_at || job.queued_at;
-  const occurredAt = parseManilaDateTime(timestamp).getTime();
+const syncJobStatusFilterOptions = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'syncing', label: 'Syncing' },
+  { value: 'synced', label: 'Synced' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
 
-  if (Number.isNaN(occurredAt)) {
-    return false;
-  }
+function syncJobDateValue(job) {
+  return String(job?.queued_at || '').trim().slice(0, 10);
+}
 
-  return Date.now() - occurredAt <= SYNC_RETRY_WINDOW_MS;
+const finishedJobStatusFilterOptions = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+function enrollmentJobDateValue(job) {
+  return String(job?.finished_at || job?.updated_at || '').trim().slice(0, 10);
 }
 
 function formatTemplateBytes(value) {
@@ -686,9 +778,12 @@ function buildFingerprintGroups(fingerprints) {
 export default function Fingerprint({ user: currentUser } = {}) {
   const confirmAction = useActionConfirm();
   const canUpdateFingerprints = userHasPrivilege(currentUser, 'fingerprint_update');
+  const canEnrollFingerprints = currentUser?.role !== 'admin';
   const roleFilterMenuRef = useRef(null);
   const enrollmentFilterMenuRef = useRef(null);
   const syncFilterMenuRef = useRef(null);
+  const syncJobStatusMenuRef = useRef(null);
+  const finishedJobStatusMenuRef = useRef(null);
   const [activeTab, setActiveTab] = useState('all');
   const [activeEnrollmentFilter, setActiveEnrollmentFilter] = useState('all');
   const [activeSyncFilter, setActiveSyncFilter] = useState('all');
@@ -701,6 +796,16 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [finishedJobsPage, setFinishedJobsPage] = useState(1);
   const [fingerprintPage, setFingerprintPage] = useState(1);
   const [syncJobsPage, setSyncJobsPage] = useState(1);
+  const [syncJobStatusFilter, setSyncJobStatusFilter] = useState('all');
+  const [isSyncJobStatusMenuOpen, setIsSyncJobStatusMenuOpen] = useState(false);
+  const [syncJobDateFrom, setSyncJobDateFrom] = useState('');
+  const [syncJobDateTo, setSyncJobDateTo] = useState('');
+  const [syncJobSearchQuery, setSyncJobSearchQuery] = useState('');
+  const [finishedJobStatusFilter, setFinishedJobStatusFilter] = useState('all');
+  const [isFinishedJobStatusMenuOpen, setIsFinishedJobStatusMenuOpen] = useState(false);
+  const [finishedJobDateFrom, setFinishedJobDateFrom] = useState('');
+  const [finishedJobDateTo, setFinishedJobDateTo] = useState('');
+  const [finishedJobSearchQuery, setFinishedJobSearchQuery] = useState('');
   const [isFinishedJobsVisible, setIsFinishedJobsVisible] = useState(false);
   const finishedJobsSectionRef = useRef(null);
   const [syncJobs, setSyncJobs] = useState([]);
@@ -716,6 +821,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [errorMessage, setErrorMessage] = useState('');
   const [jobErrorMessage, setJobErrorMessage] = useState('');
   const [syncJobErrorMessage, setSyncJobErrorMessage] = useState('');
+  const [syncQueueErrorMessage, setSyncQueueErrorMessage] = useState('');
+  const [syncCancellationNotices, setSyncCancellationNotices] = useState([]);
+  const syncCancellationNoticeStorageKey = `entrivo_sync_pickup_timeout_notices:${currentUser?.id || 'session'}`;
+  const seenSyncCancellationKeysRef = useRef({ storageKey: '', keys: new Set() });
   const [templateErrorMessage, setTemplateErrorMessage] = useState('');
   const [activeTemplateActionId, setActiveTemplateActionId] = useState(null);
   const [selectedTemplateFingerprint, setSelectedTemplateFingerprint] = useState(null);
@@ -727,6 +836,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [revealedTemplateActionIds, setRevealedTemplateActionIds] = useState([]);
   const [syncPromptFingerprint, setSyncPromptFingerprint] = useState(null);
   const [syncStatusFingerprint, setSyncStatusFingerprint] = useState(null);
+  const [isSyncLiveModalOpen, setIsSyncLiveModalOpen] = useState(false);
   const [syncStatusMessage, setSyncStatusMessage] = useState('');
   const [trackedSyncJobId, setTrackedSyncJobId] = useState(null);
   const [toastItems, setToastItems] = useState([]);
@@ -737,6 +847,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const [isFingerNameMenuOpen, setIsFingerNameMenuOpen] = useState(false);
   const [viewFingerprint, setViewFingerprint] = useState(null);
   const [viewJob, setViewJob] = useState(null);
+  const [viewJobEvents, setViewJobEvents] = useState([]);
+  const [isLoadingJobTimeline, setIsLoadingJobTimeline] = useState(false);
+  const viewJobRequestRef = useRef(0);
+  const [viewSyncJob, setViewSyncJob] = useState(null);
+  const [viewSyncEvents, setViewSyncEvents] = useState([]);
+  const [isLoadingSyncTimeline, setIsLoadingSyncTimeline] = useState(false);
+  const viewSyncRequestRef = useRef(0);
   const [isLargeFingerprintScreen, setIsLargeFingerprintScreen] = useState(() =>
     window.matchMedia(fingerprintLargeScreenQuery).matches,
   );
@@ -808,6 +925,34 @@ export default function Fingerprint({ user: currentUser } = {}) {
       const jobs = response.data.jobs || [];
       setSyncJobs(jobs);
       setSyncJobErrorMessage('');
+
+      if (seenSyncCancellationKeysRef.current.storageKey !== syncCancellationNoticeStorageKey) {
+        let savedKeys = [];
+        try {
+          const saved = JSON.parse(window.sessionStorage.getItem(syncCancellationNoticeStorageKey) || '[]');
+          savedKeys = Array.isArray(saved) ? saved.filter((key) => typeof key === 'string') : [];
+        } catch {
+          // An unavailable storage area still permits deduplication while this page is open.
+        }
+        seenSyncCancellationKeysRef.current = {
+          storageKey: syncCancellationNoticeStorageKey,
+          keys: new Set(savedKeys),
+        };
+      }
+
+      const seenKeys = seenSyncCancellationKeysRef.current.keys;
+      const expiredJobs = Array.isArray(response.data.expired_jobs) ? response.data.expired_jobs : [];
+      const newCancellations = getUnseenSyncPickupTimeouts([...jobs, ...expiredJobs], seenKeys);
+
+      if (newCancellations.length > 0) {
+        newCancellations.forEach((job) => seenKeys.add(getSyncCancellationEventKey(job)));
+        setSyncCancellationNotices((current) => [...current, ...newCancellations]);
+        try {
+          window.sessionStorage.setItem(syncCancellationNoticeStorageKey, JSON.stringify([...seenKeys]));
+        } catch {
+          // Keep the in-memory keys when session storage is unavailable.
+        }
+      }
       return jobs;
     } catch {
       setSyncJobs([]);
@@ -816,7 +961,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     } finally {
       setIsLoadingSyncJobs(false);
     }
-  }, []);
+  }, [syncCancellationNoticeStorageKey]);
 
   const loadJobProgress = useCallback(async (jobId) => {
     if (!jobId || jobId <= 0) {
@@ -847,7 +992,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
         if (
           existingJob.progress === updatedJob.progress &&
           existingJob.status === updatedJob.status &&
-          existingJob.current_step === updatedJob.current_step
+          existingJob.current_step === updatedJob.current_step &&
+          JSON.stringify(existingJob.verification ?? null) === JSON.stringify(updatedJob.verification ?? null)
         ) {
           return currentJobs;
         }
@@ -1082,11 +1228,95 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }
 
   function closeJobView() {
+    viewJobRequestRef.current += 1;
     setViewJob(null);
+    setViewJobEvents([]);
+    setIsLoadingJobTimeline(false);
+  }
+
+  async function loadJobView(job, requestId = viewJobRequestRef.current) {
+    if (!job?.job_id) {
+      return;
+    }
+
+    setIsLoadingJobTimeline(true);
+
+    try {
+      const response = await axiosClient.get('/api/fingerprint/get_enrollment_jobs.php', {
+        params: { job_id: job.job_id, events: 1 },
+      });
+      const next = response.data?.jobs?.[0];
+
+      if (viewJobRequestRef.current !== requestId) {
+        return;
+      }
+
+      if (next) {
+        setViewJob((current) => (current ? { ...current, ...next } : next));
+        setViewJobEvents(Array.isArray(next.events) ? next.events : []);
+      }
+    } catch {
+      if (viewJobRequestRef.current === requestId) {
+        setViewJobEvents([]);
+      }
+    } finally {
+      if (viewJobRequestRef.current === requestId) {
+        setIsLoadingJobTimeline(false);
+      }
+    }
   }
 
   function openJobView(job) {
+    const requestId = viewJobRequestRef.current + 1;
+    viewJobRequestRef.current = requestId;
     setViewJob(job);
+    setViewJobEvents([]);
+    loadJobView(job, requestId);
+  }
+
+  function closeSyncJobView() {
+    viewSyncRequestRef.current += 1;
+    setViewSyncJob(null);
+    setViewSyncEvents([]);
+    setIsLoadingSyncTimeline(false);
+  }
+
+  async function loadSyncJobView(job, requestId = viewSyncRequestRef.current) {
+    if (!job?.queue_id) {
+      return;
+    }
+
+    setIsLoadingSyncTimeline(true);
+
+    try {
+      const response = await axiosClient.get('/api/sensorB/get_sync_jobs.php', {
+        params: { queue_id: job.queue_id },
+      });
+      const next = response.data?.jobs?.[0];
+
+      if (viewSyncRequestRef.current !== requestId || !next) {
+        return;
+      }
+
+      setViewSyncJob(next);
+      setViewSyncEvents(Array.isArray(next.events) ? next.events : []);
+    } catch {
+      if (viewSyncRequestRef.current === requestId) {
+        setViewSyncEvents([]);
+      }
+    } finally {
+      if (viewSyncRequestRef.current === requestId) {
+        setIsLoadingSyncTimeline(false);
+      }
+    }
+  }
+
+  function openSyncJobView(job) {
+    const requestId = viewSyncRequestRef.current + 1;
+    viewSyncRequestRef.current = requestId;
+    setViewSyncJob(job);
+    setViewSyncEvents([]);
+    loadSyncJobView(job, requestId);
   }
 
   async function handleDeleteFingerprint(fingerprint) {
@@ -1146,6 +1376,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
   async function openEnrollmentModal(fingerprint, mode = fingerprint.status === 'active' ? 'update' : 'enroll') {
     if (!isLargeFingerprintScreen) {
       pushToast(fingerprintMobileEnrollmentMessage, 'error');
+      return;
+    }
+
+    if ((mode === 'enroll' || mode === 'add') && !canEnrollFingerprints) {
       return;
     }
 
@@ -1228,10 +1462,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     autoEnrollHandledRef.current = true;
     window.history.replaceState({}, '', portalHref('/super-admin/fingerprint'));
-    void openEnrollmentModal(
-      matchedFingerprint,
-      matchedFingerprint.status === 'active' ? 'update' : 'enroll',
-    );
+    const enrollmentMode = matchedFingerprint.status === 'active' ? 'update' : 'enroll';
+    if (enrollmentMode === 'enroll' && !canEnrollFingerprints) {
+      return;
+    }
+    void openEnrollmentModal(matchedFingerprint, enrollmentMode);
   }, [fingerprintsByRole, isLoading]);
 
   function closeEnrollmentModal() {
@@ -1525,6 +1760,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     }
 
     setActiveSyncActionId(fingerprint.id);
+    setSyncQueueErrorMessage('');
     setSyncStatusMessage('');
     setTrackedSyncJobId(null);
 
@@ -1563,12 +1799,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
     } catch (error) {
       const message = error.response?.data?.message || 'Unable to queue template sync for Sensor B.';
       pushToast(message, 'error');
+      setSyncQueueErrorMessage(message);
       setSyncStatusMessage(message);
       setTrackedSyncJobId(null);
-
-      if (showStatusModal) {
-        setSyncStatusFingerprint(fingerprint);
-      }
+      setSyncStatusFingerprint(null);
     } finally {
       setActiveSyncActionId(null);
     }
@@ -1591,6 +1825,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     }
 
     setActiveSyncActionId(`sync-job-${job.queue_id}`);
+    setSyncQueueErrorMessage('');
 
     try {
       const response = await axiosClient.post('/api/sensorB/retry_sync_job.php', {
@@ -1602,7 +1837,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
       await loadSyncJobs();
       await loadFingerprints();
     } catch (error) {
-      pushToast(error.response?.data?.message || 'Unable to retry that sync job.', 'error');
+      const message = error.response?.data?.message || 'Unable to retry that sync job.';
+      pushToast(message, 'error');
+      setSyncQueueErrorMessage(message);
     } finally {
       setActiveSyncActionId(null);
     }
@@ -1627,6 +1864,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
       });
 
       pushToast(response.data?.message || `Sync job #${job.queue_id} cancelled.`, 'success');
+      if (Number(trackedSyncJobId) === Number(job.queue_id)) {
+        setSyncStatusFingerprint(null);
+        setTrackedSyncJobId(null);
+      }
       await loadSyncJobs();
       await loadFingerprints();
     } catch (error) {
@@ -1792,8 +2033,23 @@ export default function Fingerprint({ user: currentUser } = {}) {
     }
   }
 
+  const hideSuperAdminRows = currentUser?.role === 'admin';
+  const listedFingerprintsByRole = useMemo(
+    () => (hideSuperAdminRows ? omitSuperAdminFingerprints(fingerprintsByRole) : fingerprintsByRole),
+    [fingerprintsByRole, hideSuperAdminRows],
+  );
+  const listedEnrollmentJobs = useMemo(
+    () => (hideSuperAdminRows ? omitSuperAdminJobs(enrollmentJobs, fingerprintsByRole) : enrollmentJobs),
+    [enrollmentJobs, fingerprintsByRole, hideSuperAdminRows],
+  );
+  const visibleRoleFilterOptions = useMemo(
+    () => (hideSuperAdminRows
+      ? fingerprintRoleFilterOptions.filter((option) => option.key !== 'super_admins')
+      : fingerprintRoleFilterOptions),
+    [hideSuperAdminRows],
+  );
   const activeTabConfig =
-    fingerprintRoleFilterOptions.find((tab) => tab.key === activeTab) || allFingerprintsFilter;
+    visibleRoleFilterOptions.find((tab) => tab.key === activeTab) || allFingerprintsFilter;
   const activeEnrollmentFilterConfig =
     fingerprintEnrollmentFilterOptions.find((option) => option.value === activeEnrollmentFilter) ||
     fingerprintEnrollmentFilterOptions[0];
@@ -1801,8 +2057,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
     fingerprintSyncFilterOptions.find((option) => option.value === activeSyncFilter) ||
     fingerprintSyncFilterOptions[0];
   const activeFingerprints = useMemo(
-    () => getFingerprintsForRoleFilter(activeTabConfig.key, fingerprintsByRole),
-    [activeTabConfig.key, fingerprintsByRole],
+    () => getFingerprintsForRoleFilter(activeTabConfig.key, listedFingerprintsByRole),
+    [activeTabConfig.key, listedFingerprintsByRole],
   );
   const enrollmentFilteredFingerprints = useMemo(
     () => filterFingerprintsByEnrollment(activeFingerprints, activeEnrollmentFilter),
@@ -1860,14 +2116,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const roleFilterCounts = useMemo(() => {
     const counts = {};
 
-    fingerprintRoleFilterOptions.forEach((option) => {
-      const fingerprints = getFingerprintsForRoleFilter(option.key, fingerprintsByRole);
+    visibleRoleFilterOptions.forEach((option) => {
+      const fingerprints = getFingerprintsForRoleFilter(option.key, listedFingerprintsByRole);
       const uniqueUsers = new Set(fingerprints.map((item) => item.userId));
       counts[option.key] = uniqueUsers.size;
     });
 
     return counts;
-  }, [fingerprintsByRole]);
+  }, [listedFingerprintsByRole, visibleRoleFilterOptions]);
   const enrollmentFilterCounts = useMemo(() => {
     const counts = { all: activeFingerprints.length };
 
@@ -1898,24 +2154,24 @@ export default function Fingerprint({ user: currentUser } = {}) {
     return counts;
   }, [enrollmentFilteredFingerprints]);
   const totalEnrolledUsers = useMemo(() => {
-    const uniqueUsers = new Set(Object.values(fingerprintsByRole).flat().map((item) => item.userId));
+    const uniqueUsers = new Set(Object.values(listedFingerprintsByRole).flat().map((item) => item.userId));
     return uniqueUsers.size;
-  }, [fingerprintsByRole]);
+  }, [listedFingerprintsByRole]);
   const successfullyEnrolledUsers = useMemo(() => {
     const uniqueUsers = new Set(
-      Object.values(fingerprintsByRole)
+      Object.values(listedFingerprintsByRole)
         .flat()
-        .filter((item) => item.status === 'active')
+        .filter((item) => getEnrollmentKey(item) === 'enrolled')
         .map((item) => item.userId),
     );
 
     return uniqueUsers.size;
-  }, [fingerprintsByRole]);
+  }, [listedFingerprintsByRole]);
   const totalActiveFingerprints = useMemo(() => {
-    return Object.values(fingerprintsByRole)
+    return Object.values(listedFingerprintsByRole)
       .flat()
       .filter((item) => item.status === 'active').length;
-  }, [fingerprintsByRole]);
+  }, [listedFingerprintsByRole]);
   const trackedEnrollmentJob = useMemo(() => {
     if (!trackedEnrollmentProgress) {
       return null;
@@ -1923,18 +2179,18 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     if (trackedEnrollmentProgress.jobId) {
       return (
-        enrollmentJobs.find((job) => job.job_id === trackedEnrollmentProgress.jobId) || null
+        listedEnrollmentJobs.find((job) => job.job_id === trackedEnrollmentProgress.jobId) || null
       );
     }
 
     return (
-      enrollmentJobs.find(
+      listedEnrollmentJobs.find(
         (job) =>
           job.user_id === trackedEnrollmentProgress.userId &&
           job.finger_name === trackedEnrollmentProgress.fingerName,
       ) || null
     );
-  }, [enrollmentJobs, trackedEnrollmentProgress]);
+  }, [listedEnrollmentJobs, trackedEnrollmentProgress]);
   const trackedEnrollmentDisplayJob = useMemo(() => {
     if (!trackedEnrollmentProgress) {
       return null;
@@ -2012,9 +2268,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
     }
 
     if (job.status === 'completed') {
-      return job.has_template_data
-        ? `Stored (${formatTemplateBytes(job.template_bytes)})`
-        : 'Completing template refresh...';
+      return hasVerifiedEnrollment(job)
+        ? `Verified backup (${formatTemplateBytes(job.template_bytes)})`
+        : 'Historical completion; fresh-scan verification unconfirmed';
     }
 
     if (job.status === 'failed' || job.status === 'cancelled') {
@@ -2028,6 +2284,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
       return 'Waiting for enrollment activity';
     }
 
+    if (job.status === 'completed') {
+      return hasVerifiedEnrollment(job) ? 'Enrollment verified by backend' : 'Historical completion; verification unconfirmed';
+    }
     if (job.current_step) {
       return job.current_step;
     }
@@ -2040,6 +2299,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
     if (!job) {
       return 'Start an enrollment job to see the guided fingerprint steps here.';
     }
+    if (job.status === 'completed') {
+      return getEnrollmentFinalVerificationHint(job);
+    }
+    if (job.status === 'failed' || job.status === 'cancelled') {
+      return job.error_message || 'This enrollment stopped before the fingerprint could be confirmed.';
+    }
+    const verificationHint = getEnrollmentFinalVerificationHint(job);
+    if (verificationHint) return verificationHint;
 
     const normalizedStep = String(job.current_step || '').toLowerCase();
 
@@ -2079,20 +2346,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
       return 'Hold on while the enrollment station builds and verifies the fingerprint template.';
     }
 
-    if (job.status === 'completed') {
-      return 'The fingerprint template is ready. Review the upload form to finish syncing it.';
-    }
-
-    if (job.status === 'failed' || job.status === 'cancelled') {
-      return job.error_message || 'This enrollment stopped before the template could be saved.';
-    }
-
     if (normalizedStep.includes('claim')) {
       return 'The enrollment station has claimed the job and is preparing the sensor for scanning.';
     }
 
     if (job.status === 'waiting') {
-      return 'Waiting for the ESP32 enrollment station to pick up this job from the queue.';
+      return 'Waiting for the Sensor A enrollment station to pick up this job. This enrollment is automatically cancelled if Sensor A does not respond within 3 minutes.';
     }
 
     return 'Follow the live instruction shown here to complete the enrollment in the correct order.';
@@ -2108,8 +2367,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
       return 'danger';
     }
 
-    if (job.status === 'completed' || normalizedStep.includes('complete')) {
-      return 'success';
+    if (job.status === 'completed') {
+      return hasVerifiedEnrollment(job) ? 'success' : 'warning';
+    }
+    if (hasEnrollmentFinalVerification(job)) {
+      return normalizedStep.includes('remove') ? 'warning' : 'active';
     }
 
     if (
@@ -2162,15 +2424,15 @@ export default function Fingerprint({ user: currentUser } = {}) {
   );
   const summaryCards = [
     {
-      label: 'Users Enrolled',
+      label: 'Users with Records',
       value: totalEnrolledUsers,
       detail: 'Faculty, staff, and admins',
       icon: Users,
     },
     {
-      label: 'Successfully Enrolled',
+      label: 'Verified Enrollment',
       value: successfullyEnrolledUsers,
-      detail: 'Users with completed enrollment',
+      detail: 'Users with confirmed fresh-scan proof',
       icon: FingerprintIcon,
     },
     {
@@ -2181,12 +2443,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
     },
   ];
   const liveJobCount = useMemo(
-    () => enrollmentJobs.filter((job) => ['waiting', 'processing'].includes(job.status)).length,
-    [enrollmentJobs],
+    () => listedEnrollmentJobs.filter((job) => ['waiting', 'processing'].includes(job.status)).length,
+    [listedEnrollmentJobs],
   );
   const completedJobCount = useMemo(
-    () => enrollmentJobs.filter((job) => job.status === 'completed').length,
-    [enrollmentJobs],
+    () => listedEnrollmentJobs.filter((job) => job.status === 'completed').length,
+    [listedEnrollmentJobs],
   );
   const jobSummaryCards = [
     {
@@ -2202,10 +2464,11 @@ export default function Fingerprint({ user: currentUser } = {}) {
       icon: CheckCircle2,
     },
   ];
-  const liveSyncJobCount = useMemo(
-    () => syncJobs.filter((job) => ['pending', 'syncing'].includes(job.status)).length,
+  const liveSyncJobs = useMemo(
+    () => syncJobs.filter((job) => ['pending', 'syncing'].includes(job.status)),
     [syncJobs],
   );
+  const liveSyncJobCount = liveSyncJobs.length;
   const syncedJobCount = useMemo(
     () => syncJobs.filter((job) => job.status === 'synced').length,
     [syncJobs],
@@ -2228,15 +2491,15 @@ export default function Fingerprint({ user: currentUser } = {}) {
       icon: CheckCircle2,
     },
     {
-      label: 'Failed',
+      label: 'Failed / Cancelled',
       value: failedSyncJobCount,
-      detail: 'Jobs that can be retried',
+      detail: 'Review the reason before retrying',
       icon: CircleAlert,
     },
   ];
   const liveJobs = useMemo(
-    () => enrollmentJobs.filter((job) => job.is_live ?? ['waiting', 'processing'].includes(job.status)),
-    [enrollmentJobs],
+    () => listedEnrollmentJobs.filter((job) => job.is_live ?? ['waiting', 'processing'].includes(job.status)),
+    [listedEnrollmentJobs],
   );
   const spotlightJob = useMemo(
     () => liveJobs.find((job) => job.status === 'processing') || liveJobs[0] || null,
@@ -2268,7 +2531,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
     [getEnrollmentInstructionTone, spotlightJob],
   );
   const spotlightMilestones = useMemo(() => {
-    const progress = Number(spotlightJob?.progress) || 0;
+    const progress = getEnrollmentProgressValue(spotlightJob);
     const currentStep = String(spotlightJob?.current_step || '').trim();
 
     const completed = [];
@@ -2311,6 +2574,17 @@ export default function Fingerprint({ user: currentUser } = {}) {
     () => getEnrollmentInstructionTone(trackedEnrollmentDisplayJob),
     [getEnrollmentInstructionTone, trackedEnrollmentDisplayJob],
   );
+  const trackedEnrollmentStages = useMemo(() => {
+    const stages = hasEnrollmentFinalVerification(trackedEnrollmentDisplayJob) ? [
+      ...enrollmentProgressStages.slice(0, -1),
+      { key: 'verify-fingerprint', label: 'Verify Stored Finger', detail: 'Fresh third scan confirms the saved fingerprint', threshold: 96, icon: FingerprintIcon },
+      enrollmentProgressStages.at(-1),
+    ] : enrollmentProgressStages;
+    if (trackedEnrollmentDisplayJob?.status === 'completed' && !hasVerifiedEnrollment(trackedEnrollmentDisplayJob)) {
+      return stages.map(stage => stage.key === 'complete' ? { ...stage, label: 'Recorded Complete', detail: 'Fresh-scan verification not confirmed' } : stage);
+    }
+    return stages;
+  }, [trackedEnrollmentDisplayJob]);
   const trackedEnrollmentStageKey = useMemo(
     () => resolveEnrollmentStageKey(trackedEnrollmentDisplayJob),
     [trackedEnrollmentDisplayJob],
@@ -2318,9 +2592,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
   const trackedEnrollmentStageIndex = useMemo(
     () => Math.max(
       0,
-      enrollmentProgressStages.findIndex((stage) => stage.key === trackedEnrollmentStageKey),
+      trackedEnrollmentStages.findIndex((stage) => stage.key === trackedEnrollmentStageKey),
     ),
-    [trackedEnrollmentStageKey],
+    [trackedEnrollmentStageKey, trackedEnrollmentStages],
   );
   const activeSyncStatusJob = useMemo(() => {
     if (!syncStatusFingerprint) {
@@ -2382,8 +2656,19 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     return () => window.clearInterval(fastSyncInterval);
   }, [isActiveSyncClosed, loadFingerprints, loadSyncJobs, syncStatusFingerprint]);
+  useEffect(() => {
+    if (!isSyncLiveModalOpen) {
+      return undefined;
+    }
+
+    const liveInterval = window.setInterval(() => {
+      loadSyncJobs();
+    }, 1200);
+
+    return () => window.clearInterval(liveInterval);
+  }, [isSyncLiveModalOpen, loadSyncJobs]);
   const trackedEnrollmentMilestones = useMemo(() => {
-    const progress = Number(trackedEnrollmentDisplayJob?.progress) || 0;
+    const progress = getEnrollmentProgressValue(trackedEnrollmentDisplayJob);
     const currentStep = String(trackedEnrollmentDisplayJob?.current_step || '').trim();
 
     const completed = [];
@@ -2417,27 +2702,127 @@ export default function Fingerprint({ user: currentUser } = {}) {
     return { completed, current, remaining };
   }, [trackedEnrollmentDisplayJob]);
   const finishedEnrollmentJobs = useMemo(
-    () => enrollmentJobs.filter((job) => job.is_closed ?? ['completed', 'failed', 'cancelled'].includes(job.status)),
-    [enrollmentJobs],
+    () => listedEnrollmentJobs.filter((job) => job.is_closed ?? ['completed', 'failed', 'cancelled'].includes(job.status)),
+    [listedEnrollmentJobs],
   );
-  const finishedJobsPageCount = Math.max(1, Math.ceil(finishedEnrollmentJobs.length / rowsPerPage));
+  const normalizedFinishedJobSearch = finishedJobSearchQuery.trim().toLowerCase();
+  const filteredFinishedJobs = useMemo(() => {
+    return finishedEnrollmentJobs.filter((job) => {
+      if (
+        finishedJobStatusFilter !== 'all' &&
+        String(job.status || '').toLowerCase() !== finishedJobStatusFilter
+      ) {
+        return false;
+      }
+
+      const jobDate = enrollmentJobDateValue(job);
+
+      if (finishedJobDateFrom && jobDate < finishedJobDateFrom) {
+        return false;
+      }
+
+      if (finishedJobDateTo && jobDate > finishedJobDateTo) {
+        return false;
+      }
+
+      if (!normalizedFinishedJobSearch) {
+        return true;
+      }
+
+      return [job.user_name, job.email, job.user_id, job.finger_name]
+        .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+        .some((value) => String(value).toLowerCase().includes(normalizedFinishedJobSearch));
+    });
+  }, [
+    finishedEnrollmentJobs,
+    finishedJobDateFrom,
+    finishedJobDateTo,
+    finishedJobStatusFilter,
+    normalizedFinishedJobSearch,
+  ]);
+  const finishedJobStatusCounts = useMemo(
+    () => ({
+      all: finishedEnrollmentJobs.length,
+      completed: finishedEnrollmentJobs.filter((job) => job.status === 'completed').length,
+      failed: finishedEnrollmentJobs.filter((job) => job.status === 'failed').length,
+      cancelled: finishedEnrollmentJobs.filter((job) => job.status === 'cancelled').length,
+    }),
+    [finishedEnrollmentJobs],
+  );
+  const activeFinishedJobStatusFilter =
+    finishedJobStatusFilterOptions.find((option) => option.value === finishedJobStatusFilter) ||
+    finishedJobStatusFilterOptions[0];
+  const hasFinishedJobFilters =
+    finishedJobStatusFilter !== 'all' ||
+    Boolean(finishedJobDateFrom) ||
+    Boolean(finishedJobDateTo) ||
+    Boolean(finishedJobSearchQuery.trim());
+  const finishedJobsPageCount = Math.max(1, Math.ceil(filteredFinishedJobs.length / rowsPerPage));
   const safeFinishedJobsPage = Math.min(finishedJobsPage, finishedJobsPageCount);
-  const pagedFinishedJobs = finishedEnrollmentJobs.slice(
+  const pagedFinishedJobs = filteredFinishedJobs.slice(
     (safeFinishedJobsPage - 1) * rowsPerPage,
     safeFinishedJobsPage * rowsPerPage,
   );
-  const syncJobsPageCount = Math.max(1, Math.ceil(syncJobs.length / rowsPerPage));
+  const normalizedSyncJobSearch = syncJobSearchQuery.trim().toLowerCase();
+  const filteredSyncJobs = useMemo(() => {
+    return syncJobs.filter((job) => {
+      if (
+        syncJobStatusFilter !== 'all' &&
+        getSyncJobStatus(job) !== syncJobStatusFilter
+      ) {
+        return false;
+      }
+
+      const jobDate = syncJobDateValue(job);
+
+      if (syncJobDateFrom && jobDate < syncJobDateFrom) {
+        return false;
+      }
+
+      if (syncJobDateTo && jobDate > syncJobDateTo) {
+        return false;
+      }
+
+      if (!normalizedSyncJobSearch) {
+        return true;
+      }
+
+      return [job.user_name, job.email, job.user_id, job.finger_name, job.queue_id]
+        .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+        .some((value) => String(value).toLowerCase().includes(normalizedSyncJobSearch));
+    });
+  }, [normalizedSyncJobSearch, syncJobDateFrom, syncJobDateTo, syncJobStatusFilter, syncJobs]);
+  const syncJobStatusCounts = useMemo(
+    () => ({
+      all: syncJobs.length,
+      pending: syncJobs.filter((job) => job.status === 'pending').length,
+      syncing: syncJobs.filter((job) => job.status === 'syncing').length,
+      synced: syncJobs.filter((job) => job.status === 'synced').length,
+      failed: syncJobs.filter((job) => getSyncJobStatus(job) === 'failed').length,
+      cancelled: syncJobs.filter((job) => getSyncJobStatus(job) === 'cancelled').length,
+    }),
+    [syncJobs],
+  );
+  const activeSyncJobStatusFilter =
+    syncJobStatusFilterOptions.find((option) => option.value === syncJobStatusFilter) ||
+    syncJobStatusFilterOptions[0];
+  const syncJobsPageCount = Math.max(1, Math.ceil(filteredSyncJobs.length / rowsPerPage));
   const safeSyncJobsPage = Math.min(syncJobsPage, syncJobsPageCount);
-  const pagedSyncJobs = syncJobs.slice(
+  const pagedSyncJobs = filteredSyncJobs.slice(
     (safeSyncJobsPage - 1) * rowsPerPage,
     safeSyncJobsPage * rowsPerPage,
   );
+  const hasSyncJobFilters =
+    syncJobStatusFilter !== 'all' ||
+    Boolean(syncJobDateFrom) ||
+    Boolean(syncJobDateTo) ||
+    Boolean(syncJobSearchQuery.trim());
   const closedJobs = useMemo(
     () =>
-      enrollmentJobs
+      listedEnrollmentJobs
         .filter((job) => (job.is_closed ?? ['completed', 'failed', 'cancelled'].includes(job.status)))
         .slice(0, 4),
-    [enrollmentJobs],
+    [listedEnrollmentJobs],
   );
 
   useEffect(() => {
@@ -2596,6 +2981,66 @@ export default function Fingerprint({ user: currentUser } = {}) {
   }, [isRoleFilterMenuOpen, isEnrollmentFilterMenuOpen, isSyncFilterMenuOpen]);
 
   useEffect(() => {
+    setSyncJobsPage(1);
+  }, [syncJobStatusFilter, syncJobDateFrom, syncJobDateTo, syncJobSearchQuery]);
+
+  useEffect(() => {
+    setFinishedJobsPage(1);
+  }, [finishedJobStatusFilter, finishedJobDateFrom, finishedJobDateTo, finishedJobSearchQuery]);
+
+  useEffect(() => {
+    if (!isFinishedJobStatusMenuOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (!finishedJobStatusMenuRef.current?.contains(event.target)) {
+        setIsFinishedJobStatusMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsFinishedJobStatusMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFinishedJobStatusMenuOpen]);
+
+  useEffect(() => {
+    if (!isSyncJobStatusMenuOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (!syncJobStatusMenuRef.current?.contains(event.target)) {
+        setIsSyncJobStatusMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsSyncJobStatusMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSyncJobStatusMenuOpen]);
+
+  useEffect(() => {
     if (!pendingAutoUploadContext) {
       return;
     }
@@ -2604,7 +3049,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       return;
     }
 
-    if (trackedEnrollmentJob.status !== 'completed') {
+    if (!hasVerifiedEnrollment(trackedEnrollmentJob)) {
       return;
     }
 
@@ -2754,6 +3199,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 disabled: activeActionId === fingerprint.id,
                 hidden:
                   !isLargeFingerprintScreen ||
+                  (fingerprint.status !== 'active' && !canEnrollFingerprints) ||
                   (fingerprint.status === 'active' && !canUpdateFingerprints),
                 onClick: () => openEnrollmentModal(fingerprint),
               },
@@ -2774,7 +3220,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               {
                 label: 'New fingerprint',
                 icon: Plus,
-                hidden: !isLargeFingerprintScreen || !shouldShowAddFingerprintAction(fingerprint),
+                hidden: !isLargeFingerprintScreen || !canEnrollFingerprints || !shouldShowAddFingerprintAction(fingerprint),
                 disabled: activeActionId === fingerprint.id,
                 onClick: () => openEnrollmentModal(fingerprint, 'add'),
               },
@@ -2827,7 +3273,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
           {!isLoadingJobs && jobs.length === 0 && !jobErrorMessage && (
             <tr>
               <td className="dashboard-recent-empty" colSpan={7}>
-                {emptyLabel}
+                <TableEmptyState description={hasFinishedJobFilters ? 'Try another search or adjust the status and date filters.' : 'Enrollment jobs appear here after they finish.'}>
+                  {emptyLabel}
+                </TableEmptyState>
               </td>
             </tr>
           )}
@@ -2843,13 +3291,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   <span>Device {job.enrollment_device_id ?? 'N/A'} - Slot {job.assigned_slot ?? 'N/A'}</span>
                 </td>
                 <td className="fingerprint-job-progress-cell">
-                  <div className="fingerprint-job-progress" aria-label={`Progress ${job.progress}%`}>
+                  <div className="fingerprint-job-progress" aria-label={`Progress ${getEnrollmentProgressValue(job)}%`}>
                     <div
                       className="fingerprint-job-progress-bar"
-                      style={{ width: `${Math.max(0, Math.min(100, job.progress || 0))}%` }}
+                      style={{ width: `${getEnrollmentProgressValue(job)}%` }}
                     />
                   </div>
-                  <span>{job.progress}%</span>
+                  <span>{getEnrollmentProgressValue(job)}%</span>
                 </td>
                 <td className="fingerprint-job-step">
                   <strong>{job.current_step || 'Waiting for ESP32'}</strong>
@@ -2860,11 +3308,13 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   </span>
                 </td>
                 <td className="fingerprint-job-status-cell">
-                  <span className={`dashboard-log-status dashboard-log-status-${job.status}`}>
-                    {job.status}
+                  <span className={`dashboard-log-status dashboard-log-status-${job.status === 'completed' && !hasVerifiedEnrollment(job) ? 'pending' : job.status}`}>
+                    {getEnrollmentStatusLabel(job)}
                   </span>
                 </td>
-                <td className="fingerprint-job-updated">{formatJobTimestamp(job.updated_at)}</td>
+                <td className="fingerprint-job-updated">
+                  <JobUpdatedStamp value={job.updated_at} />
+                </td>
                 <td className="fingerprint-job-actions-cell">
                   <RowActionMenu
                     label={`Actions for enrollment job ${job.job_id}`}
@@ -2987,7 +3437,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     const resultText =
       viewJob.error_message ||
-      (viewJob.status === 'completed' ? 'Enrollment completed' : formatStatusLabel(viewJob.status));
+      getEnrollmentStatusLabel(viewJob);
 
     return [
       {
@@ -3004,10 +3454,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
         title: 'Enrollment Job',
         fields: [
           ['Job ID', `#${viewJob.job_id}`],
-          ['Status', formatStatusLabel(viewJob.status)],
-          ['Progress', `${viewJob.progress ?? 0}%`],
+          ['Status', getEnrollmentStatusLabel(viewJob)],
+          ['Progress', `${getEnrollmentProgressValue(viewJob)}%`],
           ['Current step', viewJob.current_step || 'Waiting for ESP32'],
           ['Result', resultText, true],
+          ['Fresh-scan verification', hasVerifiedEnrollment(viewJob) ? `Slot ${viewJob.verification.matched_slot} matched; confidence ${viewJob.verification.confidence}` : 'Not confirmed'],
+          ['Verified at', hasVerifiedEnrollment(viewJob) ? formatDateTimeInManila(viewJob.verification.verified_at) : 'Not recorded'],
         ],
       },
       {
@@ -3024,15 +3476,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
           ],
         ],
       },
-      {
-        title: 'Timeline',
-        fields: [
-          ['Created', formatJobTimestamp(viewJob.created_at)],
-          ['Started', formatJobTimestamp(viewJob.started_at)],
-          ['Finished', formatJobTimestamp(viewJob.finished_at)],
-          ['Last updated', formatJobTimestamp(viewJob.updated_at)],
-        ],
-      },
     ];
   }, [viewJob, viewJobUserRecord]);
 
@@ -3043,13 +3486,95 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
-        setViewJob(null);
+        closeJobView();
       }
     }
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [viewJob]);
+
+  const viewSyncJobGroups = useMemo(() => {
+    if (!viewSyncJob) {
+      return [];
+    }
+
+    return [
+      {
+        title: 'Person',
+        fields: [
+          ['Full name', viewSyncJob.user_name, true],
+          ['Email', viewSyncJob.email],
+          ['Role', formatRoleLabel(viewSyncJob.role)],
+          ['User ID', viewSyncJob.user_id ? `#${viewSyncJob.user_id}` : '', true],
+        ],
+      },
+      {
+        title: 'Template',
+        fields: [
+          ['Finger', viewSyncJob.finger_name],
+          ['Fingerprint ID', viewSyncJob.fingerprint_id ? `#${viewSyncJob.fingerprint_id}` : ''],
+          ['Door slot', viewSyncJob.shared_door_slot != null ? String(viewSyncJob.shared_door_slot) : 'Not assigned'],
+          ['Door sync', formatStatusLabel(viewSyncJob.door_sync_status)],
+        ],
+      },
+      {
+        title: 'Sync Job',
+        fields: [
+          ['Queue ID', `#${viewSyncJob.queue_id}`],
+          ['Status', formatStatusLabel(getSyncJobStatus(viewSyncJob))],
+          ['Device', viewSyncJob.device_name || 'Sensor B'],
+          ['Device code', viewSyncJob.device_code || (viewSyncJob.device_id ? `#${viewSyncJob.device_id}` : '')],
+          ['Location', viewSyncJob.location],
+          ['Attempts', String(viewSyncJob.attempts ?? 0)],
+          ['Current step', syncStepLabel(viewSyncJob), true],
+          ['Message', viewSyncJob.error_message || 'None', true],
+        ],
+      },
+    ];
+  }, [viewSyncJob]);
+
+  useEffect(() => {
+    if (!viewSyncJob?.queue_id) {
+      return undefined;
+    }
+
+    const fresh = syncJobs.find((job) => Number(job.queue_id) === Number(viewSyncJob.queue_id));
+
+    if (!fresh) {
+      return undefined;
+    }
+
+    const currentSignature = [
+      viewSyncJob.status,
+      viewSyncJob.updated_at,
+      viewSyncJob.progress_step,
+      viewSyncJob.error_message,
+    ].join('|');
+    const freshSignature = [fresh.status, fresh.updated_at, fresh.progress_step, fresh.error_message].join('|');
+
+    if (currentSignature === freshSignature) {
+      return undefined;
+    }
+
+    loadSyncJobView(fresh, viewSyncRequestRef.current);
+    return undefined;
+  }, [syncJobs, viewSyncJob]);
+
+  useEffect(() => {
+    if (!viewSyncJob) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        closeSyncJobView();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [viewSyncJob]);
 
   return (
     <>
@@ -3102,40 +3627,25 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 <span>{activeTabConfig.label} Fingerprints</span>
                 <p>Enrollment and each account's current status for fingerprint access.</p>
               </div>
-              <div className="fingerprint-header-actions">
-                <div className="fingerprint-job-link-row">
-                  <button
-                    type="button"
-                    className="fingerprint-jobs-button"
-                    onClick={() => setActiveSection('jobs')}
-                  >
-                    [Enrollment Jobs]
-                  </button>
-                  <button
-                    type="button"
-                    className="fingerprint-jobs-button"
-                    onClick={() => setActiveSection('sync-jobs')}
-                  >
-                    [Sync Jobs]
-                  </button>
-                </div>
-                <label className="fingerprint-search" aria-label="Search fingerprints">
-                  <Search size={16} aria-hidden="true" />
-                  <input
-                    type="search"
-                    placeholder={
-                      activeTabConfig.key === 'all'
-                        ? 'Search fingerprints...'
-                        : `Search ${activeTabConfig.label.toLowerCase()} fingerprints...`
-                    }
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                  />
-                </label>
+              <div className="fingerprint-job-link-row">
+                {hideSuperAdminRows ? null : <button
+                  type="button"
+                  className="fingerprint-jobs-button"
+                  onClick={() => setActiveSection('jobs')}
+                >
+                  [Enrollment Jobs]
+                </button>}
+                <button
+                  type="button"
+                  className="fingerprint-jobs-button"
+                  onClick={() => setActiveSection('sync-jobs')}
+                >
+                  [Sync Jobs]
+                </button>
               </div>
             </div>
 
-            {!isLargeFingerprintScreen ? (
+            {!isLargeFingerprintScreen && canEnrollFingerprints ? (
               <p className="fingerprint-inline-message fingerprint-mobile-enrollment-note" role="status">
                 {fingerprintMobileEnrollmentMessage}
               </p>
@@ -3179,7 +3689,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     role="listbox"
                     aria-label="Filter fingerprints by role"
                   >
-                    {fingerprintRoleFilterOptions.map((option) => (
+                    {visibleRoleFilterOptions.map((option) => (
                       <button
                         key={option.key}
                         type="button"
@@ -3333,14 +3843,24 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   </div>
                 ) : null}
               </div>
+              <div className="fingerprint-filter-actions">
+                <label className="fingerprint-search" aria-label="Search fingerprints">
+                  <Search size={16} aria-hidden="true" />
+                  <input
+                    type="search"
+                    placeholder={
+                      activeTabConfig.key === 'all'
+                        ? 'Search fingerprints...'
+                        : `Search ${activeTabConfig.label.toLowerCase()} fingerprints...`
+                    }
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="dashboard-recent-table-wrap fingerprint-table-wrap">
-              {templateErrorMessage && (
-                <p className="fingerprint-inline-message fingerprint-inline-message-error" role="alert">
-                  {templateErrorMessage}
-                </p>
-              )}
               <table className="dashboard-recent-table fingerprint-table">
                 <thead>
                   <tr>
@@ -3358,28 +3878,21 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     </tr>
                   )}
 
-                  {!isLoading && errorMessage && (
+                  {!isLoading && visibleFingerprints.length === 0 && (
                     <tr>
                       <td className="dashboard-recent-empty" colSpan={activeTabConfig.columns.length}>
-                        {errorMessage}
-                      </td>
-                    </tr>
-                  )}
-
-                  {!isLoading && !errorMessage && visibleFingerprints.length === 0 && (
-                    <tr>
-                      <td className="dashboard-recent-empty" colSpan={activeTabConfig.columns.length}>
-                        {normalizedSearchQuery
-                          ? `No ${activeTabConfig.emptyLabel} match your search.`
-                          : activeEnrollmentFilter !== 'all' || activeSyncFilter !== 'all'
-                            ? `No ${activeTabConfig.emptyLabel} match the selected filters.`
-                            : `No ${activeTabConfig.emptyLabel} found.`}
+                        <TableEmptyState description={normalizedSearchQuery || activeEnrollmentFilter !== 'all' || activeSyncFilter !== 'all' ? 'Try another search or adjust the enrollment and sync filters.' : 'Enroll a fingerprint to see its record here.'}>
+                          {normalizedSearchQuery
+                            ? `No ${activeTabConfig.emptyLabel} match your search.`
+                            : activeEnrollmentFilter !== 'all' || activeSyncFilter !== 'all'
+                              ? `No ${activeTabConfig.emptyLabel} match the selected filters.`
+                              : `No ${activeTabConfig.emptyLabel} found.`}
+                        </TableEmptyState>
                       </td>
                     </tr>
                   )}
 
                   {!isLoading &&
-                    !errorMessage &&
                     paginatedFingerprintGroups.map((group) => {
                       const expanded = isUserExpanded(group.userId);
 
@@ -3470,8 +3983,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
                         <span>Slot {spotlightJob.assigned_slot ?? 'Pending'}</span>
                       </div>
                     </div>
-                    <span className={`dashboard-log-status dashboard-log-status-${spotlightJob.status} fingerprint-device-status-pill`}>
-                      {spotlightJob.status}
+                    <span className={`dashboard-log-status dashboard-log-status-${spotlightJob.status === 'completed' && !hasVerifiedEnrollment(spotlightJob) ? 'pending' : spotlightJob.status} fingerprint-device-status-pill`}>
+                      {getEnrollmentStatusLabel(spotlightJob)}
                     </span>
                   </div>
 
@@ -3479,10 +3992,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     <div className="fingerprint-live-progress">
                       <div
                         className="fingerprint-live-progress-bar"
-                        style={{ width: `${Math.max(0, Math.min(100, spotlightJob.progress || 0))}%` }}
+                        style={{ width: `${getEnrollmentProgressValue(spotlightJob)}%` }}
                       />
                     </div>
-                    <strong>{spotlightJob.progress}%</strong>
+                    <strong>{getEnrollmentProgressValue(spotlightJob)}%</strong>
                   </div>
 
                   <div
@@ -3526,7 +4039,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     </div>
                     <div>
                       <span>Progress</span>
-                      <strong>{spotlightJob.progress}%</strong>
+                      <strong>{getEnrollmentProgressValue(spotlightJob)}%</strong>
                     </div>
                     <div>
                       <span>Updated</span>
@@ -3607,8 +4120,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
                           <span>{job.current_step || job.error_message || 'Closed job'}</span>
                         </div>
                         <div>
-                          <span className={`dashboard-log-status dashboard-log-status-${job.status}`}>
-                            {job.status}
+                          <span className={`dashboard-log-status dashboard-log-status-${job.status === 'completed' && !hasVerifiedEnrollment(job) ? 'pending' : job.status}`}>
+                            {getEnrollmentStatusLabel(job)}
                           </span>
                           <small>{formatJobTimestamp(job.finished_at || job.updated_at)}</small>
                         </div>
@@ -3632,11 +4145,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </div>
           </section>
 
-          {jobErrorMessage && (
-            <p className="fingerprint-inline-message fingerprint-inline-message-error" role="alert">
-              {jobErrorMessage}
-            </p>
-          )}
         </section>
       )}
 
@@ -3659,12 +4167,137 @@ export default function Fingerprint({ user: currentUser } = {}) {
               Back to Enrollment Jobs
             </button>
           </div>
-          <hr className="fingerprint-jobs-divider" />
-          {renderEnrollmentJobsTable(pagedFinishedJobs, 'No finished enrollment jobs.')}
+          <div className="activity-logs-toolbar fingerprint-sync-toolbar fingerprint-finished-toolbar">
+            <div className="activity-logs-toolbar-filters">
+              <div
+                className="manage-users-role-tabs manage-users-status-filter"
+                ref={finishedJobStatusMenuRef}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setIsFinishedJobStatusMenuOpen(false);
+                  }
+                }}
+              >
+                <button
+                  type="button"
+                  className={`manage-users-role-tab-trigger${isFinishedJobStatusMenuOpen ? ' is-open' : ''}`}
+                  aria-haspopup="listbox"
+                  aria-expanded={isFinishedJobStatusMenuOpen}
+                  aria-controls="finished-jobs-status-filter-menu"
+                  aria-label={`Status filter: ${activeFinishedJobStatusFilter.label}`}
+                  disabled={isLoadingJobs}
+                  onClick={() => setIsFinishedJobStatusMenuOpen((open) => !open)}
+                >
+                  <span className="manage-users-role-tab-trigger-label">
+                    {activeFinishedJobStatusFilter.label}
+                  </span>
+                  <span className="manage-users-role-tab-count">
+                    {isLoadingJobs ? '--' : finishedJobStatusCounts[activeFinishedJobStatusFilter.value] || 0}
+                  </span>
+                  <ChevronDown className="manage-users-role-tab-chevron" size={14} aria-hidden="true" />
+                </button>
+
+                {isFinishedJobStatusMenuOpen ? (
+                  <div
+                    id="finished-jobs-status-filter-menu"
+                    className="manage-users-role-tab-menu"
+                    role="listbox"
+                    aria-label="Filter by status"
+                  >
+                    {finishedJobStatusFilterOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="option"
+                        className={`manage-users-role-tab-option${
+                          finishedJobStatusFilter === option.value ? ' is-active' : ''
+                        }`}
+                        aria-selected={finishedJobStatusFilter === option.value}
+                        onClick={() => {
+                          setFinishedJobStatusFilter(option.value);
+                          setIsFinishedJobStatusMenuOpen(false);
+                        }}
+                      >
+                        <Check className="manage-users-role-tab-check" size={15} aria-hidden="true" />
+                        <span className="manage-users-role-tab-option-label">{option.label}</span>
+                        <span className="manage-users-role-tab-count">
+                          {isLoadingJobs ? '--' : finishedJobStatusCounts[option.value] || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="activity-logs-dates">
+                <label>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={finishedJobDateFrom}
+                    onChange={(event) => setFinishedJobDateFrom(event.target.value)}
+                  />
+                </label>
+                <span className="activity-logs-dates-divider" aria-hidden="true" />
+                <label>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={finishedJobDateTo}
+                    onChange={(event) => setFinishedJobDateTo(event.target.value)}
+                  />
+                </label>
+                {finishedJobDateFrom || finishedJobDateTo ? (
+                  <button
+                    type="button"
+                    className="activity-logs-clear"
+                    aria-label="Clear dates"
+                    onClick={() => {
+                      setFinishedJobDateFrom('');
+                      setFinishedJobDateTo('');
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="activity-logs-reset"
+                aria-label="Reset filters"
+                title="Reset filters"
+                onClick={() => {
+                  setFinishedJobStatusFilter('all');
+                  setFinishedJobDateFrom('');
+                  setFinishedJobDateTo('');
+                  setFinishedJobSearchQuery('');
+                  setIsFinishedJobStatusMenuOpen(false);
+                }}
+              >
+                <RefreshCw size={15} aria-hidden="true" />
+              </button>
+            </div>
+
+            <label className="activity-logs-search">
+              <Search size={14} aria-hidden="true" />
+              <input
+                type="search"
+                placeholder="Search name, email, or user ID"
+                value={finishedJobSearchQuery}
+                onChange={(event) => setFinishedJobSearchQuery(event.target.value)}
+              />
+            </label>
+          </div>
+          {renderEnrollmentJobsTable(
+            pagedFinishedJobs,
+            hasFinishedJobFilters
+              ? 'No finished enrollment jobs match these filters.'
+              : 'No finished enrollment jobs.',
+          )}
           {renderEnrollmentJobsPagination(
             safeFinishedJobsPage,
             finishedJobsPageCount,
-            finishedEnrollmentJobs.length,
+            filteredFinishedJobs.length,
             setFinishedJobsPage,
             'Finished enrollment jobs pagination',
             isLoadingJobs,
@@ -3689,7 +4322,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </button>
           </div>
 
-          {!isLargeFingerprintScreen ? (
+          {!isLargeFingerprintScreen && canEnrollFingerprints ? (
             <p className="fingerprint-inline-message fingerprint-mobile-enrollment-note" role="status">
               {fingerprintMobileEnrollmentMessage}
             </p>
@@ -3712,17 +4345,146 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </section>
             <aside className="fingerprint-sync-note" aria-label="Sync queue note">
               <strong>Queue Control</strong>
-              <span>Pending jobs can be cancelled before Sensor B claims them. Failed jobs stay available for retry.</span>
+              <span>Queued syncs cancel automatically if the door controller does not pick them up within 5 minutes. A modal explains the reason. Check the controller before retrying.</span>
             </aside>
           </div>
 
-          <div className="dashboard-recent-table-wrap fingerprint-jobs-wrap">
-            {syncJobErrorMessage && (
-              <p className="fingerprint-inline-message fingerprint-inline-message-error" role="alert">
-                {syncJobErrorMessage}
-              </p>
-            )}
+          <div className="activity-logs-toolbar fingerprint-sync-toolbar">
+            <div className="activity-logs-toolbar-filters">
+              <div
+                className="manage-users-role-tabs manage-users-status-filter"
+                ref={syncJobStatusMenuRef}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setIsSyncJobStatusMenuOpen(false);
+                  }
+                }}
+              >
+                <button
+                  type="button"
+                  className={`manage-users-role-tab-trigger${isSyncJobStatusMenuOpen ? ' is-open' : ''}`}
+                  aria-haspopup="listbox"
+                  aria-expanded={isSyncJobStatusMenuOpen}
+                  aria-controls="sync-jobs-status-filter-menu"
+                  aria-label={`Status filter: ${activeSyncJobStatusFilter.label}`}
+                  disabled={isLoadingSyncJobs}
+                  onClick={() => setIsSyncJobStatusMenuOpen((open) => !open)}
+                >
+                  <span className="manage-users-role-tab-trigger-label">
+                    {activeSyncJobStatusFilter.label}
+                  </span>
+                  <span className="manage-users-role-tab-count">
+                    {isLoadingSyncJobs ? '--' : syncJobStatusCounts[activeSyncJobStatusFilter.value] || 0}
+                  </span>
+                  <ChevronDown className="manage-users-role-tab-chevron" size={14} aria-hidden="true" />
+                </button>
 
+                {isSyncJobStatusMenuOpen ? (
+                  <div
+                    id="sync-jobs-status-filter-menu"
+                    className="manage-users-role-tab-menu"
+                    role="listbox"
+                    aria-label="Filter by status"
+                  >
+                    {syncJobStatusFilterOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="option"
+                        className={`manage-users-role-tab-option${
+                          syncJobStatusFilter === option.value ? ' is-active' : ''
+                        }`}
+                        aria-selected={syncJobStatusFilter === option.value}
+                        onClick={() => {
+                          setSyncJobStatusFilter(option.value);
+                          setIsSyncJobStatusMenuOpen(false);
+                        }}
+                      >
+                        <Check className="manage-users-role-tab-check" size={15} aria-hidden="true" />
+                        <span className="manage-users-role-tab-option-label">{option.label}</span>
+                        <span className="manage-users-role-tab-count">
+                          {isLoadingSyncJobs ? '--' : syncJobStatusCounts[option.value] || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="activity-logs-dates">
+                <label>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={syncJobDateFrom}
+                    onChange={(event) => setSyncJobDateFrom(event.target.value)}
+                  />
+                </label>
+                <span className="activity-logs-dates-divider" aria-hidden="true" />
+                <label>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={syncJobDateTo}
+                    onChange={(event) => setSyncJobDateTo(event.target.value)}
+                  />
+                </label>
+                {syncJobDateFrom || syncJobDateTo ? (
+                  <button
+                    type="button"
+                    className="activity-logs-clear"
+                    aria-label="Clear dates"
+                    onClick={() => {
+                      setSyncJobDateFrom('');
+                      setSyncJobDateTo('');
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="activity-logs-reset"
+                aria-label="Reset filters"
+                title="Reset filters"
+                onClick={() => {
+                  setSyncJobStatusFilter('all');
+                  setSyncJobDateFrom('');
+                  setSyncJobDateTo('');
+                  setSyncJobSearchQuery('');
+                  setIsSyncJobStatusMenuOpen(false);
+                }}
+              >
+                <RefreshCw size={15} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="fingerprint-sync-toolbar-end">
+              <button
+                type="button"
+                className="fingerprint-sync-live-button"
+                onClick={() => setIsSyncLiveModalOpen(true)}
+              >
+                <Activity size={14} aria-hidden="true" />
+                Live progress
+                {liveSyncJobCount > 0 ? (
+                  <span className="fingerprint-sync-live-count">{liveSyncJobCount}</span>
+                ) : null}
+              </button>
+              <label className="activity-logs-search">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder="Search name, email, or user ID"
+                  value={syncJobSearchQuery}
+                  onChange={(event) => setSyncJobSearchQuery(event.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="dashboard-recent-table-wrap fingerprint-jobs-wrap">
             <table className="dashboard-recent-table fingerprint-jobs-table fingerprint-sync-table">
               <thead>
                 <tr>
@@ -3746,10 +4508,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   </tr>
                 )}
 
-                {!isLoadingSyncJobs && syncJobs.length === 0 && !syncJobErrorMessage && (
+                {!isLoadingSyncJobs && filteredSyncJobs.length === 0 && !syncJobErrorMessage && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={9}>
-                      No sync jobs found.
+                      <TableEmptyState description={hasSyncJobFilters ? 'Try another search or adjust the sync job filters.' : 'Jobs appear here when fingerprints are queued for Sensor B.'}>
+                        {hasSyncJobFilters ? 'No sync jobs match these filters.' : 'No sync jobs found.'}
+                      </TableEmptyState>
                     </td>
                   </tr>
                 )}
@@ -3774,8 +4538,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
                         <span>{job.device_code || `Device #${job.device_id}`}</span>
                       </td>
                       <td className="fingerprint-job-status-cell">
-                        <span className={`dashboard-log-status dashboard-log-status-${job.status}`}>
-                          {job.status === 'pending' ? 'Pending' : job.status}
+                        <span className={`dashboard-log-status dashboard-log-status-${getSyncJobStatus(job)}`}>
+                          {formatStatusLabel(getSyncJobStatus(job))}
                         </span>
                       </td>
                       <td className="fingerprint-job-updated">{job.attempts}</td>
@@ -3793,30 +4557,31 @@ export default function Fingerprint({ user: currentUser } = {}) {
                         <span>{job.error_message || 'None'}</span>
                       </td>
                       <td className="fingerprint-sync-actions-cell">
-                        {job.status === 'pending' || (isLargeFingerprintScreen && canRetrySyncJob(job)) ? (
-                          <RowActionMenu
-                            label={`Actions for queue ${job.queue_id}`}
-                            items={[
-                              {
-                                label: activeSyncActionId === `sync-job-${job.queue_id}` ? 'Working...' : 'Retry',
-                                icon: RotateCcw,
-                                hidden: !isLargeFingerprintScreen || !canRetrySyncJob(job),
-                                disabled: activeSyncActionId === `sync-job-${job.queue_id}`,
-                                onClick: () => handleRetrySyncJob(job),
-                              },
-                              {
-                                label: activeSyncActionId === `cancel-sync-job-${job.queue_id}` ? 'Cancelling...' : 'Cancel',
-                                icon: X,
-                                danger: true,
-                                hidden: job.status !== 'pending',
-                                disabled: activeSyncActionId === `cancel-sync-job-${job.queue_id}`,
-                                onClick: () => handleCancelSyncJob(job),
-                              },
-                            ]}
-                          />
-                        ) : (
-                          <span>{job.status === 'syncing' ? 'Processing on Sensor B' : 'No action'}</span>
-                        )}
+                        <RowActionMenu
+                          label={`Actions for queue ${job.queue_id}`}
+                          items={[
+                            {
+                              label: 'View',
+                              icon: Eye,
+                              onClick: () => openSyncJobView(job),
+                            },
+                            {
+                              label: activeSyncActionId === `sync-job-${job.queue_id}` ? 'Working...' : 'Retry',
+                              icon: RotateCcw,
+                              hidden: !isLargeFingerprintScreen || !canRetrySyncJob(job),
+                              disabled: activeSyncActionId === `sync-job-${job.queue_id}`,
+                              onClick: () => handleRetrySyncJob(job),
+                            },
+                            {
+                              label: activeSyncActionId === `cancel-sync-job-${job.queue_id}` ? 'Cancelling...' : 'Cancel',
+                              icon: X,
+                              danger: true,
+                              hidden: !['pending', 'syncing'].includes(job.status),
+                              disabled: activeSyncActionId === `cancel-sync-job-${job.queue_id}`,
+                              onClick: () => handleCancelSyncJob(job),
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -3826,7 +4591,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
           {renderEnrollmentJobsPagination(
             safeSyncJobsPage,
             syncJobsPageCount,
-            syncJobs.length,
+            filteredSyncJobs.length,
             setSyncJobsPage,
             'Sync jobs pagination',
             isLoadingSyncJobs,
@@ -3835,7 +4600,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       )}
 
       {selectedFingerprint && isLargeFingerprintScreen && (
-        <div className="fingerprint-modal-overlay" onClick={closeEnrollmentModal}>
+        <div className="fingerprint-modal-overlay">
           <section
             className="fingerprint-modal fingerprint-enrollment-modal"
             role="dialog"
@@ -3964,12 +4729,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
               </p>
             </div>
 
-            {errorMessage && (
-              <p className="fingerprint-inline-message fingerprint-inline-message-error" role="alert">
-                {errorMessage}
-              </p>
-            )}
-
             <div className="fingerprint-modal-actions fingerprint-enrollment-modal-actions">
               <button
                 type="button"
@@ -3987,7 +4746,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       )}
 
       {trackedEnrollmentProgress && trackedEnrollmentDisplayJob && (
-        <div className="fingerprint-modal-overlay" onClick={closeEnrollmentProgressModal}>
+        <div className="fingerprint-modal-overlay">
           <section
             className={`fingerprint-modal fingerprint-progress-modal fingerprint-progress-tone-${trackedEnrollmentInstructionTone}`}
             role="dialog"
@@ -4013,8 +4772,8 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 <div className="fingerprint-progress-device-pill">
                   <span aria-hidden="true" />
                   <strong>ESP32 (R307S)</strong>
-                  <em className={`is-${String(trackedEnrollmentDisplayJob.status || 'unknown').toLowerCase()}`}>
-                    {formatStatusLabel(trackedEnrollmentDisplayJob.status)}
+                  <em className={`is-${trackedEnrollmentDisplayJob.status === 'completed' && !hasVerifiedEnrollment(trackedEnrollmentDisplayJob) ? 'pending' : String(trackedEnrollmentDisplayJob.status || 'unknown').toLowerCase()}`}>
+                    {getEnrollmentStatusLabel(trackedEnrollmentDisplayJob)}
                   </em>
                 </div>
                 <button
@@ -4085,7 +4844,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   </div>
 
                   <div className="fingerprint-progress-stepper" aria-label="Detailed enrollment status progress">
-                    {enrollmentProgressStages.map((stage, stageIndex) => {
+                    {trackedEnrollmentStages.map((stage, stageIndex) => {
                       const StageIcon = stage.icon;
                       const isComplete = stageIndex < trackedEnrollmentStageIndex;
                       const isCurrent = stageIndex === trackedEnrollmentStageIndex;
@@ -4122,7 +4881,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                       <div
                         className="fingerprint-progress-print"
                         style={{
-                          '--print-progress': `${Math.max(0, Math.min(100, trackedEnrollmentDisplayJob.progress || 0))}%`,
+                          '--print-progress': `${getEnrollmentProgressValue(trackedEnrollmentDisplayJob)}%`,
                         }}
                         aria-hidden="true"
                       >
@@ -4141,18 +4900,19 @@ export default function Fingerprint({ user: currentUser } = {}) {
                           {trackedEnrollmentInstruction}
                         </span>
                         <p className="fingerprint-progress-card-note">{trackedEnrollmentInstructionHint}</p>
+                        <EnrollmentPickupCountdown job={trackedEnrollmentDisplayJob} />
                       </div>
                     </div>
                     <div className="fingerprint-progress-scan-footer">
                       <div className="fingerprint-progress-guide-meta">
-                        <span>{Math.max(0, Math.min(100, trackedEnrollmentDisplayJob.progress || 0))}% Complete</span>
-                        <span>Step {trackedEnrollmentStageIndex + 1} of {enrollmentProgressStages.length}</span>
+                        <span>{getEnrollmentProgressValue(trackedEnrollmentDisplayJob)}% Complete</span>
+                        <span>Step {trackedEnrollmentStageIndex + 1} of {trackedEnrollmentStages.length}</span>
                       </div>
                       <div className="fingerprint-live-progress">
                         <div
                           className="fingerprint-live-progress-bar"
                           style={{
-                            width: `${Math.max(0, Math.min(100, trackedEnrollmentDisplayJob.progress || 0))}%`,
+                            width: `${getEnrollmentProgressValue(trackedEnrollmentDisplayJob)}%`,
                           }}
                         />
                       </div>
@@ -4213,7 +4973,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       )}
 
       {selectedTemplateFingerprint && (
-        <div className="fingerprint-modal-overlay" onClick={closeTemplateUploadModal}>
+        <div className="fingerprint-modal-overlay">
           <section
             className="fingerprint-modal"
             role="dialog"
@@ -4287,24 +5047,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               />
             </label>
 
-            {templateErrorMessage && (
-              <p className="fingerprint-inline-message fingerprint-inline-message-error" role="alert">
-                {templateErrorMessage}
-              </p>
-            )}
-
             <div className="fingerprint-modal-actions">
-              <button
-                type="button"
-                className="fingerprint-secondary-action"
-                onClick={closeTemplateUploadModal}
-                disabled={
-                  activeTemplateActionId === `upload-${selectedTemplateFingerprint.id}` ||
-                  prefillingTemplateId === selectedTemplateFingerprint.id
-                }
-              >
-                Cancel
-              </button>
               <button
                 type="button"
                 className="fingerprint-primary-action"
@@ -4327,10 +5070,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       )}
 
       {syncPromptFingerprint && isLargeFingerprintScreen && (
-        <div
-          className="fingerprint-modal-overlay"
-          onClick={() => setSyncPromptFingerprint(null)}
-        >
+        <div className="fingerprint-modal-overlay">
           <section
             className="fingerprint-modal"
             role="dialog"
@@ -4370,15 +5110,6 @@ export default function Fingerprint({ user: currentUser } = {}) {
             <div className="fingerprint-modal-actions">
               <button
                 type="button"
-                className="fingerprint-secondary-action"
-                onClick={() => {
-                  setSyncPromptFingerprint(null);
-                }}
-              >
-                Skip for now
-              </button>
-              <button
-                type="button"
                 className="fingerprint-primary-action"
                 onClick={() => {
                   const fingerprintToSync = syncPromptFingerprint;
@@ -4394,14 +5125,104 @@ export default function Fingerprint({ user: currentUser } = {}) {
         </div>
       )}
 
+      {isSyncLiveModalOpen && (
+        <div className="fingerprint-modal-overlay">
+          <section
+            className="fingerprint-modal fingerprint-sync-live-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sync-live-progress-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="fingerprint-modal-header">
+              <div>
+                <h3 id="sync-live-progress-title">Live Sync Progress</h3>
+                <p>Jobs that are waiting or currently syncing on Sensor B.</p>
+              </div>
+              <button
+                type="button"
+                className="fingerprint-modal-close"
+                onClick={() => setIsSyncLiveModalOpen(false)}
+                aria-label="Close live sync progress"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            {liveSyncJobs.length === 0 ? (
+              <div className="fingerprint-live-empty">
+                <strong>No sync is running right now.</strong>
+                <span>A queued or syncing job will appear here while Sensor B is working on it.</span>
+              </div>
+            ) : (
+              <div className="fingerprint-sync-live-list">
+                {liveSyncJobs.map((job) => {
+                  const stageIndex = Math.max(
+                    0,
+                    syncProgressStages.findIndex((stage) => stage.key === resolveSyncStageKey(job)),
+                  );
+                  const progress = getSyncProgressValue(job);
+                  const status = normalizeJobText(job.status);
+
+                  return (
+                    <article className="fingerprint-sync-live-card" key={job.queue_id}>
+                      <div className="fingerprint-sync-progress-header">
+                        <span>{getSyncStatusLabel(job)}</span>
+                        <strong>Queue #{job.queue_id}</strong>
+                      </div>
+                      <p className="fingerprint-sync-live-person">
+                        {job.user_name || 'Unknown user'}
+                        {job.finger_name ? ` · ${job.finger_name}` : ''}
+                        {job.device_name ? ` · ${job.device_name}` : ''}
+                      </p>
+                      <div
+                        className={`fingerprint-live-progress fingerprint-sync-progress-${status || 'pending'}`}
+                        aria-label={`Sensor B sync progress ${progress}%`}
+                      >
+                        <div className="fingerprint-live-progress-bar" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="fingerprint-sync-stepper" aria-label={`Sync steps for queue ${job.queue_id}`}>
+                        {syncProgressStages.map((stage, index) => {
+                          const StageIcon = stage.icon;
+                          const isCurrent = index === stageIndex;
+                          const isComplete = index < stageIndex;
+                          const stageState = isComplete ? 'complete' : isCurrent ? 'current' : 'pending';
+
+                          return (
+                            <div
+                              className={`fingerprint-sync-step fingerprint-sync-step-${stageState}`}
+                              key={stage.key}
+                            >
+                              <div className="fingerprint-sync-step-marker">
+                                {isComplete ? (
+                                  <Check size={14} aria-hidden="true" />
+                                ) : (
+                                  <StageIcon size={14} aria-hidden="true" />
+                                )}
+                              </div>
+                              <div>
+                                <strong>{stage.label}</strong>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="fingerprint-sync-live-detail">
+                        <Activity size={18} aria-hidden="true" />
+                        <p>{getSyncStatusDetail(job)}</p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+          </section>
+        </div>
+      )}
+
       {syncStatusFingerprint && (
-        <div
-          className="fingerprint-modal-overlay"
-          onClick={() => {
-            setSyncStatusFingerprint(null);
-            setTrackedSyncJobId(null);
-          }}
-        >
+        <div className="fingerprint-modal-overlay">
           <section
             className="fingerprint-modal"
             role="dialog"
@@ -4445,11 +5266,14 @@ export default function Fingerprint({ user: currentUser } = {}) {
             <div className="fingerprint-modal-form-section fingerprint-sync-progress-panel">
               <div className="fingerprint-sync-progress-header">
                 <span>{activeSyncStatusLabel}</span>
-                <strong>
-                  {activeSyncStatusJob?.queue_id
-                    ? `Queue #${activeSyncStatusJob.queue_id}`
-                    : 'Queue pending'}
-                </strong>
+                <div className="fingerprint-sync-queue-meta">
+                  <SyncPickupCountdown job={activeSyncStatusJob} />
+                  <strong>
+                    {activeSyncStatusJob?.queue_id
+                      ? `Queue #${activeSyncStatusJob.queue_id}`
+                      : 'Queue pending'}
+                  </strong>
+                </div>
               </div>
 
               <div
@@ -4463,9 +5287,9 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 {syncProgressStages.map((stage, stageIndex) => {
                   const StageIcon = stage.icon;
                   const isFailed = normalizeJobText(activeSyncStatusJob?.status) === 'failed';
-                  const isComplete = !isFailed && stageIndex < activeSyncStageIndex;
-                  const isCurrent = !isFailed && stageIndex === activeSyncStageIndex;
-                  const stageState = isComplete ? 'complete' : isCurrent ? 'current' : 'pending';
+                  const isCurrent = stageIndex === activeSyncStageIndex;
+                  const isComplete = stageIndex < activeSyncStageIndex;
+                  const stageState = isFailed && isCurrent ? 'failed' : isComplete ? 'complete' : isCurrent ? 'current' : 'pending';
 
                   return (
                     <div
@@ -4497,16 +5321,16 @@ export default function Fingerprint({ user: currentUser } = {}) {
             </div>
 
             <div className="fingerprint-modal-actions">
-              <button
-                type="button"
-                className="fingerprint-secondary-action"
-                onClick={() => {
-                  setSyncStatusFingerprint(null);
-                  setTrackedSyncJobId(null);
-                }}
-              >
-                Close
-              </button>
+              {['pending', 'syncing'].includes(normalizeJobText(activeSyncStatusJob?.status)) && (
+                <button
+                  type="button"
+                  className="fingerprint-secondary-action fingerprint-danger-action"
+                  onClick={() => handleCancelSyncJob(activeSyncStatusJob)}
+                  disabled={activeSyncActionId === `cancel-sync-job-${activeSyncStatusJob.queue_id}`}
+                >
+                  {activeSyncActionId === `cancel-sync-job-${activeSyncStatusJob.queue_id}` ? 'Cancelling...' : 'Cancel sync'}
+                </button>
+              )}
             </div>
           </section>
         </div>
@@ -4579,7 +5403,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               <header>
                 <div>
                   <h2 id="enrollment-job-view-title">View Enrollment Job</h2>
-                  <p>Review this enrollment job, its device progress, and the final result.</p>
+                  <p>Review this enrollment job and the time each step happened.</p>
                 </div>
                 <button type="button" aria-label="Close enrollment job view" onClick={closeJobView}>
                   <X size={16} aria-hidden="true" />
@@ -4608,6 +5432,33 @@ export default function Fingerprint({ user: currentUser } = {}) {
                     </dl>
                   </section>
                 ))}
+
+                <section className="pending-registration-review-card">
+                  <h3>Timeline</h3>
+                  {isLoadingJobTimeline && viewJobEvents.length === 0 ? (
+                    <p className="fingerprint-sync-timeline-empty">Loading timeline...</p>
+                  ) : null}
+                  {!isLoadingJobTimeline && viewJobEvents.length === 0 ? (
+                    <p className="fingerprint-sync-timeline-empty">No timeline events were recorded for this job.</p>
+                  ) : null}
+                  {viewJobEvents.length > 0 ? (
+                    <ol className="fingerprint-sync-timeline">
+                      {viewJobEvents.map((event, index) => (
+                        <li key={`${event.occurred_at}-${event.title}-${index}`}>
+                          <span
+                            className={`fingerprint-sync-timeline-dot ${syncTimelineTone(event.status)}`}
+                            aria-hidden="true"
+                          />
+                          <div className="fingerprint-sync-timeline-copy">
+                            <strong>{event.title}</strong>
+                            <span>{formatJobTimestamp(event.occurred_at)}</span>
+                            <p>{event.description}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </section>
               </div>
 
               <footer>
@@ -4620,6 +5471,123 @@ export default function Fingerprint({ user: currentUser } = {}) {
           document.body,
         )
       : null}
+    {viewSyncJob
+      ? createPortal(
+          <div
+            className="pending-registration-review-backdrop"
+            role="presentation"
+            onClick={closeSyncJobView}
+          >
+            <section
+              className="pending-registration-review fingerprint-sync-view"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="sync-job-view-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <div>
+                  <h2 id="sync-job-view-title">View Sync Job</h2>
+                  <p>Review this Sensor B sync job and the time each step happened.</p>
+                </div>
+                <button type="button" aria-label="Close sync job view" onClick={closeSyncJobView}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="pending-registration-review-body">
+                {viewSyncJobGroups.map((group) => (
+                  <section className="pending-registration-review-card" key={group.title}>
+                    <h3>{group.title}</h3>
+                    <dl>
+                      {group.fields.map(([label, value, isWide]) => (
+                        <div key={label} className={isWide ? 'is-wide' : undefined}>
+                          <dt>{label}</dt>
+                          <dd>
+                            {label === 'Status' ? (
+                              <span className={`dashboard-log-status dashboard-log-status-${getSyncJobStatus(viewSyncJob)}`}>
+                                {value}
+                              </span>
+                            ) : (
+                              value || '—'
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+
+                <section className="pending-registration-review-card">
+                  <h3>Timeline</h3>
+                  {isLoadingSyncTimeline && viewSyncEvents.length === 0 ? (
+                    <p className="fingerprint-sync-timeline-empty">Loading timeline...</p>
+                  ) : null}
+                  {!isLoadingSyncTimeline && viewSyncEvents.length === 0 ? (
+                    <p className="fingerprint-sync-timeline-empty">No timeline events were recorded for this job.</p>
+                  ) : null}
+                  {viewSyncEvents.length > 0 ? (
+                    <ol className="fingerprint-sync-timeline">
+                      {viewSyncEvents.map((event, index) => (
+                        <li key={`${event.occurred_at}-${event.title}-${index}`}>
+                          <span
+                            className={`fingerprint-sync-timeline-dot ${syncTimelineTone(event.status)}`}
+                            aria-hidden="true"
+                          />
+                          <div className="fingerprint-sync-timeline-copy">
+                            <strong>{event.title}</strong>
+                            <span>{formatJobTimestamp(event.occurred_at)}</span>
+                            <p>{event.description}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </section>
+              </div>
+
+              <footer>
+                <button type="button" className="pending-registration-reject" onClick={closeSyncJobView}>
+                  Close
+                </button>
+              </footer>
+            </section>
+          </div>,
+          document.body,
+        )
+      : null}
+    <ErrorNoticeModal
+      open={syncCancellationNotices.length > 0}
+      title={syncCancellationNotices.length > 1 ? 'Sync jobs cancelled' : 'Sync cancelled'}
+      message={syncCancellationNotices.length > 0 ? getSyncCancellationNoticeMessage(syncCancellationNotices) : ''}
+      onClose={() => setSyncCancellationNotices([])}
+    />
+    <ErrorNoticeModal
+      open={Boolean(syncQueueErrorMessage)}
+      title="Unable to sync fingerprint"
+      message={syncQueueErrorMessage}
+      onClose={() => setSyncQueueErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(errorMessage)}
+      message={errorMessage}
+      onClose={() => setErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(jobErrorMessage)}
+      message={jobErrorMessage}
+      onClose={() => setJobErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(syncJobErrorMessage)}
+      message={syncJobErrorMessage}
+      onClose={() => setSyncJobErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(templateErrorMessage)}
+      message={templateErrorMessage}
+      onClose={() => setTemplateErrorMessage('')}
+    />
     </>
   );
 }

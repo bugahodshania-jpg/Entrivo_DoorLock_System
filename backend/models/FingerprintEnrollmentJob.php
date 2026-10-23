@@ -1,15 +1,23 @@
 <?php
 
 require_once __DIR__ . '/../config/connection.php';
+require_once __DIR__ . '/../services/DirectFingerprintImportSchema.php';
+require_once __DIR__ . '/../services/SensorMemorySchema.php';
+
+final class FingerprintSlotReservationException extends RuntimeException
+{
+}
 
 class FingerprintEnrollmentJob
 {
+    public const PICKUP_TIMEOUT_MINUTES = 3;
+
     private PDO $conn;
     private ?bool $hasFingerprintIdColumn = null;
 
-    public function __construct()
+    public function __construct(?PDO $pdo = null)
     {
-        $this->conn = entrivo_pdo();
+        $this->conn = $pdo ?? entrivo_pdo();
     }
 
     private function hasFingerprintIdColumn(): bool
@@ -29,6 +37,7 @@ class FingerprintEnrollmentJob
      */
     public function hasPendingJob($userId)
     {
+        $this->cancelIdleWaitingJobs();
         $sql = "SELECT COUNT(*) AS total
 
                 FROM fingerprint_enrollment_jobs
@@ -93,32 +102,132 @@ class FingerprintEnrollmentJob
 
     public function getNextAvailableSlot()
     {
-        $sql = "SELECT IFNULL(MAX(slot_value), 0) + 1 AS next_slot
-                FROM (
-                    SELECT shared_door_slot AS slot_value
-                    FROM fingerprints
-                    WHERE shared_door_slot IS NOT NULL
+        $mapped = (int) $this->conn->query('SELECT GREATEST(COALESCE(MAX(shared_door_slot),0),COALESCE(MAX(enrollment_slot),0)) FROM fingerprints')->fetchColumn();
+        $reserved = (int) $this->conn->query("SELECT COALESCE(MAX(assigned_slot),0) FROM fingerprint_enrollment_jobs WHERE status IN ('waiting','processing') OR (status='failed' AND progress>=90)")->fetchColumn();
+        $imported = DirectFingerprintImportSchema::tableExists($this->conn)
+            ? (int) $this->conn->query('SELECT COALESCE(MAX(target_slot),0) FROM direct_fingerprint_import_jobs')->fetchColumn()
+            : 0;
+        return max($mapped,$reserved,$imported)+1;
+    }
 
-                    UNION ALL
+    /** Move a claimed enrollment only after the device reports its physical slot index. */
+    public function reserveEmptySlot(
+        int $jobId,
+        int $deviceId,
+        int $expectedSlot,
+        int $sensorCapacity,
+        array $occupiedSlots
+    ): int
+    {
+        $this->conn->beginTransaction();
+        try {
+            // Slot numbers share a database namespace across sensors. Lock registry
+            // rows in one order, before job rows or snapshot reads, to serialize
+            // replacements with each other and with device-scoped claims/imports.
+            // A locking read observes current data; the first consistent read below
+            // starts only after a previous reservation holder has committed.
+            $devices = $this->conn->query('SELECT device_id FROM fingerprint_devices ORDER BY device_id FOR UPDATE');
+            $registeredDevices = array_map('intval', $devices->fetchAll(PDO::FETCH_COLUMN));
+            if (!in_array($deviceId, $registeredDevices, true)) {
+                throw new FingerprintSlotReservationException('Enrollment device not found.', 404);
+            }
 
-                    SELECT assigned_slot AS slot_value
-                    FROM fingerprint_enrollment_jobs
-                    WHERE assigned_slot IS NOT NULL
-                      AND (
-                            status IN ('waiting', 'processing')
-                            OR (
-                                status = 'failed'
-                                AND progress >= 90
-                            )
-                          )
-                ) AS reserved_slots";
+            $query = $this->conn->prepare('SELECT * FROM fingerprint_enrollment_jobs WHERE job_id=? FOR UPDATE');
+            $query->execute([$jobId]);
+            $job = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$job) {
+                throw new FingerprintSlotReservationException('Enrollment job not found.', 404);
+            }
+            if ((int) ($job['enrollment_device_id'] ?? 0) !== $deviceId) {
+                throw new FingerprintSlotReservationException('This job belongs to a different enrollment device.', 409);
+            }
+            if ($job['status'] !== 'processing' || $job['finished_at'] !== null || (int) $job['progress'] >= 90) {
+                throw new FingerprintSlotReservationException('The sensor slot can only change before this active enrollment starts saving.', 409);
+            }
+            if ((int) ($job['assigned_slot'] ?? 0) !== $expectedSlot) {
+                throw new FingerprintSlotReservationException('The reserved slot changed. Reload this enrollment before retrying.', 409);
+            }
+            if (DirectFingerprintImportSchema::hasActiveForDevice($this->conn, $deviceId)) {
+                throw new FingerprintSlotReservationException('A database fingerprint restore currently owns this sensor.', 409);
+            }
+            if (SensorMemorySchema::hasProcessingForDevice($this->conn, $deviceId)) {
+                throw new FingerprintSlotReservationException('Sensor A is reading its memory. Wait for the read to finish before changing enrollment slots.', 409);
+            }
+            $other = $this->conn->prepare("SELECT job_id FROM fingerprint_enrollment_jobs
+                WHERE enrollment_device_id=? AND job_id<>? AND status='processing' AND finished_at IS NULL LIMIT 1");
+            $other->execute([$deviceId, $jobId]);
+            if ($other->fetchColumn()) {
+                throw new FingerprintSlotReservationException('Another enrollment is processing on this sensor.', 409);
+            }
 
-        $stmt = $this->conn->query($sql);
+            // The device index protects templates unknown to the database. The database
+            // reservations also protect slots that may be empty on this particular device.
+            $unavailable = array_fill_keys($occupiedSlots, true);
+            $unavailable[0] = true;
+            $unavailable[$expectedSlot] = true;
+            foreach ($this->conn->query('SELECT enrollment_slot, shared_door_slot FROM fingerprints') as $mapping) {
+                foreach (['enrollment_slot', 'shared_door_slot'] as $field) {
+                    if ($mapping[$field] !== null) $unavailable[(int) $mapping[$field]] = true;
+                }
+            }
+            $reservations = $this->conn->prepare("SELECT assigned_slot FROM fingerprint_enrollment_jobs
+                WHERE job_id<>? AND (status IN ('waiting','processing') OR (status='failed' AND progress>=90))");
+            $reservations->execute([$jobId]);
+            foreach ($reservations as $reservation) {
+                if ($reservation['assigned_slot'] !== null) $unavailable[(int) $reservation['assigned_slot']] = true;
+            }
+            if (DirectFingerprintImportSchema::tableExists($this->conn)) {
+                foreach ($this->conn->query('SELECT target_slot FROM direct_fingerprint_import_jobs') as $reservation) {
+                    $unavailable[(int) $reservation['target_slot']] = true;
+                }
+            }
 
-        return (int)$stmt->fetch()['next_slot'];
+            $assignedSlot = 1;
+            while ($assignedSlot < $sensorCapacity && isset($unavailable[$assignedSlot])) ++$assignedSlot;
+            if ($assignedSlot >= $sensorCapacity) {
+                throw new FingerprintSlotReservationException('No empty unreserved fingerprint slot is available on this sensor. Existing fingerprints were preserved.', 409);
+            }
+
+            $update = $this->conn->prepare("UPDATE fingerprint_enrollment_jobs SET assigned_slot=?,
+                current_step='Empty sensor slot reserved; continuing enrollment', updated_at=NOW() WHERE job_id=?");
+            $update->execute([$assignedSlot, $jobId]);
+            $this->conn->commit();
+            return $assignedSlot;
+        } catch (Throwable $error) {
+            if ($this->conn->inTransaction()) $this->conn->rollBack();
+            throw $error;
+        }
     }
 
     public function createJob(
+        $userId,
+        $fingerName,
+        $deviceId = null,
+        ?int $fingerprintId = null
+    )
+    {
+        $this->conn->beginTransaction();
+        try {
+            if ((int) $deviceId > 0) {
+                $deviceLock=$this->conn->prepare('SELECT device_id FROM fingerprint_devices WHERE device_id=? FOR UPDATE');
+                $deviceLock->execute([(int)$deviceId]);
+                if (SensorMemorySchema::hasProcessingForDevice($this->conn, (int) $deviceId)) {
+                    throw new DirectFingerprintSensorBusyException('Sensor A is reading its memory. Wait for the read to finish before enrolling.');
+                }
+                if (DirectFingerprintImportSchema::hasActiveForDevice($this->conn,(int)$deviceId)) {
+                    throw new DirectFingerprintSensorBusyException('A database fingerprint restore is queued or running on this sensor. Finish it before starting enrollment.');
+                }
+            }
+            $id=$this->insertEnrollmentJob($userId,$fingerName,$deviceId,$fingerprintId);
+            $this->conn->commit();
+            return $id;
+        } catch(Throwable $error) {
+            if($this->conn->inTransaction())$this->conn->rollBack();
+            throw $error;
+        }
+    }
+
+    private function insertEnrollmentJob(
         $userId,
         $fingerName,
         $deviceId = null,
@@ -175,10 +284,14 @@ class FingerprintEnrollmentJob
      */
     public function getNextWaitingJob(?int $deviceId = null)
     {
+        $this->cancelIdleWaitingJobs();
+        $pickupTimeoutMinutes = self::PICKUP_TIMEOUT_MINUTES;
         if ($deviceId !== null && $deviceId > 0) {
             $sql = "SELECT *
                     FROM fingerprint_enrollment_jobs
                     WHERE status = 'waiting'
+                      AND finished_at IS NULL
+                      AND COALESCE(updated_at, created_at) > DATE_SUB(NOW(), INTERVAL {$pickupTimeoutMinutes} MINUTE)
                       AND (
                             enrollment_device_id = :device_id
                             OR enrollment_device_id IS NULL
@@ -199,6 +312,8 @@ class FingerprintEnrollmentJob
             $sql = "SELECT *
                     FROM fingerprint_enrollment_jobs
                     WHERE status = 'waiting'
+                      AND finished_at IS NULL
+                      AND COALESCE(updated_at, created_at) > DATE_SUB(NOW(), INTERVAL {$pickupTimeoutMinutes} MINUTE)
                     ORDER BY created_at ASC, job_id ASC
                     LIMIT 1";
 
@@ -216,8 +331,29 @@ class FingerprintEnrollmentJob
 
     public function claimJob(int $jobId, ?int $deviceId = null): bool
     {
+        $this->cancelIdleWaitingJobs(self::PICKUP_TIMEOUT_MINUTES, $jobId);
+        $pickupTimeoutMinutes = self::PICKUP_TIMEOUT_MINUTES;
         try {
+            // Discover the device outside the transaction so this read cannot
+            // establish a stale snapshot before waiting for the registry lock.
+            $candidate = $this->conn->prepare('SELECT enrollment_device_id FROM fingerprint_enrollment_jobs WHERE job_id=?');
+            $candidate->execute([$jobId]);
+            $candidateRow = $candidate->fetch(PDO::FETCH_ASSOC);
+            $claimDeviceId = $deviceId !== null && $deviceId > 0 ? $deviceId : (int) ($candidateRow['enrollment_device_id'] ?? 0);
             $this->conn->beginTransaction();
+
+            // Import and enrollment share the same physical sensor. Serialize both
+            // claims on its registry row before either reserves or writes a slot.
+            if ($claimDeviceId > 0) {
+                $deviceLock = $this->conn->prepare('SELECT device_id FROM fingerprint_devices WHERE device_id=? FOR UPDATE');
+                $deviceLock->execute([$claimDeviceId]);
+                if (!$deviceLock->fetch()
+                    || DirectFingerprintImportSchema::hasActiveForDevice($this->conn,$claimDeviceId)
+                    || SensorMemorySchema::hasProcessingForDevice($this->conn, $claimDeviceId)) {
+                    $this->conn->rollBack();
+                    return false;
+                }
+            }
 
             $lockStatement = $this->conn->prepare(
                 "SELECT job_id, enrollment_device_id, assigned_slot, status
@@ -266,7 +402,9 @@ class FingerprintEnrollmentJob
                     started_at = COALESCE(started_at, NOW()),
                     error_message = NULL
                  WHERE job_id = :job_id
-                   AND status = 'waiting'"
+                   AND status = 'waiting'
+                   AND finished_at IS NULL
+                   AND COALESCE(updated_at, created_at) > DATE_SUB(NOW(), INTERVAL {$pickupTimeoutMinutes} MINUTE)"
             );
             $updateStatement->bindValue(':job_id', $jobId, PDO::PARAM_INT);
             if ($effectiveDeviceId !== null) {
@@ -284,7 +422,10 @@ class FingerprintEnrollmentJob
                 return true;
             }
 
-            $this->conn->rollBack();
+            // The row is still locked and waiting: its pickup deadline passed
+            // between cleanup and the guarded claim. Persist cancellation now.
+            $this->cancelIdleWaitingJobs(self::PICKUP_TIMEOUT_MINUTES, $jobId);
+            $this->conn->commit();
             return false;
         } catch (Throwable $error) {
             if ($this->conn->inTransaction()) {
@@ -297,6 +438,7 @@ class FingerprintEnrollmentJob
 
     public function getJobById(int $jobId)
     {
+        $this->cancelIdleWaitingJobs(self::PICKUP_TIMEOUT_MINUTES, $jobId);
         $sql = "SELECT *
                 FROM fingerprint_enrollment_jobs
                 WHERE job_id = ?";
@@ -305,6 +447,14 @@ class FingerprintEnrollmentJob
         $stmt->execute([$jobId]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    /** Completion owns the transaction; this read never expires or changes a job. */
+    public function lockJobById(int $jobId): ?array
+    {
+        $statement = $this->conn->prepare('SELECT * FROM fingerprint_enrollment_jobs WHERE job_id = ? FOR UPDATE');
+        $statement->execute([$jobId]);
+        return $statement->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     public function getRecentJobs(int $limit = 12): array
@@ -384,15 +534,7 @@ class FingerprintEnrollmentJob
      */
     public function markProcessing($jobId)
     {
-        $sql = "UPDATE fingerprint_enrollment_jobs
-
-                SET status='processing'
-
-                WHERE job_id=?";
-
-        $stmt = $this->conn->prepare($sql);
-
-        return $stmt->execute([$jobId]);
+        return $this->claimJob((int) $jobId);
     }
 
     /**
@@ -413,7 +555,8 @@ class FingerprintEnrollmentJob
                     progress = 0,
                     current_step = 'Waiting for ESP32',
                     error_message = 'Enrollment station timed out. Job was re-queued.',
-                    started_at = NULL
+                    started_at = NULL,
+                    updated_at = NOW()
                 WHERE status = 'processing'
                   AND finished_at IS NULL
                   AND updated_at < DATE_SUB(NOW(), INTERVAL {$timeoutSeconds} SECOND)
@@ -437,6 +580,8 @@ class FingerprintEnrollmentJob
         ?int $deviceId = null
     )
     {
+        $this->cancelIdleWaitingJobs(self::PICKUP_TIMEOUT_MINUTES, (int) $jobId);
+        $pickupTimeoutMinutes = self::PICKUP_TIMEOUT_MINUTES;
         $progress = max(0, min(99, (int) $progress));
 
         $sql = "UPDATE fingerprint_enrollment_jobs
@@ -452,7 +597,8 @@ class FingerprintEnrollmentJob
 
                 WHERE job_id = :job_id
                   AND status IN ('waiting', 'processing')
-                  AND finished_at IS NULL";
+                  AND finished_at IS NULL
+                  AND (status = 'processing' OR COALESCE(updated_at, created_at) > DATE_SUB(NOW(), INTERVAL {$pickupTimeoutMinutes} MINUTE))";
 
         $params = [
             ':progress' => $progress,
@@ -467,6 +613,8 @@ class FingerprintEnrollmentJob
 
         $stmt = $this->conn->prepare($sql);
         $executed = $stmt->execute($params);
+
+        if ($executed && $stmt->rowCount() === 0) $this->cancelIdleWaitingJobs(self::PICKUP_TIMEOUT_MINUTES, (int) $jobId);
 
         return $executed && $stmt->rowCount() > 0;
     }
@@ -490,7 +638,7 @@ class FingerprintEnrollmentJob
 
                 SET status = 'completed',
                     progress = 100,
-                    current_step = 'Enrollment completed',
+                    current_step = 'Enrollment completed after final verification',
                     assigned_slot = ?,
                     error_message = NULL,
                     finished_at = NOW()
@@ -498,6 +646,16 @@ class FingerprintEnrollmentJob
                 WHERE job_id = ?
                   AND status = 'processing'
                   AND finished_at IS NULL
+                  AND assigned_slot = ?
+                  AND EXISTS (
+                      SELECT 1 FROM fingerprint_enrollment_verifications AS proof
+                      WHERE proof.job_id = fingerprint_enrollment_jobs.job_id
+                        AND proof.enrollment_device_id = fingerprint_enrollment_jobs.enrollment_device_id
+                        AND proof.stored_slot = fingerprint_enrollment_jobs.assigned_slot
+                        AND proof.matched_slot = proof.stored_slot
+                        AND proof.fresh_scan_verified = 1
+                        AND proof.confidence > 0
+                  )
                   {$deviceFilter}";
 
         $stmt = $this->conn->prepare($sql);
@@ -506,6 +664,7 @@ class FingerprintEnrollmentJob
             $executed = $stmt->execute([
                 $assignedSlot,
                 $jobId,
+                $assignedSlot,
                 $deviceId
             ]);
 
@@ -514,7 +673,8 @@ class FingerprintEnrollmentJob
 
         $executed = $stmt->execute([
             $assignedSlot,
-            $jobId
+            $jobId,
+            $assignedSlot
         ]);
 
         return $executed && $stmt->rowCount() > 0;
@@ -576,7 +736,8 @@ class FingerprintEnrollmentJob
                     current_step = 'Waiting for ESP32',
                     error_message = NULL,
                     started_at = NULL,
-                    finished_at = NULL
+                    finished_at = NULL,
+                    updated_at = NOW()
                 WHERE job_id = ?
                   AND status IN ('failed', 'cancelled')";
 
@@ -585,10 +746,11 @@ class FingerprintEnrollmentJob
         return $stmt->execute([$jobId]) && $stmt->rowCount() > 0;
     }
 
-    public function cancelIdleWaitingJobs(int $timeoutMinutes = 30): int
+    public function cancelIdleWaitingJobs(int $timeoutMinutes = self::PICKUP_TIMEOUT_MINUTES, ?int $jobId = null): int
     {
         $timeoutMinutes = max(1, min($timeoutMinutes, 24 * 60));
-        $message = 'Enrollment was cancelled because it did not move within 30 minutes.';
+        $message = "Enrollment cancelled: Sensor A did not pick up this enrollment within {$timeoutMinutes} minutes. Check its power and connection, then retry.";
+        $jobFilter = $jobId !== null ? ' AND job_id = :job_id' : '';
 
         $sql = "UPDATE fingerprint_enrollment_jobs
                 SET
@@ -599,10 +761,13 @@ class FingerprintEnrollmentJob
                     finished_at = NOW()
                 WHERE status = 'waiting'
                   AND finished_at IS NULL
-                  AND COALESCE(updated_at, created_at) < DATE_SUB(NOW(), INTERVAL {$timeoutMinutes} MINUTE)";
+                  AND COALESCE(updated_at, created_at) <= DATE_SUB(NOW(), INTERVAL {$timeoutMinutes} MINUTE)
+                  {$jobFilter}";
 
         $stmt = $this->conn->prepare($sql);
-        $stmt->execute(['message' => $message]);
+        $params = ['message' => $message];
+        if ($jobId !== null) $params['job_id'] = $jobId;
+        $stmt->execute($params);
 
         return $stmt->rowCount();
     }

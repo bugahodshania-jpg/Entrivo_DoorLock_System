@@ -610,6 +610,35 @@
   text-decoration: underline;
 }
 
+.dashboard-export-button,
+.access-logs-export {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfe0d7;
+  border-radius: 8px;
+  color: #0c4b2d;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+}
+
+.dashboard-export-button:hover,
+.access-logs-export:hover {
+  background: #eef6f1;
+}
+
+.dashboard-export-button:disabled,
+.access-logs-export:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .dashboard-recent-table-wrap {
   max-width: 100%;
   overflow-x: auto;

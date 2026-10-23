@@ -1,0 +1,99 @@
+/* Share Sensor Memory's table appearance without changing module column layouts. */
+.super-admin-layout:not(.user-portal-layout) .super-admin-page .dashboard-recent-card > .dashboard-panel-header > div:first-child > :is(span, h1, h2),
+.super-admin-layout:not(.user-portal-layout) .super-admin-page .reports-extended-panel > header > h3 {
+  color: #10251d;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.super-admin-layout .super-admin-page table {
+  border-collapse: collapse;
+  color: #344b3e;
+  font-size: 12px;
+}
+
+.super-admin-layout .super-admin-content .super-admin-page table > thead > tr > th {
+  background: #f7f9f8;
+  border-top: 0;
+  border-bottom: 1px solid #e6ece9;
+  color: #62736a;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
+  padding: 12px 10px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.super-admin-layout .super-admin-content .super-admin-page table > tbody > tr > td {
+  border-bottom: 1px solid #eaf0ec;
+  color: #344b3e;
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+.super-admin-layout.super-admin-portal .super-admin-page table > tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+.super-admin-layout .super-admin-page table:not(.sensor-memory-table) > tbody > tr > td strong {
+  color: #293d32;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.super-admin-layout .super-admin-page table :is(.dashboard-user-id, .pending-override-reason) {
+  color: #344b3e;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* Target text details explicitly so avatars, controls, and status colors stay intact. */
+.super-admin-layout .super-admin-page table > tbody > tr > td > strong + span:not([class]),
+.super-admin-layout .super-admin-page table .fingerprint-user-copy > span,
+.super-admin-layout .super-admin-page table .fingerprint-user-copy > small,
+.super-admin-layout .super-admin-page table .activity-logs-user span,
+.super-admin-layout .super-admin-page table .activity-logs-user small,
+.super-admin-layout .super-admin-page table .schedules-window-cell > span,
+.super-admin-layout .super-admin-page table .reports-person small,
+.super-admin-layout .super-admin-page table .fingerprint-job-timeline span {
+  color: #8a978e;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.super-admin-layout .super-admin-page table :is(.dashboard-log-status, .reports-pill, .reports-status) {
+  border: 1px solid #e2e8e4;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 3px 7px;
+}
+
+.super-admin-layout .super-admin-page table .reports-status {
+  background: #f0f3f1;
+  display: inline-block;
+}
+
+/* Separate table rows from their pagination controls in the super admin portal. */
+.super-admin-layout.super-admin-portal .super-admin-page :is(
+  .manage-users-pagination,
+  .fingerprint-jobs-pagination,
+  .access-logs-pagination,
+  .activity-logs-pagination,
+  .schedules-pagination,
+  .reports-pagination,
+  .reports-extended-pages
+) {
+  border-top: 1px solid #e6ece9;
+}
+
+.super-admin-layout .super-admin-page :is(.reports-pagination, .reports-extended-pages) {
+  padding-top: 14px;
+}

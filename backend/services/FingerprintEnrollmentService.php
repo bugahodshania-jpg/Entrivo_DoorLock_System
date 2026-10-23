@@ -2,18 +2,25 @@
 
 require_once __DIR__ . '/../models/FingerprintEnrollmentJob.php';
 require_once __DIR__ . '/../models/Fingerprint.php';
+require_once __DIR__ . '/FingerprintTemplateFormat.php';
+require_once __DIR__ . '/FingerprintEnrollmentVerification.php';
+
+final class FingerprintEnrollmentCompletionException extends RuntimeException
+{
+}
 
 class FingerprintEnrollmentService
 {
     private FingerprintEnrollmentJob $jobModel;
     private Fingerprint $fingerprintModel;
-    private const EXPECTED_TEMPLATE_BYTES = 512;
+    private PDO $conn;
     private const MAX_FINGERPRINTS_PER_USER = 5;
 
-    public function __construct()
+    public function __construct(?PDO $pdo = null)
     {
-        $this->jobModel = new FingerprintEnrollmentJob();
-        $this->fingerprintModel = new Fingerprint();
+        $this->conn = $pdo ?? entrivo_pdo();
+        $this->jobModel = new FingerprintEnrollmentJob($this->conn);
+        $this->fingerprintModel = new Fingerprint($this->conn);
     }
 
     public function createEnrollmentJob(
@@ -100,12 +107,16 @@ class FingerprintEnrollmentService
             ];
         }
 
-        $jobId = $this->jobModel->createJob(
-            $userId,
-            $fingerName,
-            $deviceId,
-            $fingerprintId
-        );
+        try {
+            $jobId = $this->jobModel->createJob(
+                $userId,
+                $fingerName,
+                $deviceId,
+                $fingerprintId
+            );
+        } catch (DirectFingerprintSensorBusyException $error) {
+            return ['success' => false, 'message' => $error->getMessage()];
+        }
 
         return [
             "success" => true,
@@ -144,7 +155,6 @@ class FingerprintEnrollmentService
         }
 
         $this->jobModel->requeueStaleProcessingJobs($deviceId);
-        $this->jobModel->cancelIdleWaitingJobs();
 
         return $this->jobModel->getNextWaitingJob($deviceId);
     }
@@ -156,7 +166,7 @@ class FingerprintEnrollmentService
 
     public function getJobById(int $jobId)
     {
-        return $this->jobModel->getJobById($jobId);
+        return $this->withVerification($this->jobModel->getJobById($jobId));
     }
 
     public function getSingleJobProgress(int $jobId): ?array
@@ -189,16 +199,20 @@ class FingerprintEnrollmentService
             'is_closed' => in_array($status, ['completed', 'failed', 'cancelled'], true),
             'can_retry' => in_array($status, ['failed', 'cancelled'], true),
             'can_cancel' => $status === 'waiting',
+            'verification' => $this->verificationForJob($job),
         ];
     }
 
     public function listEnrollmentJobs(array $query = []): array
     {
-        $this->jobModel->cancelIdleWaitingJobs();
         $jobId = isset($query['job_id']) && $query['job_id'] > 0 ? (int) $query['job_id'] : 0;
 
         if ($jobId > 0) {
             $job = $this->getSingleJobProgress($jobId);
+
+            if ($job && !empty($query['events'])) {
+                $job['events'] = $this->buildEnrollmentTimeline($job);
+            }
 
             return [
                 'status' => 200,
@@ -209,6 +223,7 @@ class FingerprintEnrollmentService
             ];
         }
 
+        $this->jobModel->cancelIdleWaitingJobs();
         $limit = (int) ($query['limit'] ?? 12);
         $jobs = $this->jobModel->getRecentJobs($limit);
 
@@ -241,6 +256,7 @@ class FingerprintEnrollmentService
                 'is_closed' => in_array($status, ['completed', 'failed', 'cancelled'], true),
                 'can_retry' => in_array($status, ['failed', 'cancelled'], true),
                 'can_cancel' => $status === 'waiting',
+                'verification' => $this->verificationForJob($job),
             ];
         }, $jobs);
 
@@ -315,174 +331,207 @@ class FingerprintEnrollmentService
         ];
     }
 
+    public function reserveEmptySlot(array $input): array
+    {
+        foreach (['job_id', 'enrollment_device_id', 'expected_assigned_slot', 'sensor_capacity'] as $field) {
+            if (!isset($input[$field]) || !is_int($input[$field]) || $input[$field] <= 0) {
+                return ['status' => 400, 'body' => ['success' => false, 'message' => 'Job, device, reserved slot, and sensor capacity must be positive integers.']];
+            }
+        }
+        $capacity = $input['sensor_capacity'];
+        $occupiedSlots = $input['occupied_slots'] ?? null;
+        if ($capacity < 2 || $capacity > 65535 || $input['expected_assigned_slot'] > 65535 ||
+            !is_array($occupiedSlots) || !array_is_list($occupiedSlots) || count($occupiedSlots) > $capacity) {
+            return ['status' => 400, 'body' => ['success' => false, 'message' => 'A valid sensor capacity and complete occupied-slot list are required.']];
+        }
+        foreach ($occupiedSlots as $slot) {
+            if (!is_int($slot) || $slot < 0 || $slot >= $capacity) {
+                return ['status' => 400, 'body' => ['success' => false, 'message' => 'The sensor slot index contains an invalid slot.']];
+            }
+        }
+
+        try {
+            $assignedSlot = $this->jobModel->reserveEmptySlot($input['job_id'], $input['enrollment_device_id'],
+                $input['expected_assigned_slot'], $capacity, $occupiedSlots);
+            return ['status' => 200, 'body' => ['success' => true, 'job_id' => $input['job_id'],
+                'assigned_slot' => $assignedSlot, 'message' => 'An empty sensor slot was reserved. Existing fingerprints were preserved.']];
+        } catch (FingerprintSlotReservationException $error) {
+            return ['status' => $error->getCode(), 'body' => ['success' => false, 'message' => $error->getMessage()]];
+        }
+    }
+
     public function completeEnrollment(array $input): array
     {
         $jobId = (int) ($input['job_id'] ?? 0);
         $deviceId = (int) ($input['enrollment_device_id'] ?? 0);
         $assignedSlot = (int) ($input['assigned_slot'] ?? 0);
-        $templateDataBase64 = trim((string) ($input['template_data_base64'] ?? ''));
-
-        if ($jobId <= 0 || $deviceId <= 0) {
-            return [
-                'status' => 400,
-                'body' => [
-                    'success' => false,
-                    'message' => 'Job ID and enrollment device are required.'
-                ],
-            ];
+        if ($jobId <= 0 || $deviceId <= 0 || $assignedSlot <= 0) {
+            return $this->completionFailure(400, 'Job ID, enrollment device, and the reserved sensor slot are required.');
         }
 
-        $job = $this->jobModel->getJobById($jobId);
-
-        if (!$job) {
-            return [
-                'status' => 404,
-                'body' => [
-                    'success' => false,
-                    'message' => 'Enrollment job not found.'
-                ],
-            ];
+        $encoded = $input['template_data_base64'] ?? null;
+        if (!is_string($encoded) || trim($encoded) === '') {
+            return $this->completionFailure(400, 'Actual fingerprint template data is required before completion.');
+        }
+        $binary = base64_decode(trim($encoded), true);
+        if ($binary === false) {
+            return $this->completionFailure(400, 'Template data must be valid base64.');
+        }
+        if (!FingerprintTemplateFormat::isSupportedSize(strlen($binary))) {
+            return $this->completionFailure(422, sprintf(
+                'Invalid fingerprint template size. Supported sizes: %s bytes; got %d bytes.',
+                FingerprintTemplateFormat::describeSupportedSizes(), strlen($binary)
+            ));
+        }
+        if (!FingerprintTemplateFormat::isUsableTemplate($binary)) {
+            return $this->completionFailure(422, 'The sensor returned invalid fingerprint template data containing only one repeated byte. Enroll the finger again; the existing fingerprint was preserved.');
+        }
+        try {
+            $proof = FingerprintEnrollmentVerification::normalize($input['verification'] ?? null, $binary);
+        } catch (InvalidArgumentException $error) {
+            return $this->completionFailure(422, $error->getMessage());
+        }
+        if ($proof['stored_slot'] !== $assignedSlot || $proof['matched_slot'] !== $assignedSlot) {
+            return $this->completionFailure(409, 'The freshly matched and stored sensor slots must both equal the reserved job slot.');
+        }
+        if ($this->conn->inTransaction()) {
+            return $this->completionFailure(409, 'Enrollment completion requires its own transaction.');
         }
 
-        if ((int) ($job['enrollment_device_id'] ?? 0) > 0 && (int) $job['enrollment_device_id'] !== $deviceId) {
-            return [
-                'status' => 409,
-                'body' => [
-                    'success' => false,
-                    'message' => 'This job belongs to a different enrollment device.'
-                ],
-            ];
-        }
-
-        if ($job['status'] === 'completed') {
-            return [
-                'status' => 409,
-                'body' => [
-                    'success' => false,
-                    'message' => 'This enrollment job is already completed.'
-                ],
-            ];
-        }
-
-        if (in_array($job['status'], ['failed', 'cancelled'], true)) {
-            return [
-                'status' => 409,
-                'body' => [
-                    'success' => false,
-                    'message' => 'This enrollment job can no longer be completed.'
-                ],
-            ];
-        }
-
-        $reservedSlot = (int) ($job['assigned_slot'] ?? 0);
-
-        if ($assignedSlot <= 0) {
-            $assignedSlot = $reservedSlot;
-        }
-
-        if ($assignedSlot <= 0) {
-            return [
-                'status' => 409,
-                'body' => [
-                    'success' => false,
-                    'message' => 'This enrollment job has no reserved sensor slot.'
-                ],
-            ];
-        }
-
-        if ($reservedSlot > 0 && $assignedSlot !== $reservedSlot) {
-            return [
-                'status' => 409,
-                'body' => [
-                    'success' => false,
-                    'message' => 'Assigned slot does not match the reserved job slot.'
-                ],
-            ];
-        }
-
-        if ($templateDataBase64 === '') {
-            return [
-                'status' => 400,
-                'body' => [
-                    'success' => false,
-                    'message' => 'Actual fingerprint template data is required before completion.'
-                ],
-            ];
-        }
-
-        $templateBinary = '';
-
-        if ($templateDataBase64 !== '') {
-            $decodedTemplate = base64_decode($templateDataBase64, true);
-
-            if ($decodedTemplate === false) {
-                return [
-                    'status' => 400,
-                    'body' => [
-                        'success' => false,
-                        'message' => 'Template data must be valid base64.'
-                    ],
-                ];
+        $this->conn->beginTransaction();
+        try {
+            $job = $this->jobModel->lockJobById($jobId);
+            if (!$job) throw new FingerprintEnrollmentCompletionException('Enrollment job not found.', 404);
+            if ((int) ($job['enrollment_device_id'] ?? 0) !== $deviceId) {
+                throw new FingerprintEnrollmentCompletionException('This job belongs to a different enrollment device.', 409);
+            }
+            $reservedSlot = (int) ($job['assigned_slot'] ?? 0);
+            if ($reservedSlot <= 0 || $reservedSlot !== $assignedSlot) {
+                throw new FingerprintEnrollmentCompletionException('Assigned slot does not match the stored reserved job slot.', 409);
+            }
+            if (!in_array($job['status'], ['processing', 'completed'], true) ||
+                ($job['status'] === 'processing' && !empty($job['finished_at']))) {
+                throw new FingerprintEnrollmentCompletionException('Only a claimed, processing enrollment job can be completed.', 409);
+            }
+            if (!FingerprintEnrollmentVerification::tableExists($this->conn)) {
+                throw new FingerprintEnrollmentCompletionException('Enrollment verification storage is not installed. Apply the fingerprint enrollment verification migration before completing enrollment.', 503);
             }
 
-            $templateBytes = strlen($decodedTemplate);
-            if ($templateBytes !== self::EXPECTED_TEMPLATE_BYTES) {
-                $message = sprintf(
-                    'Invalid fingerprint template size. Expected %d bytes, got %d bytes.',
-                    self::EXPECTED_TEMPLATE_BYTES,
-                    $templateBytes
-                );
-
-                // Treat as a failed enrollment so the dashboard/progress modal can show the reason.
-                $this->jobModel->failJob($jobId, $message, $deviceId);
-                $freshJob = $this->jobModel->getJobById($jobId);
-
-                return [
-                    'status' => 422,
-                    'body' => [
-                        'success' => false,
-                        'message' => $message,
-                        'job' => $freshJob,
-                    ],
-                ];
+            if ($job['status'] === 'completed') {
+                $stored = FingerprintEnrollmentVerification::findByJobId($this->conn, $jobId);
+                if (!$stored || (int) ($job['progress'] ?? 0) !== 100 || empty($job['finished_at']) ||
+                    (int) $stored['enrollment_device_id'] !== $deviceId ||
+                    (int) $stored['user_id'] !== (int) $job['user_id'] ||
+                    (string) $stored['finger_name'] !== (string) $job['finger_name']) {
+                    throw new FingerprintEnrollmentCompletionException('This completed job has no matching durable sensor verification proof.', 409);
+                }
+                $metadata = FingerprintEnrollmentVerification::metadata($stored);
+                foreach ($proof as $field => $value) {
+                    if ($metadata[$field] !== $value) {
+                        throw new FingerprintEnrollmentCompletionException('Completion retry does not match the original sensor verification proof.', 409);
+                    }
+                }
+                $fingerprint = $this->fingerprintModel->getById((int) $stored['fingerprint_id']);
+                $this->assertSavedEnrollment($fingerprint, $job, $binary, $proof);
+                $this->conn->commit();
+                return $this->completionSuccess($job, $fingerprint, $metadata, true);
             }
+            if (FingerprintEnrollmentVerification::findByJobId($this->conn, $jobId)) {
+                throw new FingerprintEnrollmentCompletionException('This job already has a conflicting verification record.', 409);
+            }
+            $targetId = (int) ($job['fingerprint_id'] ?? 0);
+            $previous = $targetId > 0 ? $this->fingerprintModel->getById($targetId) : null;
+            if ($targetId > 0 && (!$previous || (int) $previous['user_id'] !== (int) $job['user_id'])) {
+                throw new FingerprintEnrollmentCompletionException('The fingerprint update target no longer belongs to this user.', 409);
+            }
+            $job['is_update'] = $previous !== null && (!empty($previous['enrollment_slot']) || !empty($previous['template_data']));
+            $fingerprint = $this->fingerprintModel->saveEnrollment(
+                (int) $job['user_id'], (string) $job['finger_name'], $deviceId, $assignedSlot,
+                $binary, $proof['template_sha256'], $targetId > 0 ? $targetId : null
+            );
+            $fingerprint = $this->fingerprintModel->getById((int) ($fingerprint['fingerprint_id'] ?? 0));
+            $this->assertSavedEnrollment($fingerprint, $job, $binary, $proof);
+            $stored = FingerprintEnrollmentVerification::record($this->conn, $job, $fingerprint, $proof);
+            if (!$stored || !$this->jobModel->completeJob($jobId, $assignedSlot, $deviceId)) {
+                throw new FingerprintEnrollmentCompletionException('Unable to atomically confirm the saved fingerprint and enrollment job.', 409);
+            }
+            $freshJob = $this->jobModel->lockJobById($jobId);
+            if (!$freshJob || $freshJob['status'] !== 'completed' || (int) $freshJob['progress'] !== 100 || empty($freshJob['finished_at'])) {
+                throw new FingerprintEnrollmentCompletionException('The completed enrollment could not be read back.', 409);
+            }
+            $freshJob['is_update'] = $job['is_update'];
+            $metadata = FingerprintEnrollmentVerification::metadata($stored);
+            $this->conn->commit();
+            return $this->completionSuccess($freshJob, $fingerprint, $metadata);
+        } catch (Throwable $error) {
+            if ($this->conn->inTransaction()) $this->conn->rollBack();
+            if ($error instanceof FingerprintEnrollmentCompletionException) {
+                return $this->completionFailure($error->getCode(), $error->getMessage());
+            }
+            error_log('Verified enrollment completion: ' . $error->getMessage());
+            return $this->completionFailure(503, 'The fingerprint, verification proof, and completed job could not be saved together. Existing enrollment data was preserved; retry the verified completion.');
+        }
+    }
 
-            $templateBinary = $decodedTemplate;
+    private function assertSavedEnrollment(?array $fingerprint, array $job, string $binary, array $proof): void
+    {
+        if (!$fingerprint || (int) ($fingerprint['fingerprint_id'] ?? 0) <= 0 ||
+            (int) ($fingerprint['user_id'] ?? 0) !== (int) $job['user_id'] ||
+            (string) ($fingerprint['finger_name'] ?? '') !== (string) $job['finger_name'] ||
+            (int) ($fingerprint['enrollment_device_id'] ?? 0) !== (int) $job['enrollment_device_id'] ||
+            (int) ($fingerprint['enrollment_slot'] ?? 0) !== $proof['stored_slot'] ||
+            (int) ($fingerprint['shared_door_slot'] ?? 0) !== $proof['stored_slot'] ||
+            ($fingerprint['status'] ?? null) !== 'active' ||
+            ($fingerprint['template_data'] ?? null) !== $binary ||
+            ($fingerprint['template_hash'] ?? null) !== $proof['template_sha256'] ||
+            FingerprintTemplateFormat::verifiedBinary($fingerprint['template_data'] ?? null, $fingerprint['template_hash'] ?? null) !== $binary) {
+            throw new FingerprintEnrollmentCompletionException('Saved fingerprint bytes, hash, ownership, or sensor mapping did not match the verified enrollment.', 409);
+        }
+    }
+
+    private function normalizeBoardJob(array $job): array
+    {
+        // MySQL returns these as strings. The board accepts only JSON numbers.
+        foreach (['job_id', 'user_id', 'fingerprint_id', 'enrollment_device_id', 'assigned_slot', 'progress'] as $field) {
+            if (isset($job[$field]) && is_numeric($job[$field])) {
+                $job[$field] = (int) $job[$field];
+            }
         }
 
-        $templateHashSource = $templateBinary !== ''
-            ? $templateBinary
-            : implode('|', [
-                (string) $jobId,
-                (string) ($job['user_id'] ?? ''),
-                (string) $assignedSlot,
-                (string) ($job['finger_name'] ?? ''),
-            ]);
+        return $job;
+    }
 
-        $targetFingerprintId = isset($job['fingerprint_id']) ? (int) $job['fingerprint_id'] : 0;
+    private function completionSuccess(array $job, array $fingerprint, array $proof, bool $idempotent = false): array
+    {
+        $job = $this->normalizeBoardJob($job);
+        $job['verification'] = $proof;
+        $fingerprint['has_template_data'] = true;
+        $fingerprint['template_bytes'] = $proof['template_bytes'];
+        unset($fingerprint['template_data']);
+        return ['status' => 200, 'body' => [
+            'success' => true, 'message' => 'Enrollment completed after verified sensor storage and a fresh matching scan.',
+            'job' => $job, 'fingerprint' => $fingerprint, 'verification' => $proof, 'idempotent' => $idempotent,
+        ]];
+    }
 
-        $fingerprint = $this->fingerprintModel->saveEnrollment(
-            (int) $job['user_id'],
-            (string) $job['finger_name'],
-            (int) ($job['enrollment_device_id'] ?? $deviceId),
-            $assignedSlot,
-            $templateBinary,
-            hash('sha256', $templateHashSource),
-            $targetFingerprintId > 0 ? $targetFingerprintId : null
-        );
+    private function completionFailure(int $status, string $message): array
+    {
+        return ['status' => $status, 'body' => ['success' => false, 'message' => $message]];
+    }
 
-        $completed = $this->jobModel->completeJob($jobId, $assignedSlot, $deviceId);
-        $freshJob = $this->jobModel->getJobById($jobId);
+    private function verificationForJob(array $job): ?array
+    {
+        if (($job['status'] ?? null) !== 'completed') return null;
+        $stored = FingerprintEnrollmentVerification::findByJobId($this->conn, (int) $job['job_id']);
+        return $stored ? FingerprintEnrollmentVerification::metadata($stored) : null;
+    }
 
-        return [
-            'status' => $completed ? 200 : 409,
-            'body' => [
-                'success' => $completed,
-                'message' => $completed ? 'Enrollment completed successfully.' : 'Unable to complete enrollment job.',
-                'job' => $freshJob,
-                'fingerprint' => $fingerprint,
-            ],
-        ];
+    private function withVerification($job): ?array
+    {
+        if (!$job) return null;
+        $job = $this->normalizeBoardJob($job);
+        $job['verification'] = $this->verificationForJob($job);
+        return $job;
     }
 
     public function failEnrollment(array $input): array
@@ -663,5 +712,226 @@ class FingerprintEnrollmentService
                 'job' => $freshJob,
             ],
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $job
+     * @return array<int, array{title: string, description: string, status: string, occurred_at: string}>
+     */
+    private function buildEnrollmentTimeline(array $job): array
+    {
+        require_once __DIR__ . '/ActivityLogService.php';
+        $logged = (new ActivityLogService(entrivo_pdo()))->listFingerprintJobEvents((int) ($job['job_id'] ?? 0));
+        $events = [];
+
+        foreach ($logged as $index => $event) {
+            $description = trim((string) ($event['description'] ?? ''));
+            $events[] = [
+                'title' => $this->enrollmentTimelineTitle((string) ($event['activity_type'] ?? ''), $description),
+                'description' => $description,
+                'status' => (string) ($event['status'] ?? 'Success'),
+                'occurred_at' => (string) ($event['occurred_at'] ?? ''),
+                'rank' => 10 + $index,
+            ];
+        }
+
+        $status = strtolower(trim((string) ($job['status'] ?? '')));
+        $createdAt = trim((string) ($job['created_at'] ?? ''));
+        $startedAt = trim((string) ($job['started_at'] ?? ''));
+        $finishedAt = trim((string) ($job['finished_at'] ?? ''));
+        $updatedAt = trim((string) ($job['updated_at'] ?? ''));
+        $step = trim((string) ($job['current_step'] ?? ''));
+        $errorMessage = trim((string) ($job['error_message'] ?? ''));
+        $progress = (int) ($job['progress'] ?? 0);
+
+        if ($createdAt !== '' && !$this->enrollmentTimelineHasTitle($events, ['Created', 'Retried', 'Queued'])) {
+            $events[] = [
+                'title' => 'Queued',
+                'description' => 'This enrollment job was added to the station queue.',
+                'status' => 'Pending',
+                'occurred_at' => $createdAt,
+                'rank' => 1,
+            ];
+        }
+
+        if ($startedAt !== '' && !$this->enrollmentTimelineHasText($events, 'claimed this job')) {
+            $events[] = [
+                'title' => 'Claimed',
+                'description' => 'The enrollment station claimed this job and started the scan.',
+                'status' => 'Pending',
+                'occurred_at' => $startedAt,
+                'rank' => 2,
+            ];
+        }
+
+        $genericSteps = [
+            'waiting for esp32',
+            'job claimed by esp32',
+            'enrollment completed',
+            'enrollment failed',
+            'enrollment cancelled',
+        ];
+        $progressAt = $finishedAt !== '' ? $finishedAt : $updatedAt;
+
+        if (
+            $step !== ''
+            && !in_array(strtolower($step), $genericSteps, true)
+            && $progressAt !== ''
+            && $progressAt !== $startedAt
+            && !$this->enrollmentTimelineHasText($events, $step)
+        ) {
+            $events[] = [
+                'title' => 'Progress',
+                'description' => $step . ' (' . $progress . '%).',
+                'status' => $status === 'failed' ? 'Failed' : ($status === 'cancelled' ? 'Cancelled' : 'Pending'),
+                'occurred_at' => $progressAt,
+                'rank' => 4,
+            ];
+        }
+
+        $outcomeAt = $finishedAt !== '' ? $finishedAt : $updatedAt;
+
+        if ($status === 'completed' && $outcomeAt !== '' && !$this->enrollmentTimelineHasTitle($events, ['Enrolled', 'Updated', 'Completed'])) {
+            $saved = !empty($job['has_template_data']) ? ' The template was saved.' : '';
+            $events[] = [
+                'title' => 'Completed',
+                'description' => 'Enrollment finished and the fingerprint is ready.' . $saved,
+                'status' => 'Success',
+                'occurred_at' => $outcomeAt,
+                'rank' => 6,
+            ];
+        }
+
+        if ($status === 'failed' && $outcomeAt !== '' && !$this->enrollmentTimelineHasTitle($events, ['Failed'])) {
+            $events[] = [
+                'title' => 'Failed',
+                'description' => $errorMessage !== '' ? $errorMessage : ($step !== '' ? $step . '.' : 'This enrollment job did not finish.'),
+                'status' => 'Failed',
+                'occurred_at' => $outcomeAt,
+                'rank' => 6,
+            ];
+        }
+
+        if ($status === 'cancelled' && $outcomeAt !== '' && !$this->enrollmentTimelineHasTitle($events, ['Cancelled'])) {
+            $events[] = [
+                'title' => 'Cancelled',
+                'description' => $errorMessage !== '' ? $errorMessage : 'This enrollment job was cancelled.',
+                'status' => 'Cancelled',
+                'occurred_at' => $outcomeAt,
+                'rank' => 6,
+            ];
+        }
+
+        if ($status === 'cancelled' && $errorMessage !== '') {
+            foreach ($events as &$event) {
+                if (
+                    (string) ($event['title'] ?? '') === 'Cancelled'
+                    && !str_contains(strtolower((string) ($event['description'] ?? '')), strtolower($errorMessage))
+                ) {
+                    $event['description'] = rtrim((string) $event['description'], '.') . '. ' . $errorMessage;
+                }
+            }
+            unset($event);
+        }
+
+        if ($finishedAt !== '') {
+            foreach ($events as &$event) {
+                if (
+                    in_array((string) ($event['title'] ?? ''), ['Enrolled', 'Updated', 'Failed'], true)
+                    && strcmp((string) ($event['occurred_at'] ?? ''), $finishedAt) < 0
+                ) {
+                    $event['occurred_at'] = $finishedAt;
+                    $event['rank'] = 6;
+                }
+            }
+            unset($event);
+        }
+
+        usort($events, static function (array $left, array $right): int {
+            $time = strcmp((string) $left['occurred_at'], (string) $right['occurred_at']);
+
+            if ($time !== 0) {
+                return $time;
+            }
+
+            return ((int) $left['rank']) <=> ((int) $right['rank']);
+        });
+
+        return array_map(static function (array $event): array {
+            return [
+                'title' => (string) $event['title'],
+                'description' => (string) $event['description'],
+                'status' => (string) $event['status'],
+                'occurred_at' => (string) $event['occurred_at'],
+            ];
+        }, $events);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $events
+     * @param array<int, string> $titles
+     */
+    private function enrollmentTimelineHasTitle(array $events, array $titles): bool
+    {
+        foreach ($events as $event) {
+            if (in_array((string) ($event['title'] ?? ''), $titles, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $events
+     */
+    private function enrollmentTimelineHasText(array $events, string $text): bool
+    {
+        $needle = strtolower(trim($text));
+
+        if ($needle === '') {
+            return false;
+        }
+
+        foreach ($events as $event) {
+            if (str_contains(strtolower((string) ($event['description'] ?? '')), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function enrollmentTimelineTitle(string $activityType, string $description): string
+    {
+        $text = strtolower($description);
+
+        if (str_starts_with($text, 'created ')) {
+            return 'Created';
+        }
+
+        if (str_starts_with($text, 'retried ')) {
+            return 'Retried';
+        }
+
+        if (str_starts_with($text, 'cancelled ')) {
+            return 'Cancelled';
+        }
+
+        if (str_starts_with($text, 'enrolled ')) {
+            return 'Enrolled';
+        }
+
+        if (str_starts_with($text, 'updated ')) {
+            return 'Updated';
+        }
+
+        if (str_contains($text, 'failed')) {
+            return 'Failed';
+        }
+
+        $type = trim($activityType);
+
+        return $type !== '' ? $type : 'Update';
     }
 }

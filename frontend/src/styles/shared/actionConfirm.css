@@ -36,6 +36,14 @@
   margin: 0;
 }
 
+.fingerprint-result-modal h2.is-success {
+  color: #0c4b2d;
+}
+
+.fingerprint-result-modal h2.is-error {
+  color: #9d3030;
+}
+
 .action-confirm-modal p {
   color: #4d5f57;
   font-size: 14px;

@@ -16,7 +16,9 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import PortalToast from '../../components/PortalToast';
+import SecurityQuestionSelect from '../../components/SecurityQuestionSelect';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
@@ -424,7 +426,7 @@ export default function MyAccount({ user }) {
   function openSecurityModal() {
     const slots = securitySlotsFromSaved(profile?.securityQuestions);
     setSecurityForm(slots);
-    setVisibleAnswers([true, true, true]);
+    setVisibleAnswers([false, false, false]);
     setEditableQuestions(slots.map((item) => !item.question));
     setSecurityError('');
     setIsSecurityModalOpen(true);
@@ -545,8 +547,6 @@ export default function MyAccount({ user }) {
           onClose={() => setNotice(null)}
         />
       ) : null}
-      {errorMessage ? <p className="settings-admin-error">{errorMessage}</p> : null}
-
       <section className="settings-grid" aria-label="Account information">
         <article className="settings-card" role="tabpanel" aria-label="Account information">
           <div className="dashboard-panel-header">
@@ -903,11 +903,16 @@ export default function MyAccount({ user }) {
               <div className="settings-security-fields">
                 {securityForm.map((item, index) => (
                   <div className="settings-security-group" key={`security-question-${index}`}>
-                    <label className="settings-security-field">
-                      <span>Security question {index + 1}</span>
+                    <div className="settings-security-field">
+                      <span id={`faculty-security-question-label-${index}`}>Security question {index + 1}</span>
                       {item.question && !editableQuestions[index] ? (
                         <span className="settings-security-current">
-                          <input type="text" value={item.question} readOnly />
+                          <input
+                            type="text"
+                            value={item.question}
+                            aria-labelledby={`faculty-security-question-label-${index}`}
+                            readOnly
+                          />
                           <button
                             type="button"
                             onClick={() =>
@@ -921,29 +926,27 @@ export default function MyAccount({ user }) {
                           </button>
                         </span>
                       ) : (
-                        <select
+                        <SecurityQuestionSelect
                           value={item.question}
-                          onChange={(event) => updateSecurityQuestion(index, 'question', event.target.value)}
+                          labelId={`faculty-security-question-label-${index}`}
+                          onChange={(question) => updateSecurityQuestion(index, 'question', question)}
                           disabled={isSavingSecurity}
-                        >
-                          <option value="">Select a question</option>
-                          {(item.question && !securityQuestionOptions.includes(item.question)
-                            ? [item.question, ...securityQuestionOptions]
-                            : securityQuestionOptions
-                          ).map((question) => (
-                            <option
-                              key={question}
-                              value={question}
-                              disabled={securityForm.some(
+                          options={[
+                            { value: '', label: 'Select a question' },
+                            ...(item.question && !securityQuestionOptions.includes(item.question)
+                              ? [item.question, ...securityQuestionOptions]
+                              : securityQuestionOptions
+                            ).map((question) => ({
+                              value: question,
+                              label: question,
+                              disabled: securityForm.some(
                                 (entry, entryIndex) => entryIndex !== index && entry.question === question,
-                              )}
-                            >
-                              {question}
-                            </option>
-                          ))}
-                        </select>
+                              ),
+                            })),
+                          ]}
+                        />
                       )}
-                    </label>
+                    </div>
                     <label className="settings-security-field">
                       <span>Answer</span>
                       <span className="settings-security-answer">
@@ -964,6 +967,7 @@ export default function MyAccount({ user }) {
                         <button
                           type="button"
                           aria-label={visibleAnswers[index] ? 'Hide answer' : 'Show answer'}
+                          aria-pressed={visibleAnswers[index]}
                           onClick={() =>
                             setVisibleAnswers((current) =>
                               current.map((visible, itemIndex) => (itemIndex === index ? !visible : visible)),
@@ -1009,7 +1013,7 @@ export default function MyAccount({ user }) {
                   <span><Lock size={16} aria-hidden="true" /></span>
                   <div>
                     <h3>Only You Can See Them</h3>
-                    <p>Your saved answers are shown here so you can review and update them.</p>
+                    <p>Answers are hidden by default. Use the eye icon to reveal an answer.</p>
                   </div>
                 </div>
                 <div className="settings-security-note">
@@ -1018,8 +1022,6 @@ export default function MyAccount({ user }) {
                 </div>
               </aside>
             </div>
-
-            {securityError ? <p className="pending-registration-error" role="alert">{securityError}</p> : null}
 
             <footer>
               <button
@@ -1037,6 +1039,16 @@ export default function MyAccount({ user }) {
           </form>
         </div>
       ) : null}
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
+      <ErrorNoticeModal
+        open={Boolean(securityError)}
+        message={securityError}
+        onClose={() => setSecurityError('')}
+      />
     </main>
   );
 }

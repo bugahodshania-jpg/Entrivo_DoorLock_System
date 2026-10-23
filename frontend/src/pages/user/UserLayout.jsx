@@ -6,18 +6,23 @@ import {
   ChevronRight,
   KeyRound,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
   ScrollText,
+  Server,
   ShieldAlert,
   User,
 } from 'lucide-react';
 import UniversityBrand from '../../components/UniversityBrand';
-import { ActionConfirmProvider } from '../../components/ActionConfirm';
+import { ActionConfirmProvider, useActionConfirm } from '../../components/ActionConfirm';
+import DoorStatusCard from '../../components/DoorStatusCard';
+import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import NotificationBell from '../../components/NotificationBell';
 import { formatDateInManila } from '../../utils/dateTime';
 import { portalLayoutClassName, useCompactNav } from '../../hooks/useCompactNav';
 import '../../styles/superAdmin/adminLayout.css';
+import '../../styles/superAdmin/tables.css';
 import '../../styles/user/userLayout.css';
 
 const navSections = [
@@ -29,13 +34,17 @@ const navSections = [
     heading: 'My Access',
     links: [
       { label: 'My Schedule', href: '/user/my-schedule', icon: CalendarClock },
-      { label: 'Request Override', href: '/user/request-override', icon: ShieldAlert },
+      { label: 'My Override Requests', href: '/user/request-override', icon: ShieldAlert },
       { label: 'Access Logs', href: '/user/access-logs', icon: Activity },
     ],
   },
   {
-    heading: 'Activity',
-    links: [{ label: 'Activity Logs', href: '/user/activity-logs', icon: ScrollText }],
+    heading: 'Logs',
+    links: [
+      { label: 'Login Logs', href: '/user/login-logs', icon: LogIn },
+      { label: 'Activity Logs', href: '/user/activity-logs', icon: ScrollText },
+      { label: 'System Logs', href: '/user/system-logs', icon: Server },
+    ],
   },
   {
     heading: 'Account',
@@ -49,8 +58,10 @@ const pageTitles = {
   '/user/dashboard': 'Dashboard',
   '/user/my-account': 'My Account',
   '/user/access-logs': 'Access Logs',
+  '/user/login-logs': 'Login Logs',
   '/user/activity-logs': 'Activity Logs',
-  '/user/request-override': 'Request Override',
+  '/user/system-logs': 'System Logs',
+  '/user/request-override': 'My Override Requests',
   '/user/my-schedule': 'My Schedule',
 };
 
@@ -73,6 +84,24 @@ function headerProfilePhoto(user) {
 }
 
 function ProfileMenu({ className = '', onLogout }) {
+  const confirmAction = useActionConfirm();
+
+  async function handleLogout() {
+    const confirmed = await confirmAction?.({
+      title: 'Log out',
+      message: 'Are you sure you want to log out?',
+      danger: true,
+      confirmLabel: 'Logout',
+      requirePassword: false,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    onLogout();
+  }
+
   return (
     <div className={`super-admin-profile-menu ${className}`.trim()} role="menu">
       <a className="super-admin-profile-menu-link" href="/user/my-account" role="menuitem">
@@ -84,7 +113,7 @@ function ProfileMenu({ className = '', onLogout }) {
         <span>Security</span>
       </a>
       <div className="super-admin-profile-menu-divider" />
-      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={() => onLogout()}>
+      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={handleLogout}>
         <LogOut size={16} aria-hidden="true" />
         <span>Log Out</span>
       </button>
@@ -163,6 +192,8 @@ export default function UserLayout({ children, user, onLogout }) {
   }, [isProfileDrawerOpen, isSidebarProfileOpen]);
 
   return (
+    <DoorStatusProvider actorId={user?.id}>
+    <ActionConfirmProvider user={user}>
     <div className={portalLayoutClassName({ isCollapsed, isCompact, isMobileNavOpen, extra: 'user-portal-layout' })}>
       {isCompact && isMobileNavOpen ? (
         <button
@@ -291,6 +322,7 @@ export default function UserLayout({ children, user, onLogout }) {
                 setIsSidebarProfileOpen(false);
               }}
             />
+            <DoorStatusCard />
             <div
               className="super-admin-date-card"
               aria-label={`${headerDate}, ${headerDay} ${headerTime} Asia/Manila`}
@@ -323,8 +355,15 @@ export default function UserLayout({ children, user, onLogout }) {
           </div>
         </header>
 
-        <ActionConfirmProvider user={user}>{children}</ActionConfirmProvider>
+        <div className="super-admin-page">
+          {children}
+        </div>
+        <footer className="portal-footer">
+          <p>Entrivo · Caraga State University — Cabadbaran Campus</p>
+        </footer>
       </div>
     </div>
+    </ActionConfirmProvider>
+    </DoorStatusProvider>
   );
 }

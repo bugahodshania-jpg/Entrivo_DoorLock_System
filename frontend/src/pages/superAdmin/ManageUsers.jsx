@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Ban,
@@ -8,8 +8,8 @@ import {
   Expand,
   Eye,
   EyeOff,
+  GraduationCap,
   KeyRound,
-  Mars,
   Pencil,
   Search,
   Shield,
@@ -17,17 +17,21 @@ import {
   Unlock,
   UserPlus,
   Users,
-  Venus,
   X,
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import ExportFormatModal from '../../components/ExportFormatModal';
 import RowActionMenu from '../../components/RowActionMenu';
+import TableEmptyState from '../../components/TableEmptyState';
 import RegisterUser from './RegisterUser';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import DeleteRequestModal from '../../components/DeleteRequestModal';
+import DeleteRequestToast from '../../components/DeleteRequestToast';
 import { ROLE_PRIVILEGE_DEFAULTS, canDeleteRecords, userHasPrivilege } from '../../utils/privileges';
+import { normalizeIssuedId, schoolEmailDomain, suffixOptions } from '../../utils/schoolProfileOptions';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -158,6 +162,13 @@ const initialUsers = {
   students: [],
 };
 
+function omitSuperAdminUsers(usersByRole) {
+  return {
+    ...usersByRole,
+    admins: (usersByRole.admins || []).filter((user) => user.role !== 'super_admin'),
+  };
+}
+
 function getUsersForRoleFilter(filterKey, usersByRole) {
   if (filterKey === 'all') {
     return [
@@ -284,13 +295,6 @@ function countOccupiedSuperAdminSlots(usersByRole, excludeUserId = null) {
   }).length;
 }
 
-function getSexTotal(usersByRole, sex) {
-  return Object.values(usersByRole)
-    .flat()
-    .filter((user) => user.sex?.toLowerCase() === sex)
-    .length;
-}
-
 const collegeProgramOptions = [
   {
     college: '(CEIT) College of Engineering and Information Technology',
@@ -313,6 +317,7 @@ const collegeProgramOptions = [
       '(BSIndTech) - Architectural Drafting Technology',
       '(BSIndTech) - Automotive Technology',
       '(BSIndTech) - Civil Technology',
+      '(BSIndTech) - (BSIndTech)',
       '(BSIndTech) - Electronics Technology',
       '(BTVTED) Bachelor of Technical Vocational Teacher Education',
     ],
@@ -410,19 +415,211 @@ function buildEditForm(user) {
   };
 }
 
-function EditField({ label, wide = false, children }) {
+function editServerFieldErrors(message) {
+  const text = String(message || '');
+  const lower = text.toLowerCase();
+  const errors = {};
+
+  if (lower.includes('college, program, and year level')) {
+    errors.college = 'College is required.';
+    errors.program = 'Program is required.';
+    errors.yearLevel = 'Year level is required.';
+    return errors;
+  }
+
+  if (lower.includes('department and position')) {
+    errors.officeDepartment = 'Department is required.';
+    errors.workPosition = 'Position is required.';
+    return errors;
+  }
+
+  if (lower.includes('first name and last name')) {
+    errors.firstName = 'First name is required.';
+    errors.lastName = 'Last name is required.';
+    return errors;
+  }
+
+  const field = [
+    ['username', 'username'],
+    ['email', 'email'],
+    ['school id', 'identifier'],
+    ['employee id', 'identifier'],
+    ['rfid', 'rfidUid'],
+    ['first name', 'firstName'],
+    ['middle name', 'middleName'],
+    ['last name', 'lastName'],
+    ['extension', 'extensionName'],
+    ['sex', 'sex'],
+    ['date of birth', 'dateOfBirth'],
+    ['contact', 'contactNumber'],
+    ['street', 'streetAddress'],
+    ['barangay', 'barangay'],
+    ['city', 'cityMunicipality'],
+    ['province', 'province'],
+    ['college', 'college'],
+    ['program', 'program'],
+    ['year level', 'yearLevel'],
+    ['section', 'section'],
+    ['department', 'officeDepartment'],
+    ['position', 'workPosition'],
+    ['status', 'status'],
+  ].find(([needle]) => lower.includes(needle));
+
+  if (field) errors[field[1]] = text;
+
+  return errors;
+}
+
+function EditField({ label, wide = false, error = '', children }) {
+  const control = error && isValidElement(children)
+    ? cloneElement(children, { 'aria-invalid': true })
+    : children;
+
   return (
     <div className={wide ? 'is-wide manage-users-edit-field' : 'manage-users-edit-field'}>
       <dt>{label}</dt>
-      <dd>{children}</dd>
+      <dd>
+        {control}
+        {error ? <p className="manage-users-edit-field-error" role="alert">{error}</p> : null}
+      </dd>
     </div>
   );
+}
+
+function editPersonNameError(value, label, required = true) {
+  const name = String(value || '').trim();
+
+  if (!name) {
+    return required ? `${label} is required.` : '';
+  }
+
+  if (name.length < 2 || name.length > 50) return `${label} must be 2 to 50 characters.`;
+  if (/\p{N}/u.test(name)) return `${label} cannot contain numbers.`;
+  if (/[^A-Za-zÑñ -]/.test(name)) return `${label} can only include letters, Ñ, spaces, and hyphens.`;
+  if (!/^[A-ZÑ]/.test(name)) return `${label} must start with a capital letter.`;
+  if (!/^[A-ZÑ][A-Za-zÑñ]*(?:[ -][A-Za-zÑñ]+)*$/.test(name)) {
+    return `${label} cannot start or end with a hyphen, or repeat spaces and hyphens.`;
+  }
+
+  return '';
+}
+
+function editUsernameError(value) {
+  const username = String(value || '').trim();
+
+  if (!username) return 'Username is required.';
+  if (username !== username.toLowerCase()) return 'Username must be all lowercase.';
+  if (/\p{N}/u.test(username)) return 'Username cannot contain numbers.';
+  if (!/^[a-z.]+$/.test(username)) return 'Username can only use lowercase letters and a dot.';
+  if (!username.includes('.')) return 'Username must include a dot (.).';
+  if (!/^[a-z]+(?:\.[a-z]+)+$/.test(username) || username.length > 50) {
+    return 'Use lowercase letters separated by a dot, such as firstname.lastname.';
+  }
+
+  return '';
+}
+
+function editRequiredTextError(value, label, maxLength) {
+  const text = String(value || '').trim();
+
+  if (!text) return `${label} is required.`;
+  if (text.length > maxLength) return `${label} must be ${maxLength} characters or fewer.`;
+
+  return '';
+}
+
+function validateEditForm(form) {
+  const errors = {};
+  const assign = (field, message) => {
+    if (message) errors[field] = message;
+  };
+
+  assign('firstName', editPersonNameError(form.firstName, 'First name'));
+  assign('middleName', editPersonNameError(form.middleName, 'Middle name', false));
+  assign('lastName', editPersonNameError(form.lastName, 'Last name'));
+
+  const extension = String(form.extensionName || '').trim();
+  if (extension && !suffixOptions.includes(extension)) {
+    errors.extensionName = 'Extension must be Jr., Sr., II, III, IV, or V.';
+  }
+
+  if (!form.sex) errors.sex = 'Sex is required.';
+
+  if (!form.dateOfBirth) {
+    errors.dateOfBirth = 'Date of birth is required.';
+  } else {
+    const birthDate = new Date(`${form.dateOfBirth}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (Number.isNaN(birthDate.getTime()) || birthDate > today) {
+      errors.dateOfBirth = 'Date of birth must be a valid past date.';
+    }
+  }
+
+  if (!/^\d{11}$/.test(String(form.contactNumber || ''))) {
+    errors.contactNumber = 'Contact number must be 11 digits.';
+  }
+
+  assign('username', editUsernameError(form.username));
+
+  const email = String(form.email || '').trim().toLowerCase();
+  const emailSuffix = `@${schoolEmailDomain}`;
+  if (!email) {
+    errors.email = 'School email is required.';
+  } else if (!email.endsWith(emailSuffix)) {
+    errors.email = `Email must use the ${emailSuffix} domain.`;
+  } else if (!/^[a-z][a-z0-9._-]{2,49}$/.test(email.slice(0, -emailSuffix.length))) {
+    errors.email = 'Use 3 to 50 characters, starting with a letter. Letters, numbers, dots, underscores, and hyphens only.';
+  }
+
+  const identifier = String(form.identifier || '').trim();
+  const identifierPattern = form.isStudent ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/;
+  const identifierFormat = form.isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
+  if (!identifier) {
+    errors.identifier = `${form.identifierLabel || 'ID'} is required.`;
+  } else if (!identifierPattern.test(identifier)) {
+    errors.identifier = `${form.identifierLabel || 'ID'} must use ${identifierFormat} format.`;
+  }
+
+  if (!['active', 'inactive', 'blocked', 'pending_login'].includes(form.status)) {
+    errors.status = 'Status must be active, inactive, or blocked.';
+  }
+
+  const street = String(form.streetAddress || '').trim();
+  if (street.length > 255) errors.streetAddress = 'Street address must be 255 characters or fewer.';
+  assign('barangay', editRequiredTextError(form.barangay, 'Barangay', 100));
+  assign('cityMunicipality', editRequiredTextError(form.cityMunicipality, 'City / Municipality', 100));
+  assign('province', editRequiredTextError(form.province, 'Province', 100));
+
+  if (form.isStudent) {
+    if (!form.college) errors.college = 'College is required.';
+    if (!form.program) {
+      errors.program = 'Program is required.';
+    } else if (collegeOptions.includes(form.college) && !getProgramOptions(form.college).includes(form.program)) {
+      errors.program = 'Select a program for the chosen college.';
+    }
+    if (!yearLevelOptions.includes(form.yearLevel)) errors.yearLevel = 'Year level is required.';
+    if (form.section && !sectionOptions.includes(form.section)) {
+      errors.section = 'Section must be Block A, Block B, Block C, or Block D.';
+    }
+
+    const rfidUid = String(form.rfidUid || '').trim();
+    if (rfidUid && !/^[A-Z0-9]{1,30}$/.test(rfidUid)) {
+      errors.rfidUid = 'RFID UID must be up to 30 letters or numbers.';
+    }
+  } else {
+    assign('officeDepartment', editRequiredTextError(form.officeDepartment, 'Department', 150));
+    assign('workPosition', editRequiredTextError(form.workPosition, 'Position', 150));
+  }
+
+  return errors;
 }
 
 export default function ManageUsers({ user: currentUser } = {}) {
   const confirmAction = useActionConfirm();
   const roleFilterMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
+  const editOriginalRef = useRef(null);
   const [activeTab, setActiveTab] = useState('all');
   const [registrationRole, setRegistrationRole] = useState(null);
   const [activeStatusFilter, setActiveStatusFilter] = useState('all');
@@ -442,8 +639,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [editFieldErrors, setEditFieldErrors] = useState({});
   const [editPhotoExpanded, setEditPhotoExpanded] = useState(false);
   const [isDeletingUserId, setIsDeletingUserId] = useState(null);
+  const [deleteRequest, setDeleteRequest] = useState(null);
+  const [deleteNotice, setDeleteNotice] = useState('');
   const [isBlockingUserId, setIsBlockingUserId] = useState(null);
   const [passwordUser, setPasswordUser] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
@@ -536,14 +736,25 @@ export default function ManageUsers({ user: currentUser } = {}) {
     };
   }, [isRoleFilterMenuOpen, isStatusFilterMenuOpen]);
 
+  const hideSuperAdminRows = currentUser?.role === 'admin';
+  const listedUsersByRole = useMemo(
+    () => (hideSuperAdminRows ? omitSuperAdminUsers(usersByRole) : usersByRole),
+    [hideSuperAdminRows, usersByRole],
+  );
+  const visibleRoleFilterOptions = useMemo(
+    () => (hideSuperAdminRows
+      ? roleFilterOptions.filter((option) => option.key !== 'super_admins')
+      : roleFilterOptions),
+    [hideSuperAdminRows],
+  );
   const activeTabConfig =
-    roleFilterOptions.find((tab) => tab.key === activeTab) || allUsersFilter;
+    visibleRoleFilterOptions.find((tab) => tab.key === activeTab) || allUsersFilter;
   const activeStatusFilterConfig =
     statusFilterOptions.find((option) => option.value === activeStatusFilter) ||
     statusFilterOptions[0];
   const activeUsers = useMemo(
-    () => getUsersForRoleFilter(activeTabConfig.key, usersByRole),
-    [activeTabConfig.key, usersByRole],
+    () => getUsersForRoleFilter(activeTabConfig.key, listedUsersByRole),
+    [activeTabConfig.key, listedUsersByRole],
   );
   const statusFilteredUsers = useMemo(
     () => filterUsersByStatus(activeUsers, activeStatusFilter),
@@ -610,22 +821,22 @@ export default function ManageUsers({ user: currentUser } = {}) {
   }, [activeTab, activeStatusFilter, normalizedSearchQuery]);
 
   const totalUsers = useMemo(
-    () => Object.values(usersByRole).reduce((total, users) => total + users.length, 0),
-    [usersByRole],
+    () => Object.values(listedUsersByRole).reduce((total, users) => total + users.length, 0),
+    [listedUsersByRole],
   );
   const roleFilterCounts = useMemo(() => {
     const counts = { all: totalUsers };
 
-    roleFilterOptions.forEach((option) => {
+    visibleRoleFilterOptions.forEach((option) => {
       if (option.key === 'all') {
         return;
       }
 
-      counts[option.key] = getUsersForRoleFilter(option.key, usersByRole).length;
+      counts[option.key] = getUsersForRoleFilter(option.key, listedUsersByRole).length;
     });
 
     return counts;
-  }, [totalUsers, usersByRole]);
+  }, [listedUsersByRole, totalUsers, visibleRoleFilterOptions]);
   const statusFilterCounts = useMemo(() => {
     const counts = { all: activeUsers.length };
 
@@ -639,8 +850,14 @@ export default function ManageUsers({ user: currentUser } = {}) {
 
     return counts;
   }, [activeUsers]);
-  const totalMale = useMemo(() => getSexTotal(usersByRole, 'male'), [usersByRole]);
-  const totalFemale = useMemo(() => getSexTotal(usersByRole, 'female'), [usersByRole]);
+  const totalFacultyStaff = useMemo(
+    () => (listedUsersByRole.faculty?.length || 0) + (listedUsersByRole.staff?.length || 0),
+    [listedUsersByRole],
+  );
+  const totalAdminAccounts = useMemo(
+    () => getUsersForRoleFilter('admins', listedUsersByRole).length,
+    [listedUsersByRole],
+  );
   const summaryCards = [
     {
       label: 'Total Users',
@@ -649,16 +866,16 @@ export default function ManageUsers({ user: currentUser } = {}) {
       icon: Users,
     },
     {
-      label: 'Total Male',
-      value: totalMale,
-      detail: 'Male user profiles',
-      icon: Mars,
+      label: 'Faculty/Staff',
+      value: totalFacultyStaff,
+      detail: 'Faculty and staff accounts',
+      icon: GraduationCap,
     },
     {
-      label: 'Total Female',
-      value: totalFemale,
-      detail: 'Female user profiles',
-      icon: Venus,
+      label: 'Admin',
+      value: totalAdminAccounts,
+      detail: 'Admin accounts',
+      icon: Shield,
     },
   ];
 
@@ -680,6 +897,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
           fields: [
             ['Username', viewUser.username],
             ['Email', viewUser.email],
+            ['Role', formatRoleLabel(viewUser.role)],
             [viewUser.identifierLabel, viewUser.identifier],
             ['Status', formatStatusLabel(viewUser.status)],
           ],
@@ -788,6 +1006,12 @@ export default function ManageUsers({ user: currentUser } = {}) {
         [field]: value,
       };
     });
+    setEditFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   }
 
   async function openUserEdit(user) {
@@ -801,7 +1025,9 @@ export default function ManageUsers({ user: currentUser } = {}) {
     };
 
     setEditForm(buildEditForm(fallbackUser));
+    editOriginalRef.current = buildEditForm(fallbackUser);
     setEditError('');
+    setEditFieldErrors({});
     setIsEditLoading(true);
     setEditPhotoExpanded(false);
 
@@ -810,7 +1036,9 @@ export default function ManageUsers({ user: currentUser } = {}) {
       const detailedUser = response.data.user;
 
       if (detailedUser) {
-        setEditForm(buildEditForm(detailedUser));
+        const nextForm = buildEditForm(detailedUser);
+        editOriginalRef.current = nextForm;
+        setEditForm(nextForm);
       }
     } catch (error) {
       setEditError(error.response?.data?.message || 'Unable to load this user right now.');
@@ -826,6 +1054,8 @@ export default function ManageUsers({ user: currentUser } = {}) {
 
     setEditForm(null);
     setEditError('');
+    setEditFieldErrors({});
+    editOriginalRef.current = null;
     setEditPhotoExpanded(false);
   }
 
@@ -844,6 +1074,43 @@ export default function ManageUsers({ user: currentUser } = {}) {
     event.preventDefault();
 
     if (!editForm || isEditSaving) {
+      return;
+    }
+
+    const nextErrors = validateEditForm(editForm);
+    const original = editOriginalRef.current;
+    const availability = {};
+
+    if (original && editForm.username.trim().toLowerCase() !== String(original.username || '').trim().toLowerCase()) {
+      availability.username = editForm.username.trim().toLowerCase();
+    }
+    if (original && editForm.email.trim().toLowerCase() !== String(original.email || '').trim().toLowerCase()) {
+      availability.email = editForm.email.trim().toLowerCase();
+    }
+    if (original && editForm.identifier !== original.identifier) {
+      availability[editForm.isStudent ? 'school_id' : 'employee_id'] = editForm.identifier;
+    }
+    if (original && editForm.isStudent && editForm.rfidUid !== original.rfidUid) {
+      availability.rfid_uid = editForm.rfidUid;
+    }
+
+    if (Object.keys(availability).length > 0) {
+      try {
+        const response = await axiosClient.post('/api/registration_availability.php', availability);
+        const taken = response.data?.errors || {};
+        if (taken.username) nextErrors.username = taken.username;
+        if (taken.email) nextErrors.email = taken.email;
+        if (taken.school_id || taken.employee_id) nextErrors.identifier = taken.school_id || taken.employee_id;
+        if (taken.rfid_uid) nextErrors.rfidUid = taken.rfid_uid;
+      } catch {
+        setEditError('Unable to check whether these details are already in use. Please try again.');
+        return;
+      }
+    }
+
+    setEditFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setEditError('Please correct the highlighted fields before saving.');
       return;
     }
 
@@ -867,7 +1134,12 @@ export default function ManageUsers({ user: currentUser } = {}) {
       await reloadUsers();
       closeUserEdit({ force: true });
     } catch (error) {
-      setEditError(error.response?.data?.message || 'Unable to save user changes right now.');
+      const message = error.response?.data?.message || 'Unable to save user changes right now.';
+      const serverErrors = editServerFieldErrors(message);
+      if (Object.keys(serverErrors).length > 0) {
+        setEditFieldErrors(serverErrors);
+      }
+      setEditError(message);
     } finally {
       setIsEditSaving(false);
     }
@@ -1435,7 +1707,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const isUnblockAsAdminMode = privilegesMode === 'unblock_as_admin';
 
   function handleRegisterUser() {
-    if (currentUser?.role === 'admin' && !['students', 'admins'].includes(activeTabConfig.key)) {
+    if (currentUser?.role === 'admin' && activeTabConfig.key !== 'students') {
       return;
     }
 
@@ -1456,7 +1728,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
   }
 
   const canRegisterCurrentTab =
-    currentUser?.role !== 'admin' || activeTabConfig.key === 'students' || activeTabConfig.key === 'admins';
+    currentUser?.role !== 'admin' || activeTabConfig.key === 'students';
 
   return (
     <>
@@ -1486,43 +1758,15 @@ export default function ManageUsers({ user: currentUser } = {}) {
             <span>{activeTabConfig.label}</span>
             <p>Important account, profile, and access credential details.</p>
           </div>
-          <div className="manage-users-header-actions" aria-label="Manage user actions">
-            {canRegisterCurrentTab ? (
-              <button
-                type="button"
-                className="manage-users-register-button"
-                onClick={handleRegisterUser}
-                disabled={isLoading || Boolean(errorMessage)}
-              >
-                <UserPlus size={16} aria-hidden="true" />
-                {registerButtonLabel}
-              </button>
-            ) : null}
-            <div className="manage-users-search-stack">
-              <button
-                type="button"
-                className="dashboard-text-link manage-users-download-button"
-                onClick={() => setIsExportModalOpen(true)}
-                disabled={isLoading || Boolean(errorMessage) || visibleUsers.length === 0}
-              >
-                <Download size={16} aria-hidden="true" />
-                Export
-              </button>
-              <label className="manage-users-search" aria-label="Search users">
-                <Search size={16} aria-hidden="true" />
-                <input
-                  type="search"
-                  placeholder={
-                    activeTabConfig.key === 'all'
-                      ? 'Search users...'
-                      : `Search ${activeTabConfig.label.toLowerCase()}...`
-                  }
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                />
-              </label>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="dashboard-export-button"
+            onClick={() => setIsExportModalOpen(true)}
+            disabled={isLoading || Boolean(errorMessage) || visibleUsers.length === 0}
+          >
+            <Download size={15} aria-hidden="true" />
+            Export
+          </button>
         </div>
 
         <div className="manage-users-role-filter">
@@ -1562,7 +1806,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                 role="listbox"
                 aria-label="Filter users by role"
               >
-                {roleFilterOptions.map((option) => (
+                {visibleRoleFilterOptions.map((option) => (
                   <button
                     key={option.key}
                     type="button"
@@ -1649,6 +1893,32 @@ export default function ManageUsers({ user: currentUser } = {}) {
               </div>
             ) : null}
           </div>
+          <div className="manage-users-filter-actions" aria-label="Manage user actions">
+            {canRegisterCurrentTab ? (
+              <button
+                type="button"
+                className="manage-users-register-button"
+                onClick={handleRegisterUser}
+                disabled={isLoading || Boolean(errorMessage)}
+              >
+                <UserPlus size={16} aria-hidden="true" />
+                {registerButtonLabel}
+              </button>
+            ) : null}
+            <label className="manage-users-search" aria-label="Search users">
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                placeholder={
+                  activeTabConfig.key === 'all'
+                    ? 'Search users...'
+                    : `Search ${activeTabConfig.label.toLowerCase()}...`
+                }
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+            </label>
+          </div>
         </div>
 
         <div className="dashboard-recent-table-wrap manage-users-table-wrap">
@@ -1669,28 +1939,21 @@ export default function ManageUsers({ user: currentUser } = {}) {
                 </tr>
               )}
 
-              {!isLoading && errorMessage && (
+              {!isLoading && visibleUsers.length === 0 && (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan={activeTabConfig.columns.length}>
-                    {errorMessage}
-                  </td>
-                </tr>
-              )}
-
-              {!isLoading && !errorMessage && visibleUsers.length === 0 && (
-                <tr>
-                  <td className="dashboard-recent-empty" colSpan={activeTabConfig.columns.length}>
-                    {normalizedSearchQuery
-                      ? `No ${activeTabConfig.emptyLabel} match your search.`
-                      : activeStatusFilter !== 'all'
-                        ? `No ${activeStatusFilterConfig.label.toLowerCase()} ${activeTabConfig.emptyLabel} found.`
-                        : `No ${activeTabConfig.emptyLabel} found.`}
+                    <TableEmptyState description={normalizedSearchQuery || activeStatusFilter !== 'all' ? 'Try adjusting your search or account status filter.' : 'Registered accounts will appear here.'}>
+                      {normalizedSearchQuery
+                        ? `No ${activeTabConfig.emptyLabel} match your search.`
+                        : activeStatusFilter !== 'all'
+                          ? `No ${activeStatusFilterConfig.label.toLowerCase()} ${activeTabConfig.emptyLabel} found.`
+                          : `No ${activeTabConfig.emptyLabel} found.`}
+                    </TableEmptyState>
                   </td>
                 </tr>
               )}
 
               {!isLoading &&
-                !errorMessage &&
                 paginatedUsers.map((user) => {
                   const isStudent = user.role === 'student' || activeTabConfig.key === 'students';
                   const accessSetup = formatAccessSetup(user, { isStudent });
@@ -1779,13 +2042,30 @@ export default function ManageUsers({ user: currentUser } = {}) {
                               label: isDeletingUserId === user.id ? 'Deleting...' : 'Delete',
                               icon: Trash2,
                               danger: true,
-                              onClick: () => handleDeleteUser(user),
-                              disabled: isDeletingUserId === user.id,
+                              title: currentUser?.role === 'admin' && !['faculty', 'student'].includes(user.role)
+                                ? 'Only faculty and student accounts can be sent for deletion. Admin and Super Admin accounts stay blocked.'
+                                : undefined,
+                              onClick: () => {
+                                if (currentUser?.role === 'admin') {
+                                  setDeleteRequest({
+                                    targetType: 'user_account',
+                                    targetId: user.id,
+                                    targetLabel: `${user.name || 'Account'} · ${user.role}`,
+                                    detail: user.identifier || user.email || '',
+                                  });
+                                  return;
+                                }
+                                handleDeleteUser(user);
+                              },
+                              disabled:
+                                isDeletingUserId === user.id ||
+                                (currentUser?.role === 'admin' && !['faculty', 'student'].includes(user.role)),
                               hidden:
-                                !canDeleteRecords(currentUser) ||
-                                !userHasPrivilege(currentUser, 'delete_users') ||
-                                (Boolean(currentUser?.id) &&
-                                  Number(currentUser.id) === Number(user.id)),
+                                currentUser?.role === 'admin'
+                                  ? Boolean(currentUser?.id) && Number(currentUser.id) === Number(user.id)
+                                  : !canDeleteRecords(currentUser) ||
+                                    !userHasPrivilege(currentUser, 'delete_users') ||
+                                    (Boolean(currentUser?.id) && Number(currentUser.id) === Number(user.id)),
                             },
                           ]}
                         />
@@ -1797,7 +2077,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
           </table>
         </div>
 
-        {!isLoading && !errorMessage && visibleUsers.length > 0 && (
+        {!isLoading && visibleUsers.length > 0 && (
           <div className="manage-users-pagination" aria-label="Accounts pagination">
             <p>
               Showing {(currentPage - 1) * rowsPerPage + 1}-
@@ -1855,8 +2135,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                 </button>
               </header>
               {isViewLoading ? <p className="pending-registration-review-note">Loading user...</p> : null}
-              {viewError ? <p className="pending-registration-error" role="alert">{viewError}</p> : null}
-              {!isViewLoading && !viewError && viewGroups.length > 0 ? (
+              {!isViewLoading && viewGroups.length > 0 ? (
                 <div className="pending-registration-review-body">
                   <div className="pending-registration-review-identity">
                     <div className="pending-registration-review-photo">
@@ -1941,7 +2220,6 @@ export default function ManageUsers({ user: currentUser } = {}) {
               </header>
 
               {isEditLoading ? <p className="pending-registration-review-note">Loading user...</p> : null}
-              {editError ? <p className="pending-registration-error" role="alert">{editError}</p> : null}
 
               {!isEditLoading ? (
                 <div className="pending-registration-review-body">
@@ -1967,31 +2245,37 @@ export default function ManageUsers({ user: currentUser } = {}) {
                     <section className="pending-registration-review-card">
                       <h3>Account Information</h3>
                       <dl>
-                        <EditField label="Username">
+                        <EditField label="Username" error={editFieldErrors.username}>
                           <input
                             type="text"
                             value={editForm.username}
-                            onChange={(event) => updateEditField('username', event.target.value)}
+                            onChange={(event) => updateEditField('username', event.target.value.replace(/\s/g, '').toLowerCase())}
                             required
                           />
                         </EditField>
-                        <EditField label="Email">
+                        <EditField label="Email" error={editFieldErrors.email}>
                           <input
                             type="email"
                             value={editForm.email}
-                            onChange={(event) => updateEditField('email', event.target.value)}
+                            onChange={(event) => updateEditField('email', event.target.value.replace(/\s/g, '').toLowerCase())}
                             required
                           />
                         </EditField>
-                        <EditField label={editForm.identifierLabel}>
+                        <EditField label={editForm.identifierLabel} error={editFieldErrors.identifier}>
                           <input
                             type="text"
+                            inputMode="numeric"
+                            maxLength={editForm.isStudent ? 9 : 13}
+                            placeholder={editForm.isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx'}
                             value={editForm.identifier}
-                            onChange={(event) => updateEditField('identifier', event.target.value)}
+                            onChange={(event) => updateEditField(
+                              'identifier',
+                              normalizeIssuedId(event.target.value, editForm.isStudent ? 'student' : 'employee'),
+                            )}
                             required
                           />
                         </EditField>
-                        <EditField label="Status">
+                        <EditField label="Status" error={editFieldErrors.status}>
                           <select
                             value={editForm.status}
                             onChange={(event) => updateEditField('status', event.target.value)}
@@ -2000,6 +2284,9 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             <option value="active">active</option>
                             <option value="inactive">inactive</option>
                             <option value="blocked">blocked</option>
+                            {editForm.status === 'pending_login' ? (
+                              <option value="pending_login">pending login</option>
+                            ) : null}
                           </select>
                         </EditField>
                       </dl>
@@ -2009,7 +2296,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   <section className="pending-registration-review-card">
                     <h3>Personal Information</h3>
                     <dl>
-                      <EditField label="First name">
+                      <EditField label="First name" error={editFieldErrors.firstName}>
                         <input
                           type="text"
                           value={editForm.firstName}
@@ -2017,14 +2304,14 @@ export default function ManageUsers({ user: currentUser } = {}) {
                           required
                         />
                       </EditField>
-                      <EditField label="Middle name">
+                      <EditField label="Middle name" error={editFieldErrors.middleName}>
                         <input
                           type="text"
                           value={editForm.middleName}
                           onChange={(event) => updateEditField('middleName', event.target.value)}
                         />
                       </EditField>
-                      <EditField label="Last name">
+                      <EditField label="Last name" error={editFieldErrors.lastName}>
                         <input
                           type="text"
                           value={editForm.lastName}
@@ -2032,14 +2319,14 @@ export default function ManageUsers({ user: currentUser } = {}) {
                           required
                         />
                       </EditField>
-                      <EditField label="Extension">
+                      <EditField label="Extension" error={editFieldErrors.extensionName}>
                         <input
                           type="text"
                           value={editForm.extensionName}
                           onChange={(event) => updateEditField('extensionName', event.target.value)}
                         />
                       </EditField>
-                      <EditField label="Sex">
+                      <EditField label="Sex" error={editFieldErrors.sex}>
                         <select
                           value={editForm.sex}
                           onChange={(event) => updateEditField('sex', event.target.value)}
@@ -2050,7 +2337,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                           <option value="Female">Female</option>
                         </select>
                       </EditField>
-                      <EditField label="Birthdate">
+                      <EditField label="Birthdate" error={editFieldErrors.dateOfBirth}>
                         <input
                           type="date"
                           value={editForm.dateOfBirth}
@@ -2061,7 +2348,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                       <EditField label="Age">
                         <input type="text" value={editForm.age} readOnly />
                       </EditField>
-                      <EditField label="Contact number">
+                      <EditField label="Contact number" error={editFieldErrors.contactNumber}>
                         <input
                           type="text"
                           inputMode="numeric"
@@ -2079,28 +2366,28 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   <section className="pending-registration-review-card">
                     <h3>Address</h3>
                     <dl>
-                      <EditField label="Street address">
+                      <EditField label="Street address" error={editFieldErrors.streetAddress}>
                         <input
                           type="text"
                           value={editForm.streetAddress}
                           onChange={(event) => updateEditField('streetAddress', event.target.value)}
                         />
                       </EditField>
-                      <EditField label="Barangay">
+                      <EditField label="Barangay" error={editFieldErrors.barangay}>
                         <input
                           type="text"
                           value={editForm.barangay}
                           onChange={(event) => updateEditField('barangay', event.target.value)}
                         />
                       </EditField>
-                      <EditField label="City / Municipality">
+                      <EditField label="City / Municipality" error={editFieldErrors.cityMunicipality}>
                         <input
                           type="text"
                           value={editForm.cityMunicipality}
                           onChange={(event) => updateEditField('cityMunicipality', event.target.value)}
                         />
                       </EditField>
-                      <EditField label="Province">
+                      <EditField label="Province" error={editFieldErrors.province}>
                         <input
                           type="text"
                           value={editForm.province}
@@ -2114,7 +2401,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                     <section className="pending-registration-review-card">
                       <h3>School Information</h3>
                       <dl>
-                        <EditField label="College">
+                        <EditField label="College" error={editFieldErrors.college}>
                           <select
                             value={editForm.college}
                             onChange={(event) => updateEditField('college', event.target.value)}
@@ -2131,7 +2418,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             ))}
                           </select>
                         </EditField>
-                        <EditField label="Program">
+                        <EditField label="Program" error={editFieldErrors.program}>
                           <select
                             value={editForm.program}
                             onChange={(event) => updateEditField('program', event.target.value)}
@@ -2149,7 +2436,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             ))}
                           </select>
                         </EditField>
-                        <EditField label="Year level">
+                        <EditField label="Year level" error={editFieldErrors.yearLevel}>
                           <select
                             value={editForm.yearLevel}
                             onChange={(event) => updateEditField('yearLevel', event.target.value)}
@@ -2166,7 +2453,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             ))}
                           </select>
                         </EditField>
-                        <EditField label="Section">
+                        <EditField label="Section" error={editFieldErrors.section}>
                           <select
                             value={editForm.section}
                             onChange={(event) => updateEditField('section', event.target.value)}
@@ -2188,7 +2475,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                     <section className="pending-registration-review-card">
                       <h3>Work Information</h3>
                       <dl>
-                        <EditField label="Department">
+                        <EditField label="Department" error={editFieldErrors.officeDepartment}>
                           <input
                             type="text"
                             value={editForm.officeDepartment}
@@ -2196,7 +2483,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             required
                           />
                         </EditField>
-                        <EditField label="Position">
+                        <EditField label="Position" error={editFieldErrors.workPosition}>
                           <input
                             type="text"
                             value={editForm.workPosition}
@@ -2212,7 +2499,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                     <h3>Access</h3>
                     <dl>
                       {editForm.isStudent ? (
-                        <EditField label="RFID UID">
+                        <EditField label="RFID UID" error={editFieldErrors.rfidUid}>
                           <input
                             type="text"
                             value={editForm.rfidUid}
@@ -2338,12 +2625,6 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   <X size={16} aria-hidden="true" />
                 </button>
               </header>
-
-              {passwordError ? (
-                <p className="pending-registration-error" role="alert">
-                  {passwordError}
-                </p>
-              ) : null}
 
               <div className="pending-registration-review-body">
                 <h3 className="manage-users-password-section-title">New password</h3>
@@ -2533,12 +2814,6 @@ export default function ManageUsers({ user: currentUser } = {}) {
                 </button>
               </header>
 
-              {privilegesError ? (
-                <p className="pending-registration-error" role="alert">
-                  {privilegesError}
-                </p>
-              ) : null}
-
               {isPrivilegesLoading ? (
                 <p className="pending-registration-review-note">Loading privileges...</p>
               ) : (
@@ -2647,6 +2922,45 @@ export default function ManageUsers({ user: currentUser } = {}) {
           document.body,
         )
       : null}
+    <DeleteRequestModal
+      open={Boolean(deleteRequest)}
+      actorId={currentUser?.id}
+      targetType={deleteRequest?.targetType}
+      targetId={deleteRequest?.targetId}
+      targetLabel={deleteRequest?.targetLabel || ''}
+      detail={deleteRequest?.detail || ''}
+      onClose={() => setDeleteRequest(null)}
+      onSubmitted={(message) => {
+        setDeleteNotice(message);
+        window.setTimeout(() => setDeleteNotice(''), 4000);
+      }}
+    />
+    <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
+    <ErrorNoticeModal
+      open={Boolean(errorMessage)}
+      message={errorMessage}
+      onClose={() => setErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(viewError)}
+      message={viewError}
+      onClose={() => setViewError('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(editError)}
+      message={editError}
+      onClose={() => setEditError('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(passwordError)}
+      message={passwordError}
+      onClose={() => setPasswordError('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(privilegesError)}
+      message={privilegesError}
+      onClose={() => setPrivilegesError('')}
+    />
     </>
   );
 }

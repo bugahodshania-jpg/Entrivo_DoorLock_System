@@ -144,7 +144,7 @@ try {
     }
 
     $action = (string) ($input['action'] ?? '');
-    if (in_array($action, ['first_login_verify', 'first_login_resend', 'first_login_password', 'first_login_profile', 'first_login_security'], true)) {
+    if (in_array($action, ['first_login_verify', 'first_login_resend', 'first_login_password', 'first_login_profile', 'first_login_contact_availability', 'first_login_security'], true)) {
         require_once dirname(__DIR__) . '/services/FirstLoginService.php';
         $firstLogin = new FirstLoginService($pdo);
 
@@ -171,6 +171,14 @@ try {
                 'masked_email' => $setup['masked_email'],
                 'expires_in' => $setup['expires_in'],
             ]);
+            exit;
+        }
+
+        if ($action === 'first_login_contact_availability') {
+            echo json_encode($firstLogin->contactAvailability(
+                (string) ($input['challenge_id'] ?? ''),
+                $input['contact_number'] ?? null
+            ));
             exit;
         }
 
@@ -608,6 +616,12 @@ try {
         'retry_after' => 0,
         'show_forgot_password' => false,
     ]);
+} catch (RegistrationValidationException $error) {
+    http_response_code(422);
+    echo json_encode(['message' => $error->getMessage(), 'errors' => $error->fieldErrors]);
+} catch (RegistrationDuplicateException $error) {
+    http_response_code(409);
+    echo json_encode(['message' => $error->getMessage(), 'errors' => $error->fieldErrors]);
 } catch (InvalidArgumentException $error) {
     http_response_code(422);
     echo json_encode([

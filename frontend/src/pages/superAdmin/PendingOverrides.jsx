@@ -1,17 +1,177 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Clock, Eye, MoreVertical, Search, ShieldAlert, Trash2, X } from 'lucide-react';
+import { CalendarPlus, Check, ChevronDown, Clock, Eye, MoreVertical, RefreshCw, Search, ShieldAlert, Trash2, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
+import ScheduleCreateModal from '../../components/ScheduleCreateModal';
+import TableEmptyState from '../../components/TableEmptyState';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/superAdmin/schedules.css';
+import '../../styles/superAdmin/activityLogs.css';
+import '../../styles/superAdmin/pendingOverrides.css';
 
 const statusFilterOptions = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
 ];
+
+// Temporary preview data — set to false to use live API results only.
+const USE_TEMP_OVERRIDE_PREVIEW = true;
+
+const tempPendingOverrides = [
+  {
+    id: -101,
+    name: 'Maria Santos',
+    username: 'msantos',
+    email: 'maria.santos@example.com',
+    roleLabel: 'Faculty',
+    schoolId: 'EMP-1042',
+    reason: 'Make-up class for Midterm coverage',
+    overrideStart: '2026-10-17 13:00:00',
+    dateLabel: 'Oct 17, 2026',
+    timeLabel: '01:00 PM - 03:00 PM',
+    createdDateLabel: 'Oct 15, 2026',
+    createdTimeLabel: '09:24 AM',
+    state: 'pending',
+    stateLabel: 'Pending',
+    canReviewActions: true,
+  },
+  {
+    id: -102,
+    name: 'Jose Ramirez',
+    username: 'jramirez',
+    email: 'jose.ramirez@example.com',
+    roleLabel: 'Staff',
+    schoolId: 'EMP-2218',
+    reason: 'Lab equipment inventory after hours',
+    overrideStart: '2026-10-18 17:00:00',
+    dateLabel: 'Oct 18, 2026',
+    timeLabel: '05:00 PM - 07:00 PM',
+    createdDateLabel: 'Oct 16, 2026',
+    createdTimeLabel: '02:11 PM',
+    state: 'pending',
+    stateLabel: 'Pending',
+    canReviewActions: true,
+  },
+  {
+    id: -103,
+    name: 'Ana Villanueva',
+    username: 'avillanueva',
+    email: 'ana.villanueva@example.com',
+    roleLabel: 'Admin',
+    schoolId: 'EMP-0901',
+    reason: 'Campus maintenance walkthrough',
+    overrideStart: '2026-10-19 08:00:00',
+    dateLabel: 'Oct 19, 2026',
+    timeLabel: '08:00 AM - 10:00 AM',
+    createdDateLabel: 'Oct 16, 2026',
+    createdTimeLabel: '04:45 PM',
+    state: 'pending',
+    stateLabel: 'Pending',
+    canReviewActions: true,
+  },
+];
+
+const tempApprovedOverrides = [
+  {
+    id: -201,
+    name: 'Carlo Dela Cruz',
+    username: 'cdelacruz',
+    email: 'carlo.delacruz@example.com',
+    roleLabel: 'Faculty',
+    schoolId: 'EMP-1188',
+    reason: 'Thesis defense panel',
+    overrideStart: '2026-10-13 09:00:00',
+    dateLabel: 'Oct 13, 2026',
+    timeLabel: '09:00 AM - 11:00 AM',
+    createdDateLabel: 'Oct 12, 2026',
+    createdTimeLabel: '11:05 AM',
+    state: 'approved',
+    stateLabel: 'Approved',
+    canReviewActions: false,
+    approvedByName: 'Super Admin',
+  },
+  {
+    id: -202,
+    name: 'Liza Mendoza',
+    username: 'lmendoza',
+    email: 'liza.mendoza@example.com',
+    roleLabel: 'Staff',
+    schoolId: 'EMP-3055',
+    reason: 'Library stock transfer',
+    overrideStart: '2026-10-14 14:00:00',
+    dateLabel: 'Oct 14, 2026',
+    timeLabel: '02:00 PM - 04:00 PM',
+    createdDateLabel: 'Oct 13, 2026',
+    createdTimeLabel: '08:40 AM',
+    state: 'approved',
+    stateLabel: 'Approved',
+    canReviewActions: false,
+    approvedByName: 'Super Admin',
+  },
+  {
+    id: -203,
+    name: 'Paolo Reyes',
+    username: 'preyes',
+    email: 'paolo.reyes@example.com',
+    roleLabel: 'Faculty',
+    schoolId: 'EMP-1420',
+    reason: 'Extra consultation hours',
+    overrideStart: '2026-10-15 16:00:00',
+    dateLabel: 'Oct 15, 2026',
+    timeLabel: '04:00 PM - 06:00 PM',
+    createdDateLabel: 'Oct 14, 2026',
+    createdTimeLabel: '01:18 PM',
+    state: 'approved',
+    stateLabel: 'Approved',
+    canReviewActions: false,
+    approvedByName: 'Super Admin',
+  },
+  {
+    id: -204,
+    name: 'Grace Tan',
+    username: 'gtan',
+    email: 'grace.tan@example.com',
+    roleLabel: 'Admin',
+    schoolId: 'EMP-0777',
+    reason: 'Event setup for orientation',
+    overrideStart: '2026-10-16 07:00:00',
+    dateLabel: 'Oct 16, 2026',
+    timeLabel: '07:00 AM - 09:00 AM',
+    createdDateLabel: 'Oct 15, 2026',
+    createdTimeLabel: '03:22 PM',
+    state: 'approved',
+    stateLabel: 'Approved',
+    canReviewActions: false,
+    approvedByName: 'Super Admin',
+  },
+  {
+    id: -205,
+    name: 'Mark Aquino',
+    username: 'maquino',
+    email: 'mark.aquino@example.com',
+    roleLabel: 'Staff',
+    schoolId: 'EMP-2604',
+    reason: 'Server room inspection',
+    overrideStart: '2026-10-17 10:00:00',
+    dateLabel: 'Oct 17, 2026',
+    timeLabel: '10:00 AM - 12:00 PM',
+    createdDateLabel: 'Oct 16, 2026',
+    createdTimeLabel: '10:09 AM',
+    state: 'approved',
+    stateLabel: 'Approved',
+    canReviewActions: false,
+    approvedByName: 'Super Admin',
+  },
+];
+
+function getRequestedWindowDate(override) {
+  const raw = String(override?.overrideStart || override?.dateValue || '');
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+}
 
 function getActorId() {
   try {
@@ -29,17 +189,22 @@ export default function PendingOverrides() {
   const statusFilterMenuRef = useRef(null);
   const [overrides, setOverrides] = useState([]);
   const [counts, setCounts] = useState({ pending: 0, approved: 0 });
+  const [oldestPending, setOldestPending] = useState(null);
+  const [recentApprovedThisWeek, setRecentApprovedThisWeek] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [toast, setToast] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [processingId, setProcessingId] = useState(null);
   const [menuState, setMenuState] = useState(null);
   const [review, setReview] = useState(null);
-  const [reviewError, setReviewError] = useState('');
   const [isReviewLoading, setIsReviewLoading] = useState(false);
+  const [isOverrideCreateOpen, setIsOverrideCreateOpen] = useState(false);
   const isPendingView = statusFilter === 'pending';
   const columns = [
     'Requester',
@@ -51,6 +216,32 @@ export default function PendingOverrides() {
     'Status',
     'Action',
   ];
+
+  function applyOverridesPayload(data, preferredStatus = statusFilter) {
+    const apiOverrides = data.overrides || [];
+    const apiOldest = data.oldestPending || null;
+    const apiRecent = (data.recentApprovedThisWeek || []).slice(0, 5);
+    const apiPending = Number(data.counts?.pending || 0);
+    const apiApproved = Number(data.counts?.approved || 0);
+
+    if (USE_TEMP_OVERRIDE_PREVIEW) {
+      const tableRows =
+        preferredStatus === 'approved' ? tempApprovedOverrides : tempPendingOverrides;
+      setOverrides(apiOverrides.length ? apiOverrides : tableRows);
+      setCounts({
+        pending: Math.max(apiPending, tempPendingOverrides.length),
+        approved: Math.max(apiApproved, tempApprovedOverrides.length),
+      });
+      setOldestPending(apiOldest || tempPendingOverrides[0]);
+      setRecentApprovedThisWeek(apiRecent.length ? apiRecent : tempApprovedOverrides.slice(0, 5));
+      return;
+    }
+
+    setOverrides(apiOverrides);
+    setCounts({ pending: apiPending, approved: apiApproved });
+    setOldestPending(apiOldest);
+    setRecentApprovedThisWeek(apiRecent);
+  }
 
   useEffect(() => {
     let isActive = true;
@@ -67,15 +258,20 @@ export default function PendingOverrides() {
           return;
         }
 
-        setOverrides(response.data.overrides || []);
-        setCounts({
-          pending: Number(response.data.counts?.pending || 0),
-          approved: Number(response.data.counts?.approved || 0),
-        });
+        applyOverridesPayload(response.data, statusFilter);
         setErrorMessage('');
       } catch {
-        if (isActive) {
+        if (!isActive) {
+          return;
+        }
+
+        if (USE_TEMP_OVERRIDE_PREVIEW) {
+          applyOverridesPayload({ overrides: [], counts: {}, oldestPending: null, recentApprovedThisWeek: [] }, statusFilter);
+          setErrorMessage('');
+        } else {
           setOverrides([]);
+          setOldestPending(null);
+          setRecentApprovedThisWeek([]);
           setErrorMessage('Unable to load pending override requests right now.');
         }
       } finally {
@@ -120,12 +316,22 @@ export default function PendingOverrides() {
 
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const visibleOverrides = useMemo(() => {
-    if (!normalizedSearchQuery) {
-      return overrides;
-    }
+    return overrides.filter((override) => {
+      const windowDate = getRequestedWindowDate(override);
 
-    return overrides.filter((override) =>
-      [
+      if (dateFrom && (!windowDate || windowDate < dateFrom)) {
+        return false;
+      }
+
+      if (dateTo && (!windowDate || windowDate > dateTo)) {
+        return false;
+      }
+
+      if (!normalizedSearchQuery) {
+        return true;
+      }
+
+      return [
         override.name,
         override.username,
         override.email,
@@ -138,14 +344,30 @@ export default function PendingOverrides() {
         override.approvedByName,
       ]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery)),
-    );
-  }, [normalizedSearchQuery, overrides]);
+        .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
+    });
+  }, [dateFrom, dateTo, normalizedSearchQuery, overrides]);
+
+  const rowsPerPage = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleOverrides.length / rowsPerPage));
+  const paginatedOverrides = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return visibleOverrides.slice(startIndex, startIndex + rowsPerPage);
+  }, [currentPage, visibleOverrides]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFrom, dateTo, normalizedSearchQuery, statusFilter]);
 
   const activeStatusFilter =
     statusFilterOptions.find((option) => option.value === statusFilter) || statusFilterOptions[0];
   const pendingCount = counts.pending;
-  const oldestPending = isPendingView ? overrides[0] : null;
 
   async function updateOverride(override, action) {
     if (!override.canReviewActions) {
@@ -177,11 +399,7 @@ export default function PendingOverrides() {
         status: statusFilter,
         actor_id: getActorId(),
       });
-      setOverrides(response.data.overrides || []);
-      setCounts({
-        pending: Number(response.data.counts?.pending || 0),
-        approved: Number(response.data.counts?.approved || 0),
-      });
+      applyOverridesPayload(response.data);
       const message = response.data.message || 'Override request updated.';
       const toastId = Date.now();
       setToast({ id: toastId, message });
@@ -192,7 +410,9 @@ export default function PendingOverrides() {
         setReview(null);
       }
     } catch (error) {
-      setErrorMessage(error.response?.data?.message || 'Unable to update that override request right now.');
+      setErrorMessage(
+        error.response?.data?.message || 'Unable to update that override request right now.',
+      );
     } finally {
       setProcessingId(null);
     }
@@ -226,7 +446,6 @@ export default function PendingOverrides() {
   async function openReview(override) {
     setMenuState(null);
     setReview(override);
-    setReviewError('');
     setIsReviewLoading(true);
 
     try {
@@ -235,7 +454,10 @@ export default function PendingOverrides() {
       });
       setReview(response.data.override || override);
     } catch (error) {
-      setReviewError(error.response?.data?.message || 'Unable to load this override request right now.');
+      setReview(null);
+      setErrorMessage(
+        error.response?.data?.message || 'Unable to load this override request right now.',
+      );
     } finally {
       setIsReviewLoading(false);
     }
@@ -310,39 +532,77 @@ export default function PendingOverrides() {
   return (
     <>
       <main className="admin-dashboard rfid-page pending-registrations-page pending-overrides-page" aria-label="Pending override requests">
-        <section className="manage-users-summary-grid rfid-summary-grid" aria-label="Pending override summary">
-          <article className="dashboard-summary-card rfid-summary-card">
-            <div className="dashboard-summary-icon" aria-hidden="true">
-              <ShieldAlert size={28} strokeWidth={2.4} />
-            </div>
-            <div className="dashboard-summary-copy">
-              <span className="dashboard-summary-label">Waiting for review</span>
-              <strong>{isLoading && isPendingView ? '--' : pendingCount}</strong>
-              <small>Override requests from faculty, staff, and admins</small>
-            </div>
-          </article>
-          <article className="dashboard-summary-card rfid-summary-card">
-            <div className="dashboard-summary-icon" aria-hidden="true">
-              <Clock size={28} strokeWidth={2.4} />
-            </div>
-            <div className="dashboard-summary-copy">
-              <span className="dashboard-summary-label">Oldest pending</span>
-              <strong>
-                {isLoading && isPendingView
-                  ? '--'
-                  : oldestPending?.createdDateLabel || (pendingCount > 0 ? '—' : 'None')}
-              </strong>
-              <small>
-                {isLoading && isPendingView
-                  ? 'Loading request queue'
-                  : oldestPending?.createdTimeLabel
-                    ? `Submitted at ${oldestPending.createdTimeLabel}`
-                    : pendingCount > 0
-                      ? 'Switch to Pending to see the oldest request'
+        <section className="pending-overrides-top" aria-label="Pending override summary">
+          <div className="pending-overrides-summary-stack">
+            <article className="dashboard-summary-card rfid-summary-card">
+              <div className="dashboard-summary-icon" aria-hidden="true">
+                <ShieldAlert size={28} strokeWidth={2.4} />
+              </div>
+              <div className="dashboard-summary-copy">
+                <span className="dashboard-summary-label">Waiting for review</span>
+                <strong>{isLoading ? '--' : pendingCount}</strong>
+                <small>Override requests from faculty, staff, and admins</small>
+              </div>
+            </article>
+            <article className="dashboard-summary-card rfid-summary-card">
+              <div className="dashboard-summary-icon" aria-hidden="true">
+                <Clock size={28} strokeWidth={2.4} />
+              </div>
+              <div className="dashboard-summary-copy">
+                <span className="dashboard-summary-label">Oldest pending</span>
+                <strong>
+                  {isLoading
+                    ? '--'
+                    : oldestPending?.createdDateLabel || (pendingCount > 0 ? '—' : 'None')}
+                </strong>
+                <small>
+                  {isLoading
+                    ? 'Loading request queue'
+                    : oldestPending?.createdTimeLabel
+                      ? `Submitted at ${oldestPending.createdTimeLabel}`
                       : 'No requests in the queue'}
-              </small>
+                </small>
+              </div>
+            </article>
+          </div>
+
+          <aside className="dashboard-recent-card pending-overrides-recent-card" aria-label="Recent approved overrides this week">
+            <div className="dashboard-panel-header">
+              <div>
+                <span>Recent Approved Overrides</span>
+                <p>This week only. Resets every Monday. Up to 5 shown.</p>
+              </div>
+              <button
+                type="button"
+                className="dashboard-schedule-button pending-overrides-add-button"
+                onClick={() => setIsOverrideCreateOpen(true)}
+              >
+                <CalendarPlus size={14} aria-hidden="true" />
+                Add Override
+              </button>
             </div>
-          </article>
+            <div className="pending-overrides-recent-list">
+              {isLoading ? (
+                <p className="pending-overrides-recent-empty">Loading approved overrides...</p>
+              ) : recentApprovedThisWeek.length ? (
+                recentApprovedThisWeek.map((override) => (
+                  <div className="pending-overrides-recent-item" key={override.id}>
+                    <div className="pending-overrides-recent-copy">
+                      <span>{override.name}</span>
+                      <strong>
+                        {override.dateLabel} · {override.timeLabel}
+                      </strong>
+                    </div>
+                    <small className="dashboard-log-status dashboard-log-status-approved">
+                      {override.stateLabel}
+                    </small>
+                  </div>
+                ))
+              ) : (
+                <p className="pending-overrides-recent-empty">No approved overrides this week.</p>
+              )}
+            </div>
+          </aside>
         </section>
 
         <section className="dashboard-recent-card rfid-card">
@@ -355,7 +615,7 @@ export default function PendingOverrides() {
               <Search size={16} aria-hidden="true" />
               <input
                 type="search"
-                placeholder="Search name, role, or reason"
+                placeholder="Search name, role, school/employee ID, or reason"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
@@ -421,13 +681,57 @@ export default function PendingOverrides() {
                 </div>
               ) : null}
             </div>
-          </div>
 
-          {errorMessage && !isLoading ? (
-            <p className="pending-registration-error" role="alert">
-              {errorMessage}
-            </p>
-          ) : null}
+            <div className="activity-logs-dates" aria-label="Filter by requested window date">
+              <label>
+                <span>From</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                />
+              </label>
+              <span className="activity-logs-dates-divider" aria-hidden="true" />
+              <label>
+                <span>To</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(event) => setDateTo(event.target.value)}
+                />
+              </label>
+              {dateFrom || dateTo ? (
+                <button
+                  type="button"
+                  className="activity-logs-clear"
+                  aria-label="Clear requested window dates"
+                  onClick={() => {
+                    setDateFrom('');
+                    setDateTo('');
+                  }}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              className="activity-logs-reset"
+              aria-label="Reset filters"
+              title="Reset filters"
+              onClick={() => {
+                setDateFrom('');
+                setDateTo('');
+                setSearchQuery('');
+                setIsStatusFilterMenuOpen(false);
+              }}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
+          </div>
 
           <div className="dashboard-recent-table-wrap pending-registrations-table-wrap">
             <table className="dashboard-recent-table pending-registrations-table pending-overrides-table">
@@ -447,20 +751,22 @@ export default function PendingOverrides() {
                   </tr>
                 )}
 
-                {!isLoading && !errorMessage && visibleOverrides.length === 0 && (
+                {!isLoading && visibleOverrides.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
-                      {normalizedSearchQuery
-                        ? 'No override requests match your search.'
-                        : isPendingView
-                          ? 'No override requests are waiting for review.'
-                          : 'No approved override requests yet.'}
+                      <TableEmptyState description={normalizedSearchQuery || dateFrom || dateTo ? 'Try adjusting your search or date filters.' : isPendingView ? 'New temporary access requests will appear here for review.' : 'Approved temporary access requests will appear here.'}>
+                        {normalizedSearchQuery || dateFrom || dateTo
+                          ? 'No override requests match your filters.'
+                          : isPendingView
+                            ? 'No override requests are waiting for review.'
+                            : 'No approved override requests yet.'}
+                      </TableEmptyState>
                     </td>
                   </tr>
                 )}
 
                 {!isLoading &&
-                  visibleOverrides.map((override) => (
+                  paginatedOverrides.map((override) => (
                     <tr key={override.id}>
                       <td>
                         <strong>{override.name}</strong>
@@ -502,6 +808,32 @@ export default function PendingOverrides() {
               </tbody>
             </table>
           </div>
+
+          {!isLoading && visibleOverrides.length > 0 && (
+            <div className="manage-users-pagination" aria-label="Override requests pagination">
+              <p>
+                Showing {(currentPage - 1) * rowsPerPage + 1}-
+                {Math.min(currentPage * rowsPerPage, visibleOverrides.length)} of {visibleOverrides.length}
+              </p>
+              <div className="manage-users-pagination-controls">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </button>
+                <span>Page {currentPage} of {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </main>
 
@@ -576,12 +908,7 @@ export default function PendingOverrides() {
                 {isReviewLoading ? (
                   <p className="pending-registration-review-note">Loading override request...</p>
                 ) : null}
-                {reviewError ? (
-                  <p className="pending-registration-error" role="alert">
-                    {reviewError}
-                  </p>
-                ) : null}
-                {!isReviewLoading && !reviewError ? (
+                {!isReviewLoading ? (
                   <div className="pending-registration-review-body">
                     {reviewGroups.map((group) => (
                       <section className="pending-registration-review-card" key={group.title}>
@@ -648,6 +975,28 @@ export default function PendingOverrides() {
           </div>
         </div>
       ) : null}
+
+      <ErrorNoticeModal
+        open={Boolean(errorMessage)}
+        message={errorMessage}
+        onClose={() => setErrorMessage('')}
+      />
+
+      <ScheduleCreateModal
+        open={isOverrideCreateOpen}
+        preset="override"
+        onClose={() => setIsOverrideCreateOpen(false)}
+        onCreated={async () => {
+          try {
+            const response = await axiosClient.get('/api/pending_overrides.php', {
+              params: { status: statusFilter },
+            });
+            applyOverridesPayload(response.data, statusFilter);
+          } catch {
+            // Keep the current page state if refresh fails after create.
+          }
+        }}
+      />
     </>
   );
 }

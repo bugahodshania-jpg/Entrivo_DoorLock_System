@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/MailService.php';
 require_once __DIR__ . '/ActivityLogService.php';
+require_once __DIR__ . '/RegistrationInputValidation.php';
+require_once __DIR__ . '/RegistrationUniquenessService.php';
 
 class FirstLoginService
 {
@@ -196,7 +198,7 @@ TEXT;
         $this->assertStillRequiresSetup($user);
 
         if (password_verify($password, (string) $user['password_hash'])) {
-            throw new InvalidArgumentException('Choose a password that is different from the temporary password.');
+            throw new RegistrationValidationException(['password' => 'Choose a password that is different from the temporary password.']);
         }
 
         $this->pdo->beginTransaction();
@@ -297,6 +299,19 @@ TEXT;
         ];
     }
 
+    public function contactAvailability(string $challengeId, mixed $contactNumber): array
+    {
+        $challenge = $this->loadChallenge($challengeId);
+        $user = $this->assertSetupSession($challenge, 'profile');
+        try {
+            $contactNumber = RegistrationInputValidation::contactNumber($contactNumber);
+        } catch (InvalidArgumentException $error) {
+            throw new RegistrationValidationException(['contact_number' => $error->getMessage()]);
+        }
+        $errors = (new RegistrationUniquenessService($this->pdo))->checkContactNumber($contactNumber, (int) $user['id']);
+        return ['available' => $errors === [], 'errors' => (object) $errors];
+    }
+
     public function completeProfile(string $challengeId, array $input): array
     {
         $challenge = $this->loadChallenge($challengeId);
@@ -383,27 +398,8 @@ TEXT;
 
     private function assertPassword(string $password, string $confirm): void
     {
-        if (strlen($password) < 8) {
-            throw new InvalidArgumentException('Password must be at least 8 characters.');
-        }
-        if (!preg_match('/[A-Z]/', $password)) {
-            throw new InvalidArgumentException('Password must include an uppercase letter.');
-        }
-        if (!preg_match('/[a-z]/', $password)) {
-            throw new InvalidArgumentException('Password must include a lowercase letter.');
-        }
-        if (!preg_match('/\d/', $password)) {
-            throw new InvalidArgumentException('Password must include a number.');
-        }
-        if (!preg_match('/[^A-Za-z0-9]/', $password)) {
-            throw new InvalidArgumentException('Password must include a special character.');
-        }
-        if (strlen($password) > 72) {
-            throw new InvalidArgumentException('Password must be 72 characters or fewer.');
-        }
-        if ($password !== $confirm) {
-            throw new InvalidArgumentException('Password confirmation does not match.');
-        }
+        $errors = RegistrationInputValidation::passwordErrors($password, $confirm);
+        if ($errors !== []) throw new RegistrationValidationException($errors);
     }
 
     private function loadChallenge(string $challengeId): array

@@ -9,14 +9,19 @@ import {
   Eye,
   Pencil,
   Search,
+  Trash2,
   Users,
   X,
   XCircle,
 } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { useActionConfirm } from '../../components/ActionConfirm';
+import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import ExportFormatModal from '../../components/ExportFormatModal';
+import DeleteRequestModal from '../../components/DeleteRequestModal';
+import DeleteRequestToast from '../../components/DeleteRequestToast';
 import RowActionMenu from '../../components/RowActionMenu';
+import TableEmptyState from '../../components/TableEmptyState';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
@@ -182,19 +187,30 @@ function countBy(cards, field) {
     .map(([key, count]) => ({ value: key, label: key, count }));
 }
 
-function EditField({ label, wide = false, children }) {
+function EditField({ label, wide = false, error = '', className = '', children }) {
+  const fieldClassName = [
+    'manage-users-edit-field',
+    wide ? 'is-wide' : '',
+    className,
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={wide ? 'is-wide manage-users-edit-field' : 'manage-users-edit-field'}>
+    <div className={fieldClassName}>
       <dt>{label}</dt>
-      <dd>{children}</dd>
+      <dd>
+        {children}
+        {error ? <p className="rfid-edit-field-error" role="alert">{error}</p> : null}
+      </dd>
     </div>
   );
 }
 
-export default function RFIDCards() {
+export default function RFIDCards({ user }) {
   const confirmAction = useActionConfirm();
   const [rfidCards, setRfidCards] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteRequest, setDeleteRequest] = useState(null);
+  const [deleteNotice, setDeleteNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -212,6 +228,9 @@ export default function RFIDCards() {
   const [isViewPhotoExpanded, setIsViewPhotoExpanded] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [editError, setEditError] = useState('');
+  const [rfidFieldError, setRfidFieldError] = useState('');
+  const [rfidIdentify, setRfidIdentify] = useState({ uid: '', ok: false, message: '' });
+  const [isIdentifyingRfid, setIsIdentifyingRfid] = useState(false);
   const [isEditSaving, setIsEditSaving] = useState(false);
 
   const loadEnrollmentScans = useCallback(async () => {
@@ -499,7 +518,44 @@ export default function RFIDCards() {
     setIsViewPhotoExpanded(false);
   }
 
+  async function deleteCard(card) {
+    if (user?.role === 'admin') {
+      setDeleteRequest({
+        targetType: 'rfid_card',
+        targetId: card.id,
+        targetLabel: `${card.name || 'RFID card'} · ${card.rfidUid || 'No UID'}`,
+        detail: card.studentId || '',
+      });
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Delete RFID card',
+      danger: true,
+      message: `Permanently delete the RFID card for ${card.name || 'this student'}? This cannot be undone.`,
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await axiosClient.post('/api/delete_requests.php', {
+        action: 'delete_now',
+        actorId: user?.id,
+        targetType: 'rfid_card',
+        targetId: card.id,
+      });
+      setRfidCards((current) => current.filter((item) => item.id !== card.id));
+      setDeleteNotice('RFID card deleted.');
+      window.setTimeout(() => setDeleteNotice(''), 4000);
+    } catch (error) {
+      setErrorMessage(error.response?.data?.message || 'Unable to delete that RFID card.');
+    }
+  }
+
   function openCardEdit(card) {
+    const rfidUid = String(card.rfidUid || '').replace(/\s+/g, '').toUpperCase();
+
     setEditForm({
       id: card.id,
       name: card.name,
@@ -508,11 +564,14 @@ export default function RFIDCards() {
       college: card.college,
       programDepartment: card.programDepartment,
       yearLevel: card.yearLevel,
-      rfidUid: String(card.rfidUid || '').trim(),
+      originalRfidUid: rfidUid,
+      rfidUid,
       status: String(card.status || 'active').toLowerCase(),
       issuedAt: card.issuedAt,
     });
     setEditError('');
+    setRfidFieldError('');
+    setRfidIdentify({ uid: '', ok: false, message: '' });
   }
 
   function closeCardEdit() {
@@ -522,6 +581,60 @@ export default function RFIDCards() {
 
     setEditForm(null);
     setEditError('');
+    setRfidFieldError('');
+    setRfidIdentify({ uid: '', ok: false, message: '' });
+  }
+
+  function updateRfidUid(value) {
+    const uid = value.replace(/\s+/g, '').toUpperCase().slice(0, 30);
+    updateEditField('rfidUid', uid);
+    setRfidFieldError('');
+    setRfidIdentify((current) => (current.uid === uid ? current : { uid: '', ok: false, message: '' }));
+  }
+
+  async function identifyRfidUid() {
+    if (!editForm || isIdentifyingRfid) {
+      return;
+    }
+
+    const uid = editForm.rfidUid.replace(/\s+/g, '').toUpperCase();
+
+    if (!uid || !/^[A-Z0-9]{1,30}$/.test(uid)) {
+      setRfidFieldError(uid ? 'RFID UID must be up to 30 letters or numbers.' : 'RFID UID is required.');
+      setRfidIdentify({ uid, ok: false, message: '' });
+      return;
+    }
+
+    if (uid === editForm.originalRfidUid) {
+      setRfidFieldError('');
+      setRfidIdentify({
+        uid,
+        ok: true,
+        message: 'You are still using the current RFID UID.',
+      });
+      return;
+    }
+
+    setIsIdentifyingRfid(true);
+    setEditError('');
+
+    try {
+      const response = await axiosClient.post('/api/verify_rfid_uid.php', { rfid_uid: uid });
+      const verifiedUid = String(response.data?.rfid_uid || uid).replace(/\s+/g, '').toUpperCase();
+      updateEditField('rfidUid', verifiedUid);
+      setRfidFieldError('');
+      setRfidIdentify({
+        uid: verifiedUid,
+        ok: true,
+        message: 'This UID matches a scanned school ID.',
+      });
+    } catch (error) {
+      const message = error.response?.data?.message || 'Unable to verify the RFID UID right now.';
+      setRfidFieldError(message);
+      setRfidIdentify({ uid, ok: false, message });
+    } finally {
+      setIsIdentifyingRfid(false);
+    }
   }
 
   function updateEditField(field, value) {
@@ -540,7 +653,38 @@ export default function RFIDCards() {
   async function handleSaveEdit(event) {
     event.preventDefault();
 
-    if (!editForm || isEditSaving) {
+    if (!editForm || isEditSaving || isIdentifyingRfid) {
+      return;
+    }
+
+    const uid = editForm.rfidUid.replace(/\s+/g, '').toUpperCase();
+    let fieldError = '';
+
+    if (!uid) {
+      fieldError = 'RFID UID is required.';
+    } else if (!/^[A-Z0-9]{1,30}$/.test(uid)) {
+      fieldError = 'RFID UID must be up to 30 letters or numbers.';
+    } else if (uid !== editForm.originalRfidUid && !(rfidIdentify.ok && rfidIdentify.uid === uid)) {
+      try {
+        const response = await axiosClient.post('/api/verify_rfid_uid.php', { rfid_uid: uid });
+        const verifiedUid = String(response.data?.rfid_uid || uid).replace(/\s+/g, '').toUpperCase();
+        if (verifiedUid !== uid) {
+          updateEditField('rfidUid', verifiedUid);
+        }
+        setRfidIdentify({
+          uid: verifiedUid,
+          ok: true,
+          message: 'This UID matches a scanned school ID.',
+        });
+      } catch (error) {
+        fieldError = error.response?.data?.message || 'Unable to verify the RFID UID right now.';
+        setRfidIdentify({ uid, ok: false, message: fieldError });
+      }
+    }
+
+    setRfidFieldError(fieldError);
+    if (fieldError) {
+      setEditError('Please correct the highlighted fields before saving.');
       return;
     }
 
@@ -565,7 +709,11 @@ export default function RFIDCards() {
       await loadRfidCards();
       setEditForm(null);
     } catch (error) {
-      setEditError(error.response?.data?.message || 'Unable to save RFID card changes right now.');
+      const message = error.response?.data?.message || 'Unable to save RFID card changes right now.';
+      if (/uid|rfid|scan/i.test(message)) {
+        setRfidFieldError(message);
+      }
+      setEditError(message);
     } finally {
       setIsEditSaving(false);
     }
@@ -592,7 +740,7 @@ export default function RFIDCards() {
         <section className="dashboard-recent-card rfid-card rfid-cards-card">
           <div className="dashboard-panel-header">
             <div>
-              <span>{showEnrollmentScans ? 'Scanned UID for Enrollment' : 'Student RFID Cards'}</span>
+              <span>{showEnrollmentScans ? 'Scanned UID for Enrollment Verification' : 'Student RFID Cards'}</span>
               <p>
                 {showEnrollmentScans
                   ? 'UIDs read by the enrollment scanner. These are not issued student cards.'
@@ -603,11 +751,11 @@ export default function RFIDCards() {
               <div className="rfid-header-links">
                 <button
                   type="button"
-                  className="dashboard-text-link rfid-download-button"
+                  className="dashboard-export-button"
                   onClick={() => setIsExportModalOpen(true)}
                   disabled={showEnrollmentScans || isLoading || Boolean(errorMessage) || visibleRfidCards.length === 0}
                 >
-                  <Download size={16} aria-hidden="true" />
+                  <Download size={15} aria-hidden="true" />
                   Export
                 </button>
                 <button
@@ -615,7 +763,7 @@ export default function RFIDCards() {
                   className="dashboard-text-link rfid-scan-button rfid-header-scan-button"
                   onClick={() => setShowEnrollmentScans((current) => !current)}
                 >
-                  {showEnrollmentScans ? 'Registered RFID' : 'Scanned UID for Enrollment'}
+                  {showEnrollmentScans ? 'View Registered RFID' : 'View Scanned UID'}
                 </button>
               </div>
             </div>
@@ -699,7 +847,7 @@ export default function RFIDCards() {
                 className="dashboard-text-link rfid-scan-button"
                 onClick={() => setShowEnrollmentScans((current) => !current)}
               >
-                {showEnrollmentScans ? 'Registered RFID' : 'Scanned UID for Enrollment'}
+                {showEnrollmentScans ? 'View Registered RFID' : 'View Scanned UID'}
               </button>
               <label className="rfid-search" aria-label={showEnrollmentScans ? 'Search enrollment scans' : 'Search student RFID cards'}>
                 <Search size={16} aria-hidden="true" />
@@ -731,27 +879,20 @@ export default function RFIDCards() {
                   </tr>
                 )}
 
-                {showEnrollmentScans && !isScanLoading && scanErrorMessage && (
+                {showEnrollmentScans && !isScanLoading && visibleEnrollmentScans.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
-                      {scanErrorMessage}
-                    </td>
-                  </tr>
-                )}
-
-                {showEnrollmentScans && !isScanLoading && !scanErrorMessage && visibleEnrollmentScans.length === 0 && (
-                  <tr>
-                    <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
-                      {normalizedSearchQuery || scanDateFrom || scanDateTo
-                        ? 'No enrollment scans match these filters.'
-                        : 'No enrollment scans yet.'}
+                      <TableEmptyState description={normalizedSearchQuery || scanDateFrom || scanDateTo ? 'Try adjusting your search or scan date filters.' : 'Cards read by the enrollment scanner will appear here.'}>
+                        {normalizedSearchQuery || scanDateFrom || scanDateTo
+                          ? 'No enrollment scans match these filters.'
+                          : 'No enrollment scans yet.'}
+                      </TableEmptyState>
                     </td>
                   </tr>
                 )}
 
                 {showEnrollmentScans &&
                   !isScanLoading &&
-                  !scanErrorMessage &&
                   paginatedEnrollmentScans.map((scan) => (
                     <tr key={scan.id}>
                       <td className="rfid-uid">{scan.rfidUid}</td>
@@ -773,27 +914,20 @@ export default function RFIDCards() {
                   </tr>
                 )}
 
-                {!showEnrollmentScans && !isLoading && errorMessage && (
+                {!showEnrollmentScans && !isLoading && visibleRfidCards.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={columns.length}>
-                      {errorMessage}
-                    </td>
-                  </tr>
-                )}
-
-                {!showEnrollmentScans && !isLoading && !errorMessage && visibleRfidCards.length === 0 && (
-                  <tr>
-                    <td className="dashboard-recent-empty" colSpan={columns.length}>
-                      {normalizedSearchQuery || collegeFilter !== 'all' || programFilter !== 'all'
-                        ? 'No student RFID cards match these filters.'
-                        : 'No RFID cards found.'}
+                      <TableEmptyState description={normalizedSearchQuery || collegeFilter !== 'all' || programFilter !== 'all' ? 'Try adjusting your search, college, or program filters.' : 'Issued RFID cards linked to student profiles will appear here.'}>
+                        {normalizedSearchQuery || collegeFilter !== 'all' || programFilter !== 'all'
+                          ? 'No student RFID cards match these filters.'
+                          : 'No RFID cards found.'}
+                      </TableEmptyState>
                     </td>
                   </tr>
                 )}
 
                 {!showEnrollmentScans &&
                   !isLoading &&
-                  !errorMessage &&
                   paginatedRfidCards.map((card) => {
                     const registeredAt = splitRegisteredAt(card.issuedAt);
 
@@ -838,6 +972,12 @@ export default function RFIDCards() {
                               icon: Pencil,
                               onClick: () => openCardEdit(card),
                             },
+                            {
+                              label: 'Delete',
+                              icon: Trash2,
+                              danger: true,
+                              onClick: () => deleteCard(card),
+                            },
                           ]}
                         />
                       </td>
@@ -848,8 +988,8 @@ export default function RFIDCards() {
             </table>
           </div>
 
-          {((showEnrollmentScans && !isScanLoading && !scanErrorMessage && visibleEnrollmentScans.length > 0) ||
-            (!showEnrollmentScans && !isLoading && !errorMessage && visibleRfidCards.length > 0)) && (
+          {((showEnrollmentScans && !isScanLoading && visibleEnrollmentScans.length > 0) ||
+            (!showEnrollmentScans && !isLoading && visibleRfidCards.length > 0)) && (
             <div className="manage-users-pagination" aria-label={showEnrollmentScans ? 'Enrollment scans pagination' : 'RFID cards pagination'}>
               <p>
                 Showing {(currentPage - 1) * rowsPerPage + 1}-
@@ -1026,8 +1166,6 @@ export default function RFIDCards() {
                   </button>
                 </header>
 
-                {editError ? <p className="pending-registration-error" role="alert">{editError}</p> : null}
-
                 <div className="pending-registration-review-body">
                   <section className="pending-registration-review-card">
                     <h3>Student</h3>
@@ -1056,24 +1194,9 @@ export default function RFIDCards() {
                   <section className="pending-registration-review-card">
                     <h3>RFID Card</h3>
                     <dl>
-                      <EditField label="RFID UID">
-                        <input
-                          type="text"
-                          value={editForm.rfidUid}
-                          onChange={(event) =>
-                            updateEditField(
-                              'rfidUid',
-                              event.target.value.replace(/\s+/g, '').toUpperCase(),
-                            )
-                          }
-                          placeholder="Enter RFID UID"
-                          maxLength={30}
-                          autoComplete="off"
-                          required
-                        />
-                      </EditField>
-                      <EditField label="RFID status">
+                      <EditField label="RFID status" className="rfid-edit-status-field">
                         <select
+                          className="rfid-edit-status"
                           value={editForm.status}
                           onChange={(event) => updateEditField('status', event.target.value)}
                         >
@@ -1083,6 +1206,42 @@ export default function RFIDCards() {
                             </option>
                           ))}
                         </select>
+                      </EditField>
+                      <EditField label="RFID UID" className="rfid-edit-uid-field" error={rfidFieldError}>
+                        <div className="rfid-edit-uid">
+                          <input
+                            type="text"
+                            value={editForm.rfidUid}
+                            onChange={(event) => updateRfidUid(event.target.value)}
+                            placeholder="Enter RFID UID"
+                            maxLength={30}
+                            autoComplete="off"
+                            aria-invalid={rfidFieldError ? true : undefined}
+                            required
+                          />
+                          <button
+                            type="button"
+                            className={`rfid-edit-identify${
+                              rfidIdentify.ok && rfidIdentify.uid === editForm.rfidUid ? ' is-matched' : ''
+                            }${isIdentifyingRfid ? ' is-busy' : ''}`}
+                            onClick={identifyRfidUid}
+                            disabled={
+                              isEditSaving
+                              || isIdentifyingRfid
+                              || !editForm.rfidUid
+                              || (rfidIdentify.ok && rfidIdentify.uid === editForm.rfidUid)
+                            }
+                          >
+                            {isIdentifyingRfid
+                              ? 'Identifying...'
+                              : rfidIdentify.ok && rfidIdentify.uid === editForm.rfidUid
+                                ? 'Identified'
+                                : 'Identify'}
+                          </button>
+                        </div>
+                        {rfidIdentify.ok && rfidIdentify.uid === editForm.rfidUid && !rfidFieldError ? (
+                          <p className="rfid-edit-field-ok" role="status">{rfidIdentify.message}</p>
+                        ) : null}
                       </EditField>
                       <EditField label="Registered at">
                         <input type="text" value={editForm.issuedAt || '—'} readOnly />
@@ -1103,7 +1262,7 @@ export default function RFIDCards() {
                   <button
                     type="submit"
                     className="pending-registration-approve"
-                    disabled={isEditSaving}
+                    disabled={isEditSaving || isIdentifyingRfid}
                   >
                     {isEditSaving ? 'Saving...' : 'Save changes'}
                   </button>
@@ -1113,6 +1272,35 @@ export default function RFIDCards() {
             document.body,
           )
         : null}
+    <DeleteRequestModal
+      open={Boolean(deleteRequest)}
+      actorId={user?.id}
+      targetType={deleteRequest?.targetType}
+      targetId={deleteRequest?.targetId}
+      targetLabel={deleteRequest?.targetLabel || ''}
+      detail={deleteRequest?.detail || ''}
+      onClose={() => setDeleteRequest(null)}
+      onSubmitted={(message) => {
+        setDeleteNotice(message);
+        window.setTimeout(() => setDeleteNotice(''), 4000);
+      }}
+    />
+    <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
+    <ErrorNoticeModal
+      open={Boolean(errorMessage)}
+      message={errorMessage}
+      onClose={() => setErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(scanErrorMessage)}
+      message={scanErrorMessage}
+      onClose={() => setScanErrorMessage('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(editError)}
+      message={editError}
+      onClose={() => setEditError('')}
+    />
     </>
   );
 }

@@ -46,7 +46,8 @@
 }
 
 .activity-logs-toolbar-filters .manage-users-role-tabs {
-  z-index: 20;
+  /* Keep filter menus above the table and below the sticky portal header. */
+  z-index: 1;
 }
 
 .activity-logs-dates,
@@ -347,6 +348,16 @@
   color: #3b5b7a;
 }
 
+.activity-logs-page .activity-logs-table .activity-logs-status-pending {
+  background: #fbf3e6;
+  color: #8a5a12;
+}
+
+.activity-logs-page .activity-logs-table .activity-logs-status-cancelled {
+  background: #eef2f0;
+  color: #5f6f68;
+}
+
 .activity-logs-page .activity-logs-table .activity-logs-status-failed,
 .activity-logs-page .activity-logs-table .activity-logs-status-delete,
 .activity-logs-page .activity-logs-table .activity-logs-status-reject,
@@ -404,12 +415,15 @@
   width: 1px;
 }
 
-.activity-logs-pagination {
+.activity-logs-page .activity-logs-pagination:has(> p) {
   align-items: center;
   display: flex;
+  flex-direction: row;
   gap: 12px;
   justify-content: space-between;
+  margin-top: 0;
   padding: 14px 4px 6px;
+  width: 100%;
 }
 
 .activity-logs-pagination p,
@@ -423,18 +437,20 @@
 .activity-logs-pagination-controls {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: 10px;
 }
 
-.activity-logs-pagination-controls button {
+.activity-logs-page .activity-logs-pagination-controls button {
   background: #ffffff;
   border: 1px solid #dfe8e3;
   border-radius: 6px;
   color: #18372b;
   cursor: pointer;
-  font: inherit;
   font-size: 12px;
   font-weight: 700;
+  height: 32px;
+  line-height: 1;
   min-height: 32px;
   padding: 0 12px;
 }
@@ -500,7 +516,7 @@
     width: 100%;
   }
 
-  .activity-logs-pagination {
+  .activity-logs-page .activity-logs-pagination:has(> p) {
     align-items: flex-start;
     flex-direction: column;
   }

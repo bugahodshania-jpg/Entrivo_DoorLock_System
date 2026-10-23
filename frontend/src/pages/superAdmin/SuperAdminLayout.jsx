@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActionConfirmProvider } from '../../components/ActionConfirm';
+import { ActionConfirmProvider, useActionConfirm } from '../../components/ActionConfirm';
 import NotificationBell from '../../components/NotificationBell';
+import DoorStatusCard from '../../components/DoorStatusCard';
+import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import {
   ClipboardCheck,
   Activity,
@@ -8,13 +10,17 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Database,
   Fingerprint,
   IdCard,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
+  Server,
   Settings,
   ShieldAlert,
+  Trash2,
   User,
   Users,
   FileBarChart,
@@ -25,6 +31,7 @@ import { formatDateInManila } from '../../utils/dateTime';
 import { portalLayoutClassName, useCompactNav } from '../../hooks/useCompactNav';
 import { normalizePrivileges, PRIVILEGE_PATHS } from '../../utils/privileges';
 import '../../styles/superAdmin/adminLayout.css';
+import '../../styles/superAdmin/tables.css';
 
 const navSections = [
   {
@@ -54,9 +61,15 @@ const navSections = [
         privilege: 'pending_registrations',
       },
       {
-        label: 'Fingerprint',
-        href: '/super-admin/fingerprint',
+        label: 'Fingerprint (Direct)',
+        href: '/super-admin/fingerprint-direct',
         icon: Fingerprint,
+        privilege: 'fingerprint',
+      },
+      {
+        label: 'Sensor Memory',
+        href: '/super-admin/sensor-memory',
+        icon: Database,
         privilege: 'fingerprint',
       },
       {
@@ -77,10 +90,16 @@ const navSections = [
         privilege: 'schedules',
       },
       {
-        label: 'Pending overrides',
+        label: 'Override Requests',
         href: '/super-admin/pending-overrides',
         icon: ShieldAlert,
         privilege: 'pending_overrides',
+      },
+      {
+        label: 'Delete Requests',
+        href: '/super-admin/delete-requests',
+        icon: Trash2,
+        privilege: null,
       },
       {
         label: 'Access Logs',
@@ -91,12 +110,24 @@ const navSections = [
     ],
   },
   {
-    heading: 'Activity',
+    heading: 'Logs',
     links: [
+      {
+        label: 'Login Logs',
+        href: '/super-admin/login-logs',
+        icon: LogIn,
+        privilege: 'activity_logs',
+      },
       {
         label: 'Activity Logs',
         href: '/super-admin/activity-logs',
         icon: ScrollText,
+        privilege: 'activity_logs',
+      },
+      {
+        label: 'System Logs',
+        href: '/super-admin/system-logs',
+        icon: Server,
         privilege: 'activity_logs',
       },
     ],
@@ -128,6 +159,24 @@ const navSections = [
 const navLinks = navSections.flatMap((section) => section.links);
 
 function ProfileMenu({ className = '', onLogout, canOpenSettings = true }) {
+  const confirmAction = useActionConfirm();
+
+  async function handleLogout() {
+    const confirmed = await confirmAction?.({
+      title: 'Log out',
+      message: 'Are you sure you want to log out?',
+      danger: true,
+      confirmLabel: 'Logout',
+      requirePassword: false,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    onLogout();
+  }
+
   return (
     <div className={`super-admin-profile-menu ${className}`.trim()} role="menu">
       <a className="super-admin-profile-menu-link" href="/super-admin/profile" role="menuitem">
@@ -141,7 +190,7 @@ function ProfileMenu({ className = '', onLogout, canOpenSettings = true }) {
         </a>
       ) : null}
       <div className="super-admin-profile-menu-divider" />
-      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={() => onLogout()}>
+      <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={handleLogout}>
         <LogOut size={16} strokeWidth={1.75} aria-hidden="true" />
         <span>Log Out</span>
       </button>
@@ -170,6 +219,7 @@ function headerProfilePhoto(user) {
 const pageTitles = {
   '/super-admin/register-user': 'Registration',
   '/super-admin/profile': 'Admin information',
+  '/super-admin/sensor-memory': 'Sensor Memory',
 };
 
 export default function SuperAdminLayout({ children, user, onLogout }) {
@@ -210,7 +260,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
-      links: section.links.filter((link) => userPrivileges.includes(link.privilege)),
+      links: section.links.filter((link) => link.privilege == null || userPrivileges.includes(link.privilege)),
     }))
     .filter((section) => section.links.length > 0);
   const dashboardHref = userPrivileges.includes('dashboard')
@@ -263,7 +313,9 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   }, [isProfileDrawerOpen, isSidebarProfileOpen]);
 
   return (
-    <div className={portalLayoutClassName({ isCollapsed, isCompact, isMobileNavOpen })}>
+    <DoorStatusProvider actorId={user?.id}>
+    <ActionConfirmProvider user={user}>
+    <div className={portalLayoutClassName({ isCollapsed, isCompact, isMobileNavOpen, extra: 'super-admin-portal' })}>
       {isCompact && isMobileNavOpen ? (
         <button
           className="super-admin-nav-backdrop"
@@ -398,6 +450,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
                 setIsSidebarProfileOpen(false);
               }}
             />
+            <DoorStatusCard />
             <div className="super-admin-date-card" aria-label={`${headerDate}, ${headerMetaLabel} Asia/Manila`}>
               <div>
                 <strong>{headerDate}</strong>
@@ -431,8 +484,15 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
           </div>
         </header>
 
-        <ActionConfirmProvider user={user}>{children}</ActionConfirmProvider>
+        <div className="super-admin-page">
+          {children}
+        </div>
+        <footer className="portal-footer">
+          <p>Entrivo · Caraga State University — Cabadbaran Campus</p>
+        </footer>
       </div>
     </div>
+    </ActionConfirmProvider>
+    </DoorStatusProvider>
   );
 }

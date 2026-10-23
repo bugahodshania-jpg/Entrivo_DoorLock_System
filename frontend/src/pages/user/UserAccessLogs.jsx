@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CheckCircle2, ChevronDown, Download, Search, X, XCircle } from 'lucide-react';
-import axiosClient from '../../api/axiosClient';
 import ExportFormatModal from '../../components/ExportFormatModal';
+import AccessLogsLiveStatus from '../../components/AccessLogsLiveStatus';
+import useLiveAccessLogs from '../../hooks/useLiveAccessLogs';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import '../../styles/superAdmin/dashboard.css';
@@ -17,10 +18,10 @@ const statusFilterOptions = [
 
 export default function UserAccessLogs({ user }) {
   const rowsPerPage = 10;
+  const todayDateStamp = getManilaDateStamp();
   const statusFilterMenuRef = useRef(null);
-  const [accessLogs, setAccessLogs] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
+  const liveLogs = useLiveAccessLogs({ personal: true, userId: user?.id });
+  const { accessLogs, isLoading, errorMessage } = liveLogs;
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isStatusFilterMenuOpen, setIsStatusFilterMenuOpen] = useState(false);
@@ -28,44 +29,6 @@ export default function UserAccessLogs({ user }) {
   const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  useEffect(() => {
-    if (!user?.id) {
-      return undefined;
-    }
-
-    let isActive = true;
-
-    async function loadAccessLogs() {
-      try {
-        const response = await axiosClient.get('/api/user_portal.php', {
-          params: { action: 'access_logs', user_id: user.id },
-        });
-
-        if (!isActive) {
-          return;
-        }
-
-        setAccessLogs(response.data.accessLogs || []);
-        setErrorMessage('');
-      } catch {
-        if (isActive) {
-          setAccessLogs([]);
-          setErrorMessage('Unable to load access logs right now.');
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadAccessLogs();
-
-    return () => {
-      isActive = false;
-    };
-  }, [user?.id]);
 
   useEffect(() => {
     if (!isStatusFilterMenuOpen) {
@@ -133,16 +96,18 @@ export default function UserAccessLogs({ user }) {
   }, [accessLogs]);
 
   const summary = useMemo(() => {
-    const today = getManilaDateStamp();
     return {
       total: visibleLogs.length,
       granted: visibleLogs.filter((log) => log.status === 'granted').length,
       denied: visibleLogs.filter((log) => log.status === 'denied').length,
-      today: accessLogs.filter((log) => log.dateValue === today).length,
+      today: accessLogs.filter((log) => log.dateValue === todayDateStamp).length,
     };
-  }, [accessLogs, visibleLogs]);
+  }, [accessLogs, todayDateStamp, visibleLogs]);
 
   const totalPages = Math.max(1, Math.ceil(visibleLogs.length / rowsPerPage));
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
   const pageRows = visibleLogs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
   const activeStatusFilter =
     statusFilterOptions.find((item) => item.value === statusFilter) || statusFilterOptions[0];
@@ -212,6 +177,7 @@ export default function UserAccessLogs({ user }) {
           <div>
             <span>Access Logs</span>
             <p>Your door access history. Use date and status filters to narrow results.</p>
+            <AccessLogsLiveStatus {...liveLogs} />
           </div>
           <button
             type="button"
@@ -351,12 +317,6 @@ export default function UserAccessLogs({ user }) {
                     Loading access logs…
                   </td>
                 </tr>
-              ) : errorMessage ? (
-                <tr>
-                  <td className="dashboard-recent-empty" colSpan="7">
-                    {errorMessage}
-                  </td>
-                </tr>
               ) : pageRows.length ? (
                 pageRows.map((log) => (
                   <tr key={log.id}>
@@ -386,7 +346,9 @@ export default function UserAccessLogs({ user }) {
               ) : (
                 <tr>
                   <td className="dashboard-recent-empty" colSpan="7">
-                    No access logs match the current filters.
+                    {errorMessage
+                      ? 'Unable to load access logs. Retrying automatically.'
+                      : 'No access logs match the current filters.'}
                   </td>
                 </tr>
               )}

@@ -1,5 +1,10 @@
 <?php
 
+/** The SMTP server may have accepted DATA, so automatic retry could duplicate mail. */
+class MailDeliveryUncertainException extends RuntimeException
+{
+}
+
 class MailService
 {
     public static function mailbox(string $name): array
@@ -43,6 +48,8 @@ class MailService
 
         stream_set_timeout($socket, 20);
 
+        $awaitingAcceptance = false;
+
         try {
             $this->expect($socket, [220]);
             $this->command($socket, 'EHLO entrivo.local', [250]);
@@ -65,21 +72,47 @@ class MailService
             $this->command($socket, 'RCPT TO:<' . $to . '>', [250, 251]);
             $this->command($socket, 'DATA', [354]);
 
-            $safeSubject = str_replace(["\r", "\n"], '', $subject);
-            $message = "From: {$fromName} <{$username}>\r\n";
-            $message .= "To: <{$to}>\r\n";
-            $message .= "Subject: {$safeSubject}\r\n";
-            $message .= "MIME-Version: 1.0\r\n";
-            $message .= "Content-Type: text/plain; charset=UTF-8\r\n";
-            $message .= "\r\n";
-            $message .= str_replace("\n.", "\n..", str_replace(["\r\n", "\r"], "\n", $text));
-            $message = str_replace("\n", "\r\n", $message);
-            fwrite($socket, $message . "\r\n.\r\n");
+            $message = self::formatMessage($to, $subject, $text, $username, $fromName) . "\r\n.\r\n";
+            $awaitingAcceptance = true;
+            $offset = 0;
+            while ($offset < strlen($message)) {
+                $written = fwrite($socket, substr($message, $offset));
+                if ($written === false || $written === 0) {
+                    throw new RuntimeException('The mail server connection closed while sending the message.');
+                }
+                $offset += $written;
+            }
             $this->expect($socket, [250]);
-            $this->command($socket, 'QUIT', [221]);
+            $awaitingAcceptance = false;
+            // DATA acceptance is authoritative. A failed QUIT must not trigger duplicate mail.
+            try {
+                $this->command($socket, 'QUIT', [221]);
+            } catch (Throwable $ignored) {
+            }
+        } catch (Throwable $error) {
+            if ($awaitingAcceptance && ($error->getCode() < 400 || $error->getCode() > 599)) {
+                throw new MailDeliveryUncertainException('The mail server did not confirm whether the message was accepted.', 0, $error);
+            }
+            throw $error;
         } finally {
             fclose($socket);
         }
+    }
+
+    /** SMTP DATA with a single CRLF per line and dot-stuffed body lines. */
+    public static function formatMessage(string $to, string $subject, string $text, string $from, string $fromName): string
+    {
+        $clean = static fn (string $value): string => str_replace(["\r", "\n"], '', $value);
+        $headers = [
+            'From: ' . $clean($fromName) . ' <' . $clean($from) . '>',
+            'To: <' . $clean($to) . '>',
+            'Subject: ' . $clean($subject),
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+        ];
+        $body = str_replace(["\r\n", "\r"], "\n", $text);
+        $body = preg_replace('/^\./m', '..', $body);
+        return implode("\r\n", $headers) . "\r\n\r\n" . str_replace("\n", "\r\n", $body);
     }
 
     private function command($socket, string $command, array $codes): void
@@ -103,7 +136,7 @@ class MailService
             }
 
             if (!in_array((int) $matches[1], $codes, true)) {
-                throw new RuntimeException('The email could not be sent.');
+                throw new RuntimeException('The email could not be sent.', (int) $matches[1]);
             }
 
             return;

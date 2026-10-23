@@ -5,11 +5,24 @@ import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import schoolIdExample from '../../assets/images/csucc-school-id-example.jpg';
 import { getManilaDateStamp } from '../../utils/dateTime';
+import {
+  buildUsername,
+  calculateAge,
+  contactNumberLength,
+  normalizeContactNumber,
+  normalizeSchoolEmail,
+  schoolEmailDomain,
+  toTitleCase,
+  validatePersonalInformation,
+  validateSchoolEmail,
+} from '../../utils/registrationValidation';
 import { clearRegistrationSession, registrationDraftKey, verifiedRfidKey, registrationResumeAction } from '../../utils/registrationSession';
 import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/registerUser.css';
+
+const registeredRfidMessage = 'This School ID UID is already registered. Please visit the admin office for assistance with your existing account or School ID.';
 
 const steps = [
   {
@@ -92,10 +105,8 @@ const securityQuestionOptions = [
   'What was the name of your first pet?',
   'What is your favorite book?',
 ];
-const schoolEmailDomain = 'csucc.edu.ph';
-const contactNumberLength = 11;
 const stepFields = {
-  1: ['first_name', 'middle_name', 'last_name', 'extension_name', 'sex', 'contact_number', 'date_of_birth', 'street_address', 'barangay', 'city_municipality', 'province', 'zip_code', 'country'],
+  1: ['first_name', 'middle_name', 'last_name', 'extension_name', 'sex', 'contact_number', 'date_of_birth', 'age', 'street_address', 'barangay', 'city_municipality', 'province', 'zip_code', 'country'],
   2: ['school_id', 'rfid_uid', 'college', 'program_department', 'year_level', 'section', 'school_id_photo'],
   3: ['email', 'username', 'password', 'confirm_password'],
   4: ['security_question_1', 'security_answer_1', 'security_question_2', 'security_answer_2', 'security_question_3', 'security_answer_3'],
@@ -139,28 +150,6 @@ function getProgramOptions(college) {
   return collegeProgramOptions.find((option) => option.college === college)?.programs || [];
 }
 
-function toTitleCase(value) {
-  return value
-    .toLowerCase()
-    .replace(/(^|[\s-])([a-z])/g, (match, separator, letter) => `${separator}${letter.toUpperCase()}`);
-}
-
-function buildUsername(firstName, lastName) {
-  const part = (value) => value
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z]/g, '');
-  const first = part(firstName);
-  const last = part(lastName);
-
-  if (!first || !last) {
-    return first || last;
-  }
-
-  return `${first}.${last}`.slice(0, 50);
-}
-
 function getPasswordRuleChecks(password) {
   return {
     length: password.length >= 8,
@@ -186,27 +175,6 @@ function getPasswordStrength(password) {
   return 0;
 }
 
-function calculateAge(dateOfBirth) {
-  if (!dateOfBirth || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
-    return '';
-  }
-
-  const [birthYear, birthMonth, birthDay] = dateOfBirth.split('-').map(Number);
-  const [todayYear, todayMonth, todayDay] = getManilaDateStamp().split('-').map(Number);
-  let age = todayYear - birthYear;
-  const hasBirthdayPassed = todayMonth > birthMonth || (todayMonth === birthMonth && todayDay >= birthDay);
-
-  if (!hasBirthdayPassed) {
-    age -= 1;
-  }
-
-  return age >= 0 ? String(age) : '';
-}
-
-function normalizeContactNumber(value) {
-  return value.replace(/\D/g, '').slice(0, contactNumberLength);
-}
-
 function normalizeZipCode(value) {
   return value.replace(/\D/g, '').slice(0, 4);
 }
@@ -216,46 +184,8 @@ function normalizeSchoolId(value) {
   return digits.length <= 4 ? digits : `${digits.slice(0, 4)}-${digits.slice(4)}`;
 }
 
-function normalizeSchoolEmail(value) {
-  const normalized = value.trim().toLowerCase().replace(/\s/g, '');
-
-  if (!normalized || normalized.endsWith(`@${schoolEmailDomain}`)) {
-    return normalized;
-  }
-
-  if (!normalized.includes('@')) {
-    return `${normalized}@${schoolEmailDomain}`;
-  }
-
-  return normalized;
-}
-
 function validateRegistration(form, questions) {
-  const errors = {};
-
-  if (!form.first_name.trim()) errors.first_name = 'First name is required.';
-  if (!form.last_name.trim()) errors.last_name = 'Last name is required.';
-  if (!form.sex) errors.sex = 'Sex is required.';
-  if (!form.date_of_birth) {
-    errors.date_of_birth = 'Date of birth is required.';
-  } else if (calculateAge(form.date_of_birth) === '') {
-    errors.date_of_birth = 'Date of birth must be a valid past date.';
-  }
-  if (!form.contact_number) {
-    errors.contact_number = 'Contact number is required.';
-  } else if (form.contact_number.length !== contactNumberLength) {
-    errors.contact_number = 'Contact number must be 11 digits.';
-  }
-  if (!form.street_address.trim()) errors.street_address = 'Street address is required.';
-  if (!form.barangay.trim()) errors.barangay = 'Barangay is required.';
-  if (!form.city_municipality.trim()) errors.city_municipality = 'City / Municipality is required.';
-  if (!form.province.trim()) errors.province = 'Province is required.';
-  if (!form.zip_code) {
-    errors.zip_code = 'Zip code is required.';
-  } else if (!/^\d{4}$/.test(form.zip_code)) {
-    errors.zip_code = 'Zip code must be 4 digits.';
-  }
-  if (!form.country.trim()) errors.country = 'Country is required.';
+  const errors = validatePersonalInformation(form);
 
   if (!form.school_id) {
     errors.school_id = 'School ID is required.';
@@ -263,13 +193,9 @@ function validateRegistration(form, questions) {
     errors.school_id = 'School ID must use xxxx-xxxx format.';
   }
 
-  const email = normalizeSchoolEmail(form.email);
   if (!form.rfid_uid.trim()) errors.rfid_uid = 'A verified School ID UID is required.';
-  if (!email) {
-    errors.email = 'Email is required.';
-  } else if (!email.endsWith(`@${schoolEmailDomain}`)) {
-    errors.email = `Email must use the @${schoolEmailDomain} domain.`;
-  }
+  const emailError = validateSchoolEmail(form.email);
+  if (emailError) errors.email = emailError;
 
   if (!form.college) {
     errors.college = 'College is required.';
@@ -311,6 +237,8 @@ function validateRegistration(form, questions) {
     errors.username = 'Username must include a dot (.).';
   } else if (form.username.trim().length > 50) {
     errors.username = 'Username must be 50 characters or fewer.';
+  } else if (!/^[a-z]+(?:\.[a-z]+)+$/.test(form.username)) {
+    errors.username = 'Use lowercase letters separated by a dot, such as firstname.lastname.';
   }
 
   if (!form.password) {
@@ -325,8 +253,8 @@ function validateRegistration(form, questions) {
     errors.password = 'Password must include a number.';
   } else if (!/[^A-Za-z0-9]/.test(form.password)) {
     errors.password = 'Password must include a special character.';
-  } else if (form.password.length > 72) {
-    errors.password = 'Password must be 72 characters or fewer.';
+  } else if (new TextEncoder().encode(form.password).length > 72) {
+    errors.password = 'Password is too long. Use a shorter password.';
   }
 
   if (!form.confirm_password) {
@@ -353,8 +281,8 @@ function validateRegistration(form, questions) {
       errors[answerKey] = 'Security answer is required.';
     } else if (answer.length < 2) {
       errors[answerKey] = 'Security answer must be at least 2 characters.';
-    } else if (answer.length > 100) {
-      errors[answerKey] = 'Security answer must be 100 characters or fewer.';
+    } else if (new TextEncoder().encode(answer).length > 100) {
+      errors[answerKey] = 'Answer is too long. Use a shorter answer.';
     }
   });
 
@@ -414,6 +342,9 @@ function readRegistrationDraft() {
 
 export default function Register() {
   const savedDraft = useMemo(() => readRegistrationDraft(), []);
+  const [registrationAccess, setRegistrationAccess] = useState('checking');
+  const [registrationAccessMessage, setRegistrationAccessMessage] = useState('');
+  const uidVerificationRef = useRef(null);
   const [step, setStep] = useState(savedDraft.step);
   const [form, setForm] = useState(savedDraft.form);
   const [questions, setQuestions] = useState(savedDraft.questions);
@@ -426,6 +357,7 @@ export default function Register() {
   const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
   const [availabilityErrors, setAvailabilityErrors] = useState({});
   const latestAvailabilityErrorsRef = useRef({});
+  const liveAvailabilityChecksRef = useRef({});
   const currentFormRef = useRef(form);
   currentFormRef.current = form;
   const [errorMessage, setErrorMessage] = useState('');
@@ -444,56 +376,164 @@ export default function Register() {
     const errors = validateRegistration(form, questions);
     for (const [field, result] of Object.entries(availabilityErrors)) {
       const value = field === 'email' ? normalizeSchoolEmail(form[field]) : form[field];
-      if (result.value === value && result.message) errors[field] = result.message;
+      if (!errors[field] && result.value === value && result.message) errors[field] = result.message;
     }
     return errors;
   }, [form, questions, availabilityErrors]);
 
-  async function checkAvailability(fields) {
-    const uniqueFields = fields.filter((field) => ['school_id', 'rfid_uid', 'username', 'email'].includes(field));
+  async function checkAvailability(fields, { signal, quiet = false } = {}) {
+    if (registrationAccess !== 'allowed') return false;
+    const uniqueFields = fields.filter((field) => ['school_id', 'rfid_uid', 'username', 'email', 'contact_number'].includes(field));
     if (!uniqueFields.length) return true;
+    if (!signal) {
+      uniqueFields.forEach((field) => {
+        const pending = liveAvailabilityChecksRef.current[field];
+        if (!pending) return;
+        window.clearTimeout(pending.timer);
+        pending.controller.abort();
+        delete liveAvailabilityChecksRef.current[field];
+      });
+    }
     const fieldValue = (source, field) => field === 'email' ? normalizeSchoolEmail(source[field]) : source[field];
     const values = Object.fromEntries(uniqueFields.map((field) => [field, fieldValue(form, field)]));
     try {
-      const response = await axiosClient.post('/api/registration_availability.php', values);
-      if (uniqueFields.some((field) => fieldValue(currentFormRef.current, field) !== values[field])) return false;
+      const response = await axiosClient.post('/api/registration_availability.php', values, { signal });
+      if (signal?.aborted || uniqueFields.some((field) => fieldValue(currentFormRef.current, field) !== values[field])) return false;
       const errors = response.data.errors || {};
+      if (errors.rfid_uid) blockRegisteredUid();
       latestAvailabilityErrorsRef.current = errors;
       setAvailabilityErrors((current) => ({
         ...current,
         ...Object.fromEntries(uniqueFields.map((field) => [field, { value: values[field], message: errors[field] || '' }])),
       }));
       return !uniqueFields.some((field) => errors[field]);
-    } catch {
-      setErrorMessage('Unable to check whether these details are already in use. Please try again.');
+    } catch (error) {
+      if (signal?.aborted || error.code === 'ERR_CANCELED') return false;
+      if (!quiet) setErrorMessage('Unable to check whether these details are already in use. Please try again.');
       return false;
     }
   }
 
   useEffect(() => {
-    if (!readVerifiedRfidUid()) {
+    if (registrationAccess !== 'allowed' || step !== 3 || validateSchoolEmail(form.email)) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      markFieldsTouched(['email']);
+      void checkAvailability(['email'], { signal: controller.signal, quiet: true });
+    }, 400);
+    const pending = { controller, timer };
+    liveAvailabilityChecksRef.current.email = pending;
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (liveAvailabilityChecksRef.current.email === pending) delete liveAvailabilityChecksRef.current.email;
+    };
+  }, [form.email, step, registrationAccess]);
+
+  useEffect(() => {
+    if (registrationAccess !== 'allowed' || step !== 1 || !/^09[0-9]{9}$/.test(form.contact_number)) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      markFieldsTouched(['contact_number']);
+      void checkAvailability(['contact_number'], { signal: controller.signal, quiet: true });
+    }, 400);
+    const pending = { controller, timer };
+    liveAvailabilityChecksRef.current.contact_number = pending;
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (liveAvailabilityChecksRef.current.contact_number === pending) delete liveAvailabilityChecksRef.current.contact_number;
+    };
+  }, [form.contact_number, step, registrationAccess]);
+
+  function blockRegistration(message) {
+    uidVerificationRef.current?.abort();
+    clearRegistrationSession(window.sessionStorage);
+    stopCamera();
+    setIsCameraOpen(false);
+    setIdPhotoAction('');
+    setRegistrationAccessMessage(message);
+    setRegistrationAccess('blocked');
+  }
+
+  function blockRegisteredUid() {
+    blockRegistration(registeredRfidMessage);
+  }
+
+  async function verifyRegistrationAccess() {
+    uidVerificationRef.current?.abort();
+    const controller = new AbortController();
+    uidVerificationRef.current = controller;
+    setRegistrationAccess('checking');
+    setRegistrationAccessMessage('');
+    const uid = readVerifiedRfidUid();
+    if (!uid) {
+      clearRegistrationSession(window.sessionStorage);
       window.location.replace('/?signup=1');
+      return;
     }
+    if (uid !== currentFormRef.current.rfid_uid) {
+      window.location.reload();
+      return;
+    }
+    try {
+      const response = await axiosClient.post('/api/verify_rfid_uid.php', { rfid_uid: uid }, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const normalizedUid = uid.replace(/\s/g, '').toUpperCase();
+      if (response.data.verified !== true || response.data.rfid_uid !== normalizedUid) {
+        throw new Error('School ID verification was not confirmed.');
+      }
+      setRegistrationAccess('allowed');
+    } catch (error) {
+      if (controller.signal.aborted || error.code === 'ERR_CANCELED') return;
+      if (error.response?.status === 409 || error.response?.data?.code === 'rfid_uid_registered') {
+        blockRegisteredUid();
+        return;
+      }
+      if (error.response?.status === 422) {
+        blockRegistration(error.response?.data?.message || 'Verify your School ID before continuing registration.');
+        return;
+      }
+      setRegistrationAccess('error');
+      setRegistrationAccessMessage(error.response?.data?.message || 'Unable to verify your School ID right now. Please try again.');
+    }
+  }
+
+  useEffect(() => {
+    if (createdAccount) return undefined;
+    void verifyRegistrationAccess();
     function handleRestoredPage(event) {
       if (!event.persisted) return;
+      setRegistrationAccess('checking');
       const action = registrationResumeAction(window.sessionStorage, currentFormRef.current.rfid_uid);
       if (action === 'verify') window.location.replace('/?signup=1');
       else if (action === 'reload') window.location.reload();
+      else void verifyRegistrationAccess();
     }
+    const handleFocus = () => { void verifyRegistrationAccess(); };
     window.addEventListener('pageshow', handleRestoredPage);
-    return () => window.removeEventListener('pageshow', handleRestoredPage);
-  }, []);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      uidVerificationRef.current?.abort();
+      window.removeEventListener('pageshow', handleRestoredPage);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [createdAccount]);
   const programOptions = useMemo(() => getProgramOptions(form.college), [form.college]);
   const currentStep = steps[step - 1];
   const StepIcon = currentStep.icon;
 
   function updateField(field, value) {
     if (field === 'username') {
-      value = value.replace(/\p{N}/gu, '');
       usernameIsAutoRef.current = value === buildUsername(form.first_name, form.last_name);
     }
 
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'date_of_birth' ? { age: calculateAge(value) } : {}),
+    }));
+    markFieldsTouched(field === 'date_of_birth' ? [field, 'age'] : [field]);
   }
 
   function markFieldsTouched(fields) {
@@ -511,7 +551,7 @@ export default function Register() {
     const message = getFieldError(field);
 
     return (
-      <small className={`register-user-field-error${message ? ' is-visible' : ''}`}>
+      <small id={`registration-${field}-error`} aria-live="polite" className={`register-user-field-error${message ? ' is-visible' : ''}`}>
         {message || ' '}
       </small>
     );
@@ -685,10 +725,10 @@ export default function Register() {
   }, [form.first_name, form.last_name]);
 
   useEffect(() => {
-    if (isCameraOpen && videoRef.current && streamRef.current) {
+    if (registrationAccess === 'allowed' && isCameraOpen && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
     }
-  }, [isCameraOpen]);
+  }, [isCameraOpen, registrationAccess]);
 
   useEffect(() => () => stopCamera(), []);
 
@@ -697,6 +737,7 @@ export default function Register() {
       clearRegistrationSession(window.sessionStorage);
       return;
     }
+    if (registrationAccess !== 'allowed') return;
 
     const draft = { step, form, questions };
 
@@ -721,16 +762,17 @@ export default function Register() {
         }
       }
     }
-  }, [createdAccount, form, questions, step]);
+  }, [createdAccount, form, questions, step, registrationAccess]);
 
   function updateQuestion(index, key, value) {
     setQuestions((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [key]: value } : item
     )));
+    markFieldsTouched([`security_${key}_${index + 1}`]);
   }
 
   async function goNext() {
-    if (isCheckingAvailability) return;
+    if (registrationAccess !== 'allowed' || isCheckingAvailability) return;
     const fields = stepFields[step];
     markFieldsTouched(fields);
 
@@ -754,6 +796,7 @@ export default function Register() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (registrationAccess !== 'allowed') return;
     const fields = Object.values(stepFields).flat();
     markFieldsTouched(fields);
     const invalidStep = firstInvalidStep(fieldErrors);
@@ -768,7 +811,7 @@ export default function Register() {
     setErrorMessage('');
 
     try {
-      if (!(await checkAvailability(['school_id', 'rfid_uid', 'username', 'email']))) {
+      if (!(await checkAvailability(['school_id', 'rfid_uid', 'username', 'email', 'contact_number']))) {
         const duplicateStep = firstInvalidStep(latestAvailabilityErrorsRef.current);
         if (duplicateStep) setStep(duplicateStep);
         return;
@@ -785,6 +828,11 @@ export default function Register() {
       setCreatedAccount(response.data);
     } catch (error) {
       const duplicateErrors = error.response?.data?.errors || {};
+      if (duplicateErrors.rfid_uid || error.response?.data?.code === 'rfid_uid_registered') {
+        if (error.response?.status === 409 || error.response?.data?.code === 'rfid_uid_registered') blockRegisteredUid();
+        else blockRegistration(duplicateErrors.rfid_uid);
+        return;
+      }
       setAvailabilityErrors((current) => ({
         ...current,
         ...Object.fromEntries(Object.entries(duplicateErrors).map(([field, message]) => [field, {
@@ -793,10 +841,33 @@ export default function Register() {
       }));
       const duplicateStep = firstInvalidStep(duplicateErrors);
       if (duplicateStep) setStep(duplicateStep);
-      setErrorMessage(error.response?.data?.message || 'Unable to create the account right now.');
+      setErrorMessage(duplicateStep ? '' : error.response?.data?.message || 'Unable to create the account right now.');
     } finally {
       setIsSaving(false);
     }
+  }
+
+  if (registrationAccess !== 'allowed' && !createdAccount) {
+    const checking = registrationAccess === 'checking';
+    return (
+      <main className="auth-page auth-page-register">
+        <div className="public-register-success-screen">
+          <section className="public-register-success" role={checking ? 'status' : 'alert'} aria-labelledby="registration-access-title" aria-busy={checking}>
+            <h2 id="registration-access-title">{checking ? 'Verifying Your School ID' : 'Unable to Continue Registration'}</h2>
+            <p>{checking ? 'Checking your School ID UID before opening the registration form...' : registrationAccessMessage}</p>
+            {registrationAccess === 'error' ? (
+              <button className="public-register-submit" type="button" onClick={() => { void verifyRegistrationAccess(); }}>Try again</button>
+            ) : null}
+            {!checking ? (
+              <>
+                <a className="public-register-submit" href="/login">Sign in</a>
+                <p><a href="/?signup=1">Back to School ID verification</a></p>
+              </>
+            ) : null}
+          </section>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -913,6 +984,7 @@ export default function Register() {
                         required
                         placeholder="Enter your first name"
                         aria-invalid={Boolean(getFieldError('first_name'))}
+                        aria-describedby="registration-first_name-error"
                         value={form.first_name}
                         onChange={(event) => updateTitleField('first_name', event.target.value)}
                         onBlur={() => markFieldsTouched(['first_name'])}
@@ -923,8 +995,11 @@ export default function Register() {
                       <span>Middle Name <small>(Optional)</small></span>
                       <input
                         placeholder="Enter your middle name"
+                        aria-invalid={Boolean(getFieldError('middle_name'))}
+                        aria-describedby="registration-middle_name-error"
                         value={form.middle_name}
                         onChange={(event) => updateTitleField('middle_name', event.target.value)}
+                        onBlur={() => markFieldsTouched(['middle_name'])}
                       />
                       <FieldError field="middle_name" />
                     </label>
@@ -934,6 +1009,7 @@ export default function Register() {
                         required
                         placeholder="Enter your last name"
                         aria-invalid={Boolean(getFieldError('last_name'))}
+                        aria-describedby="registration-last_name-error"
                         value={form.last_name}
                         onChange={(event) => updateTitleField('last_name', event.target.value)}
                         onBlur={() => markFieldsTouched(['last_name'])}
@@ -959,6 +1035,7 @@ export default function Register() {
                       <select
                         required
                         aria-invalid={Boolean(getFieldError('sex'))}
+                        aria-describedby="registration-sex-error"
                         value={form.sex}
                         onChange={(event) => updateField('sex', event.target.value)}
                         onBlur={() => markFieldsTouched(['sex'])}
@@ -977,6 +1054,7 @@ export default function Register() {
                         maxLength={contactNumberLength}
                         placeholder="09*********"
                         aria-invalid={Boolean(getFieldError('contact_number'))}
+                        aria-describedby="registration-contact_number-error"
                         value={form.contact_number}
                         onChange={(event) => updateField('contact_number', normalizeContactNumber(event.target.value))}
                         onBlur={() => markFieldsTouched(['contact_number'])}
@@ -990,20 +1068,16 @@ export default function Register() {
                         type="date"
                         max={getManilaDateStamp()}
                         aria-invalid={Boolean(getFieldError('date_of_birth'))}
+                        aria-describedby="registration-date_of_birth-error"
                         value={form.date_of_birth}
-                        onChange={(event) => setForm((current) => ({
-                          ...current,
-                          date_of_birth: event.target.value,
-                          age: calculateAge(event.target.value),
-                        }))}
-                        onBlur={() => markFieldsTouched(['date_of_birth'])}
+                        onChange={(event) => updateField('date_of_birth', event.target.value)}
+                        onBlur={() => markFieldsTouched(['date_of_birth', 'age'])}
                       />
                       <FieldError field="date_of_birth" />
                     </label>
                     <label>
                       <span>Age</span>
-                      <input readOnly placeholder="Age will auto-calculate" value={form.age} />
-                      <small className="public-register-hint">Age will auto-calculate</small>
+                      <input readOnly placeholder="Age will auto-calculate" value={calculateAge(form.date_of_birth)} aria-invalid={Boolean(getFieldError('age'))} aria-describedby="registration-age-error" />
                       <FieldError field="age" />
                     </label>
                     <div className="public-register-subsection">
@@ -1016,6 +1090,7 @@ export default function Register() {
                         required
                         placeholder="Enter street address"
                         aria-invalid={Boolean(getFieldError('street_address'))}
+                        aria-describedby="registration-street_address-error"
                         value={form.street_address}
                         onChange={(event) => updateField('street_address', event.target.value)}
                         onBlur={() => markFieldsTouched(['street_address'])}
@@ -1028,6 +1103,7 @@ export default function Register() {
                         required
                         placeholder="Enter barangay"
                         aria-invalid={Boolean(getFieldError('barangay'))}
+                        aria-describedby="registration-barangay-error"
                         value={form.barangay}
                         onChange={(event) => updateTitleField('barangay', event.target.value)}
                         onBlur={() => markFieldsTouched(['barangay'])}
@@ -1040,6 +1116,7 @@ export default function Register() {
                         required
                         placeholder="Enter city or municipality"
                         aria-invalid={Boolean(getFieldError('city_municipality'))}
+                        aria-describedby="registration-city_municipality-error"
                         value={form.city_municipality}
                         onChange={(event) => updateTitleField('city_municipality', event.target.value)}
                         onBlur={() => markFieldsTouched(['city_municipality'])}
@@ -1052,6 +1129,7 @@ export default function Register() {
                         required
                         placeholder="Enter province"
                         aria-invalid={Boolean(getFieldError('province'))}
+                        aria-describedby="registration-province-error"
                         value={form.province}
                         onChange={(event) => updateTitleField('province', event.target.value)}
                         onBlur={() => markFieldsTouched(['province'])}
@@ -1066,6 +1144,7 @@ export default function Register() {
                         maxLength={4}
                         placeholder="Enter zip code"
                         aria-invalid={Boolean(getFieldError('zip_code'))}
+                        aria-describedby="registration-zip_code-error"
                         value={form.zip_code}
                         onChange={(event) => updateField('zip_code', normalizeZipCode(event.target.value))}
                         onBlur={() => markFieldsTouched(['zip_code'])}
@@ -1077,6 +1156,7 @@ export default function Register() {
                       <input
                         required
                         aria-invalid={Boolean(getFieldError('country'))}
+                        aria-describedby="registration-country-error"
                         value={form.country}
                         onChange={(event) => updateTitleField('country', event.target.value)}
                         onBlur={() => markFieldsTouched(['country'])}
@@ -1097,6 +1177,7 @@ export default function Register() {
                           maxLength={9}
                           placeholder="xxxx-xxxx"
                           aria-invalid={Boolean(getFieldError('school_id'))}
+                          aria-describedby="registration-school_id-error"
                           value={form.school_id}
                           onChange={(event) => updateField('school_id', normalizeSchoolId(event.target.value))}
                           onBlur={() => { markFieldsTouched(['school_id']); void checkAvailability(['school_id']); }}
@@ -1108,6 +1189,7 @@ export default function Register() {
                         <select
                           required
                           aria-invalid={Boolean(getFieldError('college'))}
+                          aria-describedby="registration-college-error"
                           value={form.college}
                           onChange={(event) => updateCollege(event.target.value)}
                           onBlur={() => markFieldsTouched(['college'])}
@@ -1125,6 +1207,7 @@ export default function Register() {
                           required
                           disabled={!form.college}
                           aria-invalid={Boolean(getFieldError('program_department'))}
+                          aria-describedby="registration-program_department-error"
                           value={form.program_department}
                           onChange={(event) => updateField('program_department', event.target.value)}
                           onBlur={() => markFieldsTouched(['program_department'])}
@@ -1141,6 +1224,7 @@ export default function Register() {
                         <select
                           required
                           aria-invalid={Boolean(getFieldError('year_level'))}
+                          aria-describedby="registration-year_level-error"
                           value={form.year_level}
                           onChange={(event) => updateField('year_level', event.target.value)}
                           onBlur={() => markFieldsTouched(['year_level'])}
@@ -1156,6 +1240,7 @@ export default function Register() {
                         <span>Section <small>(Optional)</small></span>
                         <select
                           aria-invalid={Boolean(getFieldError('section'))}
+                          aria-describedby="registration-section-error"
                           value={form.section}
                           onChange={(event) => updateField('section', event.target.value)}
                           onBlur={() => markFieldsTouched(['section'])}
@@ -1172,6 +1257,7 @@ export default function Register() {
                         <input
                           readOnly
                           aria-invalid={Boolean(getFieldError('rfid_uid'))}
+                          aria-describedby="registration-rfid_uid-error"
                           value={form.rfid_uid}
                           placeholder="Verified school UID"
                         />
@@ -1246,18 +1332,19 @@ export default function Register() {
                           <input readOnly value="Student" />
                         </label>
                         <label>
-                          <span>Email<i className="public-register-required">*</i></span>
+                          <span>Institutional Email<i className="public-register-required">*</i></span>
                           <input
                             required
                             type="email"
                             placeholder={`username@${schoolEmailDomain}`}
                             aria-invalid={Boolean(getFieldError('email'))}
+                            aria-describedby="registration-email-error"
                             value={form.email}
-                            onChange={(event) => updateField('email', event.target.value.toLowerCase().replace(/\s/g, ''))}
+                            onChange={(event) => updateField('email', event.target.value.toLowerCase())}
                             onBlur={() => {
                               updateField('email', normalizeSchoolEmail(form.email));
                               markFieldsTouched(['email']);
-                              void checkAvailability(['email']);
+                              if (!validateSchoolEmail(form.email)) void checkAvailability(['email'], { quiet: true });
                             }}
                           />
                           <FieldError field="email" />
@@ -1268,11 +1355,13 @@ export default function Register() {
                             required
                             placeholder="firstname.lastname"
                             aria-invalid={Boolean(getFieldError('username'))}
+                            aria-describedby="registration-username-error"
                             value={form.username}
                             onChange={(event) => updateField('username', event.target.value)}
                             onBlur={() => { markFieldsTouched(['username']); void checkAvailability(['username']); }}
                           />
                           <FieldError field="username" />
+                          <small className="public-register-hint">Generated from your first two given names and last name. You can edit it if needed.</small>
                         </label>
                         <label>
                           <span>Password<i className="public-register-required">*</i></span>
@@ -1281,6 +1370,7 @@ export default function Register() {
                               required
                               minLength={8}
                               aria-invalid={Boolean(getFieldError('password'))}
+                              aria-describedby="registration-password-error"
                               type={isPasswordVisible ? 'text' : 'password'}
                               value={form.password}
                               onChange={(event) => updateField('password', event.target.value)}
@@ -1312,6 +1402,7 @@ export default function Register() {
                               required
                               minLength={8}
                               aria-invalid={Boolean(getFieldError('confirm_password'))}
+                              aria-describedby="registration-confirm_password-error"
                               type={isConfirmPasswordVisible ? 'text' : 'password'}
                               value={form.confirm_password}
                               onChange={(event) => updateField('confirm_password', event.target.value)}
@@ -1357,6 +1448,7 @@ export default function Register() {
                             <select
                               required
                               aria-invalid={Boolean(getFieldError(`security_question_${index + 1}`))}
+                              aria-describedby={`registration-security_question_${index + 1}-error`}
                               value={item.question}
                               onChange={(event) => updateQuestion(index, 'question', event.target.value)}
                               onBlur={() => markFieldsTouched([`security_question_${index + 1}`])}
@@ -1383,6 +1475,7 @@ export default function Register() {
                                 autoComplete="off"
                                 placeholder="Enter your answer"
                                 aria-invalid={Boolean(getFieldError(`security_answer_${index + 1}`))}
+                                aria-describedby={`registration-security_answer_${index + 1}-error`}
                                 type={visibleAnswers[index] ? 'text' : 'password'}
                                 value={item.answer}
                                 onChange={(event) => updateQuestion(index, 'answer', event.target.value)}

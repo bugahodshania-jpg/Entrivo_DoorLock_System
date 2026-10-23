@@ -16,10 +16,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/NotificationService.php';
+require_once dirname(__DIR__) . '/services/OverrideScheduleService.php';
+require_once dirname(__DIR__) . '/services/ScheduleStatusService.php';
 
 try {
     $pdo = entrivo_pdo();
     $activityLog = new ActivityLogService($pdo);
+    $overrideSchedules = new OverrideScheduleService($pdo);
+    $overrideSchedules->ensureStampColumn();
 
     // Ensure schedule_kind exists (regular vs override).
     try {
@@ -32,12 +37,6 @@ try {
                  AFTER schedule_type"
             );
         }
-        $pdo->exec(
-            "UPDATE schedules
-             SET schedule_kind = 'override'
-             WHERE status = 'overridden'
-               AND schedule_kind <> 'override'"
-        );
     } catch (Throwable $ignored) {
         // Ignore alter races / restricted environments.
     }
@@ -136,6 +135,7 @@ try {
                 s.repeat_days AS repeatDays,
                 s.grace_period_minutes AS gracePeriodMinutes,
                 s.status,
+                s.overridden_by_schedule_id AS overriddenByScheduleId,
                 DATE_FORMAT(s.created_at, '%b %e, %Y %h:%i %p') AS createdAt,
                 DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS createdAtValue,
                 CONCAT(TIME_FORMAT(s.time_start, '%h:%i %p'), ' - ', TIME_FORMAT(s.time_end, '%h:%i %p')) AS `window`,
@@ -169,7 +169,7 @@ try {
 
         echo json_encode([
             'message' => 'Schedules loaded.',
-            'schedules' => $stmt->fetchAll(),
+            'schedules' => array_map([ScheduleStatusService::class, 'normalizeSchedule'], $stmt->fetchAll()),
         ]);
         exit;
     }
@@ -183,6 +183,7 @@ try {
                 s.schedule_type AS scheduleType,
                 COALESCE(s.schedule_kind, 'regular') AS scheduleKind,
                 DATE_FORMAT(s.schedule_date, '%Y-%m-%d') AS scheduleDate,
+                DATE_FORMAT(s.schedule_date, '%W, %b %e, %Y') AS scheduleDateLabel,
                 TIME_FORMAT(s.time_start, '%H:%i') AS timeStart,
                 TIME_FORMAT(s.time_end, '%H:%i') AS timeEnd,
                 TIME_FORMAT(s.time_start, '%h:%i %p') AS timeStartLabel,
@@ -193,6 +194,7 @@ try {
                 s.repeat_days AS repeatDays,
                 s.grace_period_minutes AS gracePeriodMinutes,
                 s.status,
+                s.overridden_by_schedule_id AS overriddenByScheduleId,
                 DATE_FORMAT(s.created_at, '%b %e, %Y %h:%i %p') AS createdAt,
                 DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS createdAtValue,
                 CONCAT(TIME_FORMAT(s.time_start, '%h:%i %p'), ' - ', TIME_FORMAT(s.time_end, '%h:%i %p')) AS `window`,
@@ -220,21 +222,24 @@ try {
              WHERE s.schedule_id = :id"
         );
         $stmt->execute([':id' => $id]);
-        return $stmt->fetch();
+        $schedule = $stmt->fetch();
+        return $schedule ? ScheduleStatusService::normalizeSchedule($schedule) : $schedule;
     };
 
-    // ── helper: check if a date+time range conflicts with existing schedules for a user ──
-    $detectConflicts = function ($userId, $date, $timeStart, $timeEnd, $excludeId = null) use ($pdo) {
+    // Time conflicts apply to every person. A regular schedule cannot share a window.
+    // An approved override may share a window with a regular schedule, but not with another override.
+    $detectConflicts = function ($date, $timeStart, $timeEnd, $kind = 'regular', $excludeId = null) use ($pdo) {
         $sql = "SELECT DATE_FORMAT(s.schedule_date, '%Y-%m-%d') AS scheduleDate,
                        TIME_FORMAT(s.time_start, '%h:%i %p') AS timeStartLabel,
                        TIME_FORMAT(s.time_end, '%h:%i %p') AS timeEndLabel,
+                       COALESCE(s.schedule_kind, 'regular') AS scheduleKind,
                        COALESCE(
                            NULLIF(TRIM(CONCAT_WS(' ', si.first_name, si.last_name)), ''),
                            NULLIF(TRIM(CONCAT_WS(' ', fi.first_name, fi.last_name)), ''),
                            NULLIF(TRIM(CONCAT_WS(' ', st.first_name, st.last_name)), ''),
                            NULLIF(TRIM(CONCAT_WS(' ', ai.first_name, ai.last_name)), ''),
                            u.username,
-                           'Unknown User'
+                           'Scheduled user'
                        ) AS ownerName
                 FROM schedules s
                 INNER JOIN users u ON u.id = s.user_id
@@ -242,10 +247,13 @@ try {
                 LEFT JOIN faculty_info fi ON fi.user_id = u.id AND si.user_id IS NULL
                 LEFT JOIN staff_info st ON st.user_id = u.id AND si.user_id IS NULL AND fi.user_id IS NULL
                 LEFT JOIN admin_info ai ON ai.user_id = u.id AND si.user_id IS NULL AND fi.user_id IS NULL AND st.user_id IS NULL
-                WHERE s.user_id = :uid AND s.schedule_date = :d
+                WHERE s.schedule_date = :d
                   AND s.time_start < :te AND s.time_end > :ts
-                  AND s.status != 'cancelled'";
-        $params = [':uid' => $userId, ':d' => $date, ':ts' => $timeStart, ':te' => $timeEnd];
+                  AND s.status <> 'cancelled'";
+        $params = [':d' => $date, ':ts' => $timeStart, ':te' => $timeEnd];
+        if ($kind === 'override') {
+            $sql .= " AND COALESCE(s.schedule_kind, 'regular') = 'override'";
+        }
         if ($excludeId !== null) {
             $sql .= " AND s.schedule_id != :eid";
             $params[':eid'] = $excludeId;
@@ -299,7 +307,6 @@ try {
         $gracePeriodMinutes = (int) ($payload['gracePeriodMinutes'] ?? 15);
         $status = strtolower(trim((string) ($payload['status'] ?? 'pending')));
         $createdBy = $payload['createdBy'] ?? null;
-        $confirmOverlap = !empty($payload['confirmOverlap']);
         $allowedKinds = ['regular', 'override'];
         $allowedRegularStatuses = ['pending', 'approved', 'completed', 'cancelled'];
 
@@ -333,6 +340,100 @@ try {
             $approvedAt = entrivo_now();
         }
 
+        if ($scheduleKind === 'override') {
+            if ($scheduleType !== 'single' || !$scheduleDate) {
+                http_response_code(422);
+                echo json_encode(['message' => 'Override schedules must be a single-day access window.']);
+                exit;
+            }
+
+            $sourceScheduleId = (int) ($payload['sourceScheduleId'] ?? 0);
+            $preview = $overrideSchedules->preview($userId, $scheduleDate, $timeStart, $timeEnd, $sourceScheduleId);
+
+            if ($preview['blockingOverrides'] !== []) {
+                echo json_encode([
+                    'hasConflicts' => true,
+                    'conflicts' => [$scheduleDate],
+                    'conflictDetails' => $preview['blockingOverrides'],
+                    'validDates' => [],
+                    'message' => 'This override overlaps another override. An approved override can share a time with one regular schedule only.',
+                ]);
+                exit;
+            }
+
+            if (empty($payload['confirmOverrideImpact'])) {
+                echo json_encode([
+                    'needsOverrideConfirmation' => true,
+                    'affectedSchedules' => $preview['affected'],
+                    'notifiedUsers' => $preview['others'],
+                ]);
+                exit;
+            }
+
+            try {
+                $created = $overrideSchedules->createFromAdmin([
+                    'userId' => $userId,
+                    'scheduleDate' => $scheduleDate,
+                    'timeStart' => $timeStart,
+                    'timeEnd' => $timeEnd,
+                    'gracePeriodMinutes' => $gracePeriodMinutes,
+                    'createdBy' => $createdBy ? (int) $createdBy : ($approvedBy ? (int) $approvedBy : 0),
+                    'reason' => $payload['reason'] ?? '',
+                    'requesterName' => $payload['requesterName'] ?? '',
+                    'sourceScheduleId' => $sourceScheduleId,
+                ]);
+            } catch (InvalidArgumentException $error) {
+                http_response_code(422);
+                echo json_encode(['message' => $error->getMessage()]);
+                exit;
+            } catch (RuntimeException $error) {
+                http_response_code(409);
+                echo json_encode(['message' => $error->getMessage()]);
+                exit;
+            }
+
+            $row = $fetchScheduleById($created['scheduleId']);
+            $affectedRows = [];
+            foreach ($created['affectedSchedules'] as $affected) {
+                $loaded = $fetchScheduleById((int) $affected['id']);
+                $affectedRows[] = $loaded ?: $affected;
+            }
+
+            $activityLog->record(
+                $createdBy ? (int) $createdBy : null,
+                'Add',
+                'Added override schedule for requester #' . $userId . ' on ' . $scheduleDate . ' (' . $timeStart . ' - ' . $timeEnd . ').',
+                'Success',
+                $userId,
+                'schedule',
+                (string) $created['scheduleId']
+            );
+
+            $notificationCount = count($created['notificationIds']);
+            $emailDelivery = [
+                'sent' => 0,
+                'failed' => 0,
+                'uncertain' => 0,
+                'pending' => $notificationCount,
+                'dispatchStarted' => $notificationCount > 0 && NotificationService::dispatchDelivery((int) $created['overrideId']),
+            ];
+            $message = 'Override schedule created without changing the regular schedule.';
+            if ($notificationCount > 0) {
+                $message .= $emailDelivery['dispatchStarted']
+                    ? ' Affected users have dashboard notices, and their email notifications are queued for delivery.'
+                    : ' Affected users have dashboard notices. Email is queued; run the notification delivery worker to send it.';
+            }
+
+            echo json_encode([
+                'message' => $message,
+                'schedule' => $row,
+                'affectedSchedules' => $affectedRows,
+                'affectedUsersNotified' => $notificationCount,
+                'emailNotifications' => $emailDelivery,
+            ]);
+            exit;
+        }
+
         // ── single schedule ────────────────────────────────────────
         if ($scheduleType === 'single') {
             if (!$scheduleDate) {
@@ -341,14 +442,15 @@ try {
                 exit;
             }
 
-            $conflictRows = $detectConflicts($userId, $scheduleDate, $timeStart, $timeEnd);
+            $conflictRows = $detectConflicts($scheduleDate, $timeStart, $timeEnd, 'regular');
 
-            if (!$confirmOverlap && $conflictRows) {
+            if ($conflictRows) {
                 echo json_encode([
                     'hasConflicts' => true,
                     'conflicts' => [$scheduleDate],
                     'conflictDetails' => $conflictRows,
                     'validDates' => [],
+                    'message' => 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
                 ]);
                 exit;
             }
@@ -416,7 +518,7 @@ try {
             $validDates = [];
 
             foreach ($allDates as $date) {
-                $conflictRows = $detectConflicts($userId, $date, $timeStart, $timeEnd);
+                $conflictRows = $detectConflicts($date, $timeStart, $timeEnd, 'regular');
                 if ($conflictRows) {
                     $conflicts[] = $date;
                     foreach ($conflictRows as $conflictRow) {
@@ -427,12 +529,13 @@ try {
                 }
             }
 
-            if (!$confirmOverlap && !empty($conflicts)) {
+            if (!empty($conflicts)) {
                 echo json_encode([
                     'hasConflicts' => true,
                     'conflicts' => $conflicts,
                     'conflictDetails' => $conflictDetails,
-                    'validDates' => $validDates,
+                    'validDates' => [],
+                    'message' => 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
                 ]);
                 exit;
             }
@@ -519,14 +622,14 @@ try {
 
         $existingKind = strtolower(trim((string) ($existingSchedule['scheduleKind'] ?? 'regular')));
         $allowedStatuses = $existingKind === 'override'
-            ? ['overridden', 'approved', 'completed', 'cancelled']
+            ? ['approved', 'completed', 'cancelled']
             : ['pending', 'approved', 'completed', 'cancelled'];
 
         if (!in_array($status, $allowedStatuses, true)) {
             http_response_code(422);
             echo json_encode([
                 'message' => $existingKind === 'override'
-                    ? 'Override schedules must use Overridden, Approved, Completed, or Cancelled.'
+                    ? 'Override schedules must use Approved, Completed, or Cancelled.'
                     : 'Regular schedules must use Pending, Approved, Completed, or Cancelled.',
             ]);
             exit;
@@ -538,14 +641,48 @@ try {
             exit;
         }
 
+        if (strtotime($timeEnd) <= strtotime($timeStart)) {
+            http_response_code(422);
+            echo json_encode(['message' => 'End time must be after start time.']);
+            exit;
+        }
+
+        $ownerId = (int) ($existingSchedule['userId'] ?? 0);
+        if ($existingKind === 'override') {
+            $preview = $overrideSchedules->preview($ownerId, (string) $scheduleDate, $timeStart, $timeEnd, 0, $scheduleId);
+            if ($preview['blockingOverrides'] !== []) {
+                echo json_encode([
+                    'hasConflicts' => true,
+                    'conflicts' => [$scheduleDate],
+                    'conflictDetails' => $preview['blockingOverrides'],
+                    'validDates' => [],
+                    'message' => 'This override overlaps another override. An approved override can share a time with one regular schedule only.',
+                ]);
+                exit;
+            }
+        } else {
+            $conflictRows = $detectConflicts($scheduleDate, $timeStart, $timeEnd, 'regular', $scheduleId);
+            if ($conflictRows) {
+                echo json_encode([
+                    'hasConflicts' => true,
+                    'conflicts' => [$scheduleDate],
+                    'conflictDetails' => $conflictRows,
+                    'validDates' => [],
+                    'message' => 'A regular schedule cannot share this date and time. Another schedule already occupies this window.',
+                ]);
+                exit;
+            }
+        }
+
         $pdo->prepare(
-            "UPDATE schedules SET time_start = :time_start, time_end = :time_end, schedule_date = :schedule_date, grace_period_minutes = :grace_period_minutes, status = :status WHERE schedule_id = :schedule_id"
+            "UPDATE schedules SET time_start = :time_start, time_end = :time_end, schedule_date = :schedule_date, grace_period_minutes = :grace_period_minutes, status = :status, schedule_kind = :schedule_kind WHERE schedule_id = :schedule_id"
         )->execute([
             ':time_start' => $timeStart,
             ':time_end' => $timeEnd,
             ':schedule_date' => $scheduleDate,
             ':grace_period_minutes' => $gracePeriodMinutes,
             ':status' => $status,
+            ':schedule_kind' => $existingKind,
             ':schedule_id' => $scheduleId,
         ]);
 
