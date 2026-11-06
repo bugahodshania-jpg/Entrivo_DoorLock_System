@@ -4,7 +4,7 @@ require_once dirname(__DIR__, 2) . '/config/connection.php';
 require_once dirname(__DIR__, 2) . '/services/FingerprintEnrollmentVerification.php';
 
 header('Content-Type: application/json');
-$allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+$allowedOrigins = require __DIR__ . '/../../config/allowed_origins.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://127.0.0.1:5173';
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
 header('Access-Control-Allow-Methods: POST, OPTIONS');

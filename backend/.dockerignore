@@ -1,0 +1,7 @@
+.env
+.env.*
+storage/
+tests/
+tools/
+test_model.php
+test_service.php

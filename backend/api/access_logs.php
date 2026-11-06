@@ -5,7 +5,7 @@ date_default_timezone_set('Asia/Manila');
 header('Content-Type: application/json');
 header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
-$allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+$allowedOrigins = require __DIR__ . '/../config/allowed_origins.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://127.0.0.1:5173';
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
 header('Access-Control-Allow-Methods: GET, OPTIONS');

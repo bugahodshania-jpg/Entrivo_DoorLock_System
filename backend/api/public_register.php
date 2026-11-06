@@ -5,7 +5,7 @@ require_once dirname(__DIR__) . '/services/UserRegistrationService.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 
 header('Content-Type: application/json');
-$allowedOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+$allowedOrigins = require __DIR__ . '/../config/allowed_origins.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? $allowedOrigins[0];
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
 header('Access-Control-Allow-Methods: POST, OPTIONS');
