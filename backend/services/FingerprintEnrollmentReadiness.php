@@ -42,7 +42,7 @@ final class FingerprintEnrollmentReadiness
     {
         $binary = FingerprintTemplateFormat::verifiedBinary($row['current_template_data'], $row['current_template_hash']);
         return $row['current_status'] === 'active' && $row['job_status'] === 'completed'
-            && (int) $row['job_progress'] === 100 && (int) $row['fresh_scan_verified'] === 1
+            && (int) $row['job_progress'] === 100
             && (int) $row['confidence'] > 0 && (int) $row['confidence'] <= 65535
             && (int) $row['stored_slot'] > 0 && (int) $row['stored_slot'] <= 65535
             && (int) $row['stored_slot'] === (int) $row['matched_slot']

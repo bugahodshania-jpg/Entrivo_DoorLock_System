@@ -62,6 +62,20 @@ final class DoorStatusService
         ];
     }
 
+    /** Enrollment polls only while locked. A valid device token refreshes that locked report. */
+    public function refreshLocked(int $deviceId): void
+    {
+        if ($deviceId < 1 || !DoorStatusSchema::exists($this->pdo)) return;
+        $query = $this->pdo->prepare("SELECT device_type,status FROM fingerprint_devices WHERE device_id=?");
+        $query->execute([$deviceId]);
+        $device = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$device || $device['device_type'] !== 'enrollment' || $device['status'] !== 'active') return;
+        $this->pdo->prepare("INSERT INTO door_controller_status (device_id,door_state,boot_id,report_sequence,received_at)
+            VALUES (?,'locked',?,1,NOW(6))
+            ON DUPLICATE KEY UPDATE door_state='locked',received_at=NOW(6)")
+            ->execute([$deviceId, str_repeat('0', 32)]);
+    }
+
     /** Called only after device-token authentication in the device endpoint. */
     public function report(array $input): array
     {
@@ -99,7 +113,7 @@ final class DoorStatusService
                 // A read queued just before an unlock must not start or resume later.
                 require_once __DIR__ . '/SensorMemorySchema.php';
                 if (SensorMemorySchema::tableExists($this->pdo)) {
-                    $this->pdo->prepare("UPDATE sensor_memory_jobs SET status='cancelled',error_message=CASE WHEN kind='empty' THEN 'The door was unlocked. Lock the door and request the sensor erase again.' ELSE 'The door was unlocked. Lock the door and request a new sensor read.' END,finished_at=NOW(),active_device_key=NULL WHERE device_id=? AND status IN ('pending','processing')")
+                    $this->pdo->prepare("UPDATE sensor_memory_jobs SET status='cancelled',error_message=CASE WHEN kind IN ('empty','delete_slot') THEN 'The door was unlocked. Lock the door and request the sensor erase again.' ELSE 'The door was unlocked. Lock the door and request a new sensor read.' END,finished_at=NOW(),active_device_key=NULL WHERE device_id=? AND status IN ('pending','processing')")
                         ->execute([$deviceId]);
                 }
             }

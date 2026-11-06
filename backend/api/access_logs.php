@@ -40,19 +40,27 @@ $offset = filter_input(INPUT_GET, 'offset', FILTER_VALIDATE_INT, [
 
 try {
     $pdo = entrivo_pdo();
-$todayCounts = $pdo->query(
+    $hasAccessType = (bool) $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
+    $attendanceFilter = $hasAccessType ? "AND (access_log.access_type IS NULL OR access_log.access_type IN ('IN','OUT'))" : '';
+    $todayCounts = $pdo->query(
         "SELECT
-            SUM(DATE(access_timestamp) = CURDATE()) AS total_today,
-            SUM(access_status = 'granted' AND DATE(access_timestamp) = CURDATE()) AS granted_today,
-            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE()) AS denied_today
+            SUM(DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS total_today,
+            SUM(access_status = 'granted' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS granted_today,
+            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS denied_today
          FROM access_log"
     )->fetch();
 
-    $accessTypeColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch()
+    $accessTypeColumn = $hasAccessType
         ? 'access_log.access_type'
         : "'IN'";
     $rfidUidColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'rfid_uid'")->fetch()
         ? "CASE WHEN access_log.method_access = 'RFID' THEN NULLIF(access_log.rfid_uid, '') ELSE NULL END"
+        : 'NULL';
+    $slotColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'matched_slot'")->fetch()
+        ? 'access_log.matched_slot'
+        : 'NULL';
+    $confidenceColumn = $pdo->query("SHOW COLUMNS FROM access_log LIKE 'match_confidence'")->fetch()
+        ? 'access_log.match_confidence'
         : 'NULL';
 
     $statement = $pdo->prepare(
@@ -89,6 +97,8 @@ $todayCounts = $pdo->query(
             access_log.method_access,
             {$rfidUidColumn} AS rfid_uid,
             {$accessTypeColumn} AS access_type,
+            {$slotColumn} AS matched_slot,
+            {$confidenceColumn} AS match_confidence,
             access_log.access_status
          FROM access_log
          LEFT JOIN users ON users.id = access_log.user_id
@@ -134,6 +144,8 @@ $todayCounts = $pdo->query(
             'method' => $log['method_access'],
             'rfidUid' => $log['rfid_uid'],
             'accessType' => $log['access_type'],
+            'matchedSlot' => $log['matched_slot'] !== null ? (int) $log['matched_slot'] : null,
+            'matchConfidence' => $log['match_confidence'] !== null ? (int) $log['match_confidence'] : null,
             'status' => $log['access_status'],
             ];
         },

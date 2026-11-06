@@ -12,6 +12,9 @@ class LoginSecurityService
         3 => 60,
     ];
 
+    /** Attempt statuses that are written to the Login Logs audit trail. */
+    private const LOGGED_STATUSES = ['success', 'logout'];
+
     private PDO $pdo;
 
     public function __construct(PDO $pdo)
@@ -45,6 +48,13 @@ class LoginSecurityService
         string $status,
         ?string $failureReason = null
     ): void {
+        // Only successful sign-ins and logouts are kept in the Login Logs audit trail.
+        // Failed / blocked attempts are intentionally not persisted; failed-attempt
+        // counting and lockouts are handled separately by user_login_sessions.
+        if (!in_array($status, self::LOGGED_STATUSES, true)) {
+            return;
+        }
+
         $statement = $this->pdo->prepare(
             'INSERT INTO login_attempts
                 (user_id, username_attempted, attempt_status, failure_reason, ip_address, user_agent, created_at)

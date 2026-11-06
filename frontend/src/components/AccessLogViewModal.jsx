@@ -55,6 +55,10 @@ export default function AccessLogViewModal({ log, onClose }) {
       fields: [
         ['Log ID', log.id], ['Date', log.date], ['Time (Asia/Manila)', log.time],
         ['Method', log.method], ['Access Type', log.accessType],
+        ...(String(log.accessType || '').toUpperCase() === 'VERIFY' ? [
+          ['Matched slot', log.matchedSlot ?? 'Not recorded'],
+          ['Confidence', log.matchConfidence ?? 'Not recorded'],
+        ] : []),
         ...(isRfid ? [['RFID UID', log.rfidUid || 'Not recorded']] : []),
         ['Status', <span className={`dashboard-log-status access-logs-status-${status}`}>
           {displayLabel(log.status) || 'Not recorded'}

@@ -26,11 +26,26 @@ namespace DoorSensorCommand {
     constexpr Command load(uint16_t slot, uint8_t buffer) {
         return validBuffer(buffer) ? Command{{0x07, buffer, static_cast<uint8_t>(slot >> 8), static_cast<uint8_t>(slot)}, 4} : Command{};
     }
-    // Delete one template at this page. Slot 0 is never a valid enrollment target.
-    constexpr Command remove(uint16_t slot) {
-        return slot > 0 ? Command{{0x0C, static_cast<uint8_t>(slot >> 8), static_cast<uint8_t>(slot), 0x00, 0x01}, 5} : Command{};
+    // DeletChar: start page plus count. Slot 0 is a valid physical page on R307S.
+    constexpr Command remove(uint16_t slot, uint16_t count = 1) {
+        return count == 0 ? Command{} : Command{{0x0C,
+            static_cast<uint8_t>(slot >> 8), static_cast<uint8_t>(slot),
+            static_cast<uint8_t>(count >> 8), static_cast<uint8_t>(count)}, 5};
     }
     constexpr Command emptyLibrary() { return {{0x0D}, 1}; }
+    // Adafruit identification uses High-speed Search 0x1B with a 163-page window.
+    // Opcode 0x04 Search on 1000-capacity R307S modules often reports 0x09/0x17
+    // for a stored slot if the page window is larger than 163.
+    constexpr Command search(uint16_t start, uint16_t count, uint8_t buffer = 1) {
+        return validBuffer(buffer) && count > 0 ? Command{{0x04, buffer,
+            static_cast<uint8_t>(start >> 8), static_cast<uint8_t>(start),
+            static_cast<uint8_t>(count >> 8), static_cast<uint8_t>(count)}, 6} : Command{};
+    }
+    constexpr Command highSpeedSearch(uint16_t start, uint16_t count, uint8_t buffer = 1) {
+        return validBuffer(buffer) && count > 0 ? Command{{0x1B, buffer,
+            static_cast<uint8_t>(start >> 8), static_cast<uint8_t>(start),
+            static_cast<uint8_t>(count >> 8), static_cast<uint8_t>(count)}, 6} : Command{};
+    }
 
     struct Acknowledgement {
         bool valid = false;

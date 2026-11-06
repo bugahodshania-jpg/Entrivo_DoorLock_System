@@ -236,11 +236,13 @@ function portalFetchProfile(PDO $pdo, array $user): array
 
 function portalDashboard(PDO $pdo, int $userId): array
 {
+    $hasAccessType = (bool) $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
+    $attendanceFilter = $hasAccessType ? "AND (access_type IS NULL OR access_type IN ('IN','OUT'))" : '';
     $accessCounts = $pdo->prepare(
         "SELECT
-            SUM(access_status = 'granted') AS granted_access,
-            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE()) AS denied_today,
-            SUM(DATE(access_timestamp) = CURDATE()) AS total_today
+            SUM(access_status = 'granted' {$attendanceFilter}) AS granted_access,
+            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS denied_today,
+            SUM(DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS total_today
          FROM access_log
          WHERE user_id = :user_id"
     );

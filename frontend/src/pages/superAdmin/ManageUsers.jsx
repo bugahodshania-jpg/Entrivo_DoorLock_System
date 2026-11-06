@@ -2035,8 +2035,10 @@ export default function ManageUsers({ user: currentUser } = {}) {
                               onClick: () => handleToggleBlockUser(user),
                               disabled: isBlockingUserId === user.id,
                               hidden:
-                                Boolean(currentUser?.id) &&
-                                Number(currentUser.id) === Number(user.id),
+                                (Boolean(currentUser?.id) &&
+                                  Number(currentUser.id) === Number(user.id)) ||
+                                (currentUser?.role === 'admin' &&
+                                  ['admin', 'super_admin'].includes(user.role)),
                             },
                             {
                               label: isDeletingUserId === user.id ? 'Deleting...' : 'Delete',
@@ -2062,7 +2064,8 @@ export default function ManageUsers({ user: currentUser } = {}) {
                                 (currentUser?.role === 'admin' && !['faculty', 'student'].includes(user.role)),
                               hidden:
                                 currentUser?.role === 'admin'
-                                  ? Boolean(currentUser?.id) && Number(currentUser.id) === Number(user.id)
+                                  ? !userHasPrivilege(currentUser, 'delete_requests') ||
+                                    (Boolean(currentUser?.id) && Number(currentUser.id) === Number(user.id))
                                   : !canDeleteRecords(currentUser) ||
                                     !userHasPrivilege(currentUser, 'delete_users') ||
                                     (Boolean(currentUser?.id) && Number(currentUser.id) === Number(user.id)),
@@ -2864,29 +2867,33 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   <section className="manage-users-privileges-list-card">
                     <h3>Privileges</h3>
                     <ul className="manage-users-privileges-list">
-                      {privilegesCatalog.map((item) => {
-                        const checked = privilegesSelected.includes(item.key);
-                        const isRequired = item.key === 'dashboard';
+                      {privilegesCatalog
+                        .filter(
+                          (item) => item.key !== 'delete_requests' || privilegesRole !== 'super_admin',
+                        )
+                        .map((item) => {
+                          const checked = privilegesSelected.includes(item.key);
+                          const isRequired = item.key === 'dashboard';
 
-                        return (
-                          <li key={item.key}>
-                            <label className={checked ? 'is-checked' : undefined}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={
-                                  isPrivilegesSaving || isRequired || isViewingOwnPrivileges
-                                }
-                                onChange={() => togglePrivilege(item.key)}
-                              />
-                              <span>
-                                <strong>{item.label}</strong>
-                                <small>{item.description}</small>
-                              </span>
-                            </label>
-                          </li>
-                        );
-                      })}
+                          return (
+                            <li key={item.key}>
+                              <label className={checked ? 'is-checked' : undefined}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={
+                                    isPrivilegesSaving || isRequired || isViewingOwnPrivileges
+                                  }
+                                  onChange={() => togglePrivilege(item.key)}
+                                />
+                                <span>
+                                  <strong>{item.label}</strong>
+                                  <small>{item.description}</small>
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
                     </ul>
                   </section>
                 </div>

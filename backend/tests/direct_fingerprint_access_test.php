@@ -8,13 +8,19 @@ function expectDirect(bool $condition, string $message): void
 }
 
 $pdo = entrivo_pdo();
-$tables = ['fingerprint_devices', 'users', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'direct_fingerprint_import_jobs'];
+$tables = ['fingerprint_devices', 'users', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'direct_fingerprint_import_jobs', 'fingerprint_sensor_slots'];
 $now = new DateTimeImmutable('2026-10-21 10:00:00', new DateTimeZone('Asia/Manila'));
 $template = str_repeat("\x42\x43", 256);
 
 // Every referenced application table is shadowed by a temporary table on this
 // connection. No actual user record, schema, sync flag, or policy is modified.
 try {
+    // Shadow the real slot registry so fixtures never write live sensor rows.
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(20) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     $pdo->exec("CREATE TEMPORARY TABLE direct_fingerprint_import_jobs (
         id INT PRIMARY KEY, user_id INT, enrollment_device_id INT, target_slot INT,
         status VARCHAR(20), queued_at DATETIME, processing_at DATETIME NULL

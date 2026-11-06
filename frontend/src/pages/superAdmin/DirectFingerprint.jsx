@@ -4,7 +4,7 @@ import { useActionConfirm } from '../../components/ActionConfirm';
 import DirectFingerprintImportModal from '../../components/DirectFingerprintImportModal';
 import TableEmptyState from '../../components/TableEmptyState';
 import EnrollmentPickupCountdown from '../../components/EnrollmentPickupCountdown';
-import { getEnrollmentFinalVerificationHint, getEnrollmentProgressValue, getEnrollmentResult, getEnrollmentStatusLabel, hasEnrollmentFinalVerification, hasVerifiedEnrollment, resolveEnrollmentStageKey } from '../../utils/fingerprintEnrollment';
+import { canCancelEnrollment, enrollmentCancelConfirmMessage, findLiveEnrollmentJob, getEnrollmentFinalVerificationHint, getEnrollmentPickupRemainingSeconds, getEnrollmentProgressValue, getEnrollmentResult, getEnrollmentRowAction, getEnrollmentStatusLabel, getWeakFingerprintContactHint, hasEnrollmentFinalVerification, hasIdentifyMatch, hasVerifiedEnrollment, isLiveEnrollmentJob, isWeakFingerprintContact, resolveEnrollmentStageKey } from '../../utils/fingerprintEnrollment';
 import { Activity, ArrowLeft, BriefcaseBusiness, Check, CheckCircle2, ChevronDown, CircleAlert, Clock, Database, Download, Eye, Fingerprint as FingerprintIcon, IdCard, Plus, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Info, Trash2, UserRound, Users, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
 import { getSensorAEnrollmentKey, getSensorAEnrollmentLabel, hasVerifiedSensorAEnrollment, isEnrolledOnSensorA } from '../../utils/directFingerprint';
@@ -12,6 +12,7 @@ import RowActionMenu from '../../components/RowActionMenu';
 import entrivoLogo from '../../assets/images/entrivo_logo.png';
 import { formatDateInManila, formatDateTimeInManila, parseManilaDateTime } from '../../utils/dateTime';
 import { canDeleteRecords, portalHref, userHasPrivilege } from '../../utils/privileges';
+import { useDoorStatus } from '../../hooks/useDoorStatus';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/fingerprint.css';
@@ -20,6 +21,8 @@ import '../../styles/superAdmin/rfid.css';
 import '../../styles/shared/actionConfirm.css';
 const fingerprintTableColumns = ['User', 'Employee ID', 'Role', 'Finger Name', 'Enrollment', 'Enrolled At', 'Sensor A', 'Action'];
 const fingerprintLargeScreenQuery = '(min-width: 901px)';
+// Enrollment always runs on Sensor A (device 1); its lock state gates Enroll/Update.
+const ENROLLMENT_DEVICE_ID = 1;
 const fingerprintMobileEnrollmentMessage = 'Fingerprint enrollment and updates are available on a desktop or laptop only. Please continue from a larger screen.';
 const fingerprintRecordsLoadErrorMessage = 'Unable to load fingerprint records right now.';
 const fingerprintTabs = [{
@@ -147,13 +150,13 @@ const enrollmentStepMilestones = [{
   label: 'Place same finger for second scan'
 }, {
   threshold: 80,
-  label: 'Generating fingerprint model'
+  label: 'Creating model'
 }, {
-  threshold: 90,
-  label: 'Saving fingerprint to sensor'
+  threshold: 85,
+  label: 'Stored on Sensor A'
 }, {
   threshold: 95,
-  label: 'Downloading raw template from device'
+  label: 'Download the stored template'
 }, {
   threshold: 100,
   label: 'Enrollment complete'
@@ -172,8 +175,8 @@ const enrollmentProgressStages = [{
   icon: FingerprintIcon
 }, {
   key: 'place-first',
-  label: 'Place Finger',
-  detail: 'First scan - hold finger on sensor',
+  label: 'Scan 1',
+  detail: 'First Adafruit scan — hold until quality is good',
   threshold: 10,
   icon: FingerprintIcon
 }, {
@@ -184,26 +187,32 @@ const enrollmentProgressStages = [{
   icon: Check
 }, {
   key: 'place-second',
-  label: 'Place Again',
-  detail: 'Same finger for second scan',
-  threshold: 50,
+  label: 'Scan 2',
+  detail: 'Same finger again — hold until quality is good',
+  threshold: 60,
   icon: FingerprintIcon
 }, {
   key: 'create-model',
-  label: 'Creating Model',
-  detail: 'Generating fingerprint model',
+  label: 'Model + Store',
+  detail: 'RegModel then Store on Sensor A',
   threshold: 80,
   icon: Activity
 }, {
-  key: 'save-download',
-  label: 'Save & Download',
-  detail: 'Storing on Sensor A and saving a server backup',
-  threshold: 90,
+  key: 'stored',
+  label: 'Stored',
+  detail: 'Stored on Sensor A — download uses that template',
+  threshold: 85,
   icon: Save
+}, {
+  key: 'download',
+  label: 'Download Template',
+  detail: 'Download only after a successful Store',
+  threshold: 95,
+  icon: Download
 }, {
   key: 'complete',
   label: 'Complete',
-  detail: 'Fingerprint is enrolled on Sensor A',
+  detail: 'Sensor A mapping is confirmed and ready for schedule access',
   threshold: 100,
   icon: CheckCircle2
 }];
@@ -464,7 +473,16 @@ export default function DirectFingerprint({
 } = {}) {
   const confirmAction = useActionConfirm();
   const canUpdateFingerprints = userHasPrivilege(currentUser, 'fingerprint_update');
-  const canEnrollFingerprints = currentUser?.role !== 'admin';
+  // Enrolling is granted by the same privilege as updating, so an Admin needs an
+  // explicit grant while Super Admins keep it through their default privileges.
+  const canEnrollFingerprints = canUpdateFingerprints;
+  // Enrollment shares the door controller, so the door must be locked before
+  // starting an enrollment or update.
+  const enrollmentDoor = useDoorStatus(ENROLLMENT_DEVICE_ID);
+  const enrollmentDoorUnlocked = enrollmentDoor.state === 'unlocked';
+  const enrollmentDoorBlockedReason = enrollmentDoorUnlocked
+    ? 'The door is unlocked. Lock the door before starting fingerprint enrollment or update.'
+    : '';
   const roleFilterMenuRef = useRef(null);
   const enrollmentFilterMenuRef = useRef(null);
   const sensorAFilterMenuRef = useRef(null);
@@ -478,6 +496,7 @@ export default function DirectFingerprint({
   const [activeSection, setActiveSection] = useState('fingerprints');
   const [fingerprintsByRole, setFingerprintsByRole] = useState(initialFingerprints);
   const [enrollmentJobs, setEnrollmentJobs] = useState([]);
+  const [enrollmentActionNow, setEnrollmentActionNow] = useState(() => Date.now());
   const [finishedJobsPage, setFinishedJobsPage] = useState(1);
   const [fingerprintPage, setFingerprintPage] = useState(1);
   const [finishedJobStatusFilter, setFinishedJobStatusFilter] = useState('all');
@@ -563,6 +582,22 @@ export default function DirectFingerprint({
       setIsLoadingJobs(false);
     }
   }, []);
+  useEffect(() => {
+    function refreshAfterDownload(event) {
+      const jobId = Number(event?.detail?.jobId);
+      if (Number.isInteger(jobId) && jobId > 0) {
+        setTrackedEnrollmentProgress((current) => (Number(current?.jobId) === jobId ? null : current));
+      }
+      loadEnrollmentJobs();
+      loadFingerprints();
+    }
+    window.addEventListener('entrivo:enrollment-downloaded', refreshAfterDownload);
+    window.addEventListener('entrivo:enrollment-cancelled', refreshAfterDownload);
+    return () => {
+      window.removeEventListener('entrivo:enrollment-downloaded', refreshAfterDownload);
+      window.removeEventListener('entrivo:enrollment-cancelled', refreshAfterDownload);
+    };
+  }, [loadEnrollmentJobs, loadFingerprints]);
   const loadJobProgress = useCallback(async jobId => {
     if (!jobId || jobId <= 0) {
       return;
@@ -581,7 +616,7 @@ export default function DirectFingerprint({
       setEnrollmentJobs(currentJobs => {
         const existingIndex = currentJobs.findIndex(j => j.job_id === jobId);
         if (existingIndex === -1) {
-          return currentJobs;
+          return updatedJob ? [...currentJobs, updatedJob] : currentJobs;
         }
         const existingJob = currentJobs[existingIndex];
         if (existingJob.progress === updatedJob.progress && existingJob.status === updatedJob.status && existingJob.current_step === updatedJob.current_step && JSON.stringify(existingJob.verification ?? null) === JSON.stringify(updatedJob.verification ?? null)) {
@@ -606,6 +641,14 @@ export default function DirectFingerprint({
     }, 5000);
     return () => window.clearInterval(intervalId);
   }, [loadEnrollmentJobs, loadFingerprints]);
+  useEffect(() => {
+    const hasLiveCountdown = enrollmentJobs.some(job => (getEnrollmentPickupRemainingSeconds(job) ?? 0) > 0);
+    if (!hasLiveCountdown) {
+      return undefined;
+    }
+    const tickId = window.setInterval(() => setEnrollmentActionNow(Date.now()), 1000);
+    return () => window.clearInterval(tickId);
+  }, [enrollmentJobs]);
   const dismissToast = useCallback(toastId => {
     setToastItems(currentItems => currentItems.filter(item => item.id !== toastId));
   }, []);
@@ -806,6 +849,10 @@ export default function DirectFingerprint({
       pushToast(fingerprintMobileEnrollmentMessage, 'error');
       return;
     }
+    if (enrollmentDoorUnlocked) {
+      pushToast(enrollmentDoorBlockedReason, 'error');
+      return;
+    }
     if ((mode === 'enroll' || mode === 'add') && !canEnrollFingerprints) {
       return;
     }
@@ -875,7 +922,7 @@ export default function DirectFingerprint({
     setTrackedEnrollmentProgress(null);
   }
   function openLiveEnrollmentProgress(job) {
-    const isLive = job?.is_live ?? ['waiting', 'processing'].includes(job?.status);
+    const isLive = isLiveEnrollmentJob(job);
     if (!job || !isLive) {
       return;
     }
@@ -893,7 +940,10 @@ export default function DirectFingerprint({
     notify = true
   } = {}) {
     const latestJobs = await loadEnrollmentJobs();
-    const matchingJob = latestJobs.find(job => Number(job.user_id) === Number(enrollmentTarget.userId) && requestedFingerName && job.finger_name === requestedFingerName && ['waiting', 'processing'].includes(job.status)) || latestJobs.find(job => Number(job.user_id) === Number(enrollmentTarget.userId) && ['waiting', 'processing'].includes(job.status));
+    const matchingJob = findLiveEnrollmentJob(latestJobs, {
+      userId: enrollmentTarget.userId,
+      fingerName: requestedFingerName
+    });
     if (!matchingJob) {
       return false;
     }
@@ -917,6 +967,10 @@ export default function DirectFingerprint({
   async function handleEnrollmentAction() {
     if (!isLargeFingerprintScreen) {
       setErrorMessage(fingerprintMobileEnrollmentMessage);
+      return;
+    }
+    if (enrollmentDoorUnlocked) {
+      setErrorMessage(enrollmentDoorBlockedReason);
       return;
     }
     if (!selectedFingerprint) {
@@ -1009,7 +1063,7 @@ export default function DirectFingerprint({
   async function handleCancelJob(job) {
     const confirmed = await confirmAction({
       title: 'Cancel enrollment',
-      message: 'Are you sure you want to cancel this enrollment?',
+      message: enrollmentCancelConfirmMessage(job),
       danger: true
     });
     if (!confirmed) {
@@ -1023,6 +1077,10 @@ export default function DirectFingerprint({
         actor_id: currentUser?.id || undefined
       });
       pushToast(response.data?.message || `Enrollment job #${job.job_id} cancelled.`, 'success');
+      setTrackedEnrollmentProgress(null);
+      window.dispatchEvent(new CustomEvent('entrivo:enrollment-cancelled', {
+        detail: { jobId: job.job_id }
+      }));
       await loadEnrollmentJobs();
     } catch (error) {
       pushToast(error.response?.data?.message || 'Unable to cancel that enrollment job.', 'error');
@@ -1134,7 +1192,8 @@ export default function DirectFingerprint({
       template_bytes: 0,
       error_message: '',
       can_retry: false,
-      can_cancel: false
+      can_cancel: Boolean(trackedEnrollmentProgress.jobId),
+      is_live: true
     };
   }, [trackedEnrollmentJob, trackedEnrollmentProgress]);
   useEffect(() => {
@@ -1190,29 +1249,39 @@ export default function DirectFingerprint({
     if (job.status === 'completed') {
       return getEnrollmentFinalVerificationHint(job);
     }
-    if (job.status === 'failed' || job.status === 'cancelled') {
+    if (job.status === 'failed' || job.status === 'cancelled' || job.status === 'needs_reconciliation') {
       return job.error_message || 'This enrollment stopped before the fingerprint could be confirmed.';
     }
+    const liveError = String(job.error_message || '').trim();
+    if (liveError) return liveError;
+    const weakContactHint = getWeakFingerprintContactHint(job);
+    if (weakContactHint) return weakContactHint;
     const verificationHint = getEnrollmentFinalVerificationHint(job);
     if (verificationHint) return verificationHint;
     const normalizedStep = String(job.current_step || '').toLowerCase();
     if (normalizedStep.includes('remove')) {
       return 'Lift the same finger completely off the sensor, then wait for the next prompt. Do not touch the sensor until instructed.';
     }
+    if (normalizedStep.includes('search') || normalizedStep.includes('existing match')) {
+      return 'Sensor A is searching its memory with the first scan. Keep the door locked and wait for the result.';
+    }
     if (normalizedStep.includes('same finger') || normalizedStep.includes('again') || normalizedStep.includes('second scan')) {
-      return 'Use the exact same finger you used for the first scan. Press it flat and centered on the scanner.';
+      return 'Use the exact same finger as scan 1. If quality is low, rearrange and hold flat until this step accepts the scan.';
+    }
+    if (normalizedStep.includes('good quality')) {
+      return 'That scan looks good. Follow the next prompt.';
     }
     if (normalizedStep.includes('place')) {
-      return 'Press the selected finger flat on the sensor until the device confirms the scan. Hold steady - do not move or lift during capture.';
+      return 'Press the selected finger flat and centered. If quality is low, the progress text will ask you to rearrange before continuing.';
     }
-    if (normalizedStep.includes('download')) {
-      return 'The system is retrieving the raw template from the sensor. Do not remove power or disconnect the station.';
+    if (normalizedStep.includes('download') || normalizedStep.includes('reading the exact')) {
+      return 'Reading the exact R307S template that was just stored. Download opens only after this succeeds.';
     }
-    if (normalizedStep.includes('save') || normalizedStep.includes('store')) {
-      return 'Writing the fingerprint model to the sensor\'s memory. Keep the station powered on.';
+    if (normalizedStep.includes('save') || normalizedStep.includes('store') || normalizedStep.includes('storing on sensor')) {
+      return 'Writing the fingerprint model to Sensor A. If Store fails, enrollment rolls back and you must start again.';
     }
-    if (normalizedStep.includes('model') || normalizedStep.includes('create')) {
-      return 'The device is comparing both scans to build a fingerprint model. This takes a few seconds.';
+    if (normalizedStep.includes('model') || normalizedStep.includes('create') || normalizedStep.includes('building fingerprint')) {
+      return 'Combining both good scans into one model (RegModel), then storing it on Sensor A.';
     }
     if (normalizedStep.includes('upload') || normalizedStep.includes('template')) {
       return 'Keep Sensor A powered while the system confirms the enrollment and saves a server backup.';
@@ -1224,7 +1293,7 @@ export default function DirectFingerprint({
       return 'The enrollment station has claimed the job and is preparing the sensor for scanning.';
     }
     if (job.status === 'waiting') {
-      return 'Waiting for the Sensor A enrollment station to pick up this job. This enrollment is automatically cancelled if Sensor A does not respond within 3 minutes.';
+      return 'Waiting for the Sensor A enrollment station to pick up this job. This enrollment is automatically cancelled if it does not progress within 10 minutes.';
     }
     return 'Follow the live instruction shown here to complete the enrollment in the correct order.';
   }, []);
@@ -1239,21 +1308,24 @@ export default function DirectFingerprint({
     if (job.status === 'completed') {
       return hasVerifiedEnrollment(job) ? 'success' : 'warning';
     }
+    if (isWeakFingerprintContact(job)) {
+      return 'warning';
+    }
     if (hasEnrollmentFinalVerification(job)) {
       return normalizedStep.includes('remove') ? 'warning' : 'active';
     }
-    if (normalizedStep.includes('place') || normalizedStep.includes('scan')) {
-      return 'active';
-    }
     if (normalizedStep.includes('remove')) {
       return 'warning';
+    }
+    if (normalizedStep.includes('place') || normalizedStep.includes('scan')) {
+      return 'active';
     }
     if (normalizedStep.includes('model') || normalizedStep.includes('create') || normalizedStep.includes('save') || normalizedStep.includes('store') || normalizedStep.includes('download') || normalizedStep.includes('process')) {
       return 'active';
     }
     return 'idle';
   }, []);
-  const getFingerprintActionLabel = fingerprint => fingerprint.status === 'active' ? 'Update' : 'Enroll';
+  const getFingerprintEnrollmentAction = fingerprint => getEnrollmentRowAction(fingerprint, listedEnrollmentJobs, enrollmentActionNow);
   const shouldShowAddFingerprintAction = useCallback(fingerprint => fingerprint.status === 'active' && countStoredFingerprints(fingerprint.userId) < MAX_FINGERPRINTS_PER_USER, [fingerprintsByRole]);
   const toggleExpandedUser = useCallback(userId => {
     setExpandedUserIds(currentUserIds => currentUserIds.includes(userId) ? currentUserIds.filter(currentUserId => currentUserId !== userId) : [...currentUserIds, userId]);
@@ -1288,7 +1360,7 @@ export default function DirectFingerprint({
     detail: 'Finished jobs in the live panel',
     icon: CheckCircle2
   }];
-  const liveJobs = useMemo(() => listedEnrollmentJobs.filter(job => job.is_live ?? ['waiting', 'processing'].includes(job.status)), [listedEnrollmentJobs]);
+  const liveJobs = useMemo(() => listedEnrollmentJobs.filter(job => isLiveEnrollmentJob(job)), [listedEnrollmentJobs]);
   const spotlightJob = useMemo(() => liveJobs.find(job => job.status === 'processing') || liveJobs[0] || null, [liveJobs]);
   useEffect(() => {
     const trackedId = trackedEnrollmentProgress?.jobId || spotlightJob?.job_id;
@@ -1339,15 +1411,10 @@ export default function DirectFingerprint({
   const trackedEnrollmentInstructionHint = useMemo(() => getEnrollmentInstructionHint(trackedEnrollmentDisplayJob), [getEnrollmentInstructionHint, trackedEnrollmentDisplayJob]);
   const trackedEnrollmentInstructionTone = useMemo(() => getEnrollmentInstructionTone(trackedEnrollmentDisplayJob), [getEnrollmentInstructionTone, trackedEnrollmentDisplayJob]);
   const trackedEnrollmentStages = useMemo(() => {
-    const stages = hasEnrollmentFinalVerification(trackedEnrollmentDisplayJob) ? [
-      ...enrollmentProgressStages.slice(0, -1),
-      { key: 'verify-fingerprint', label: 'Verify Stored Finger', detail: 'Fresh third scan confirms the saved fingerprint', threshold: 96, icon: FingerprintIcon },
-      enrollmentProgressStages.at(-1),
-    ] : enrollmentProgressStages;
     if (trackedEnrollmentDisplayJob?.status === 'completed' && !hasVerifiedEnrollment(trackedEnrollmentDisplayJob)) {
-      return stages.map(stage => stage.key === 'complete' ? { ...stage, label: 'Recorded Complete', detail: 'Fresh-scan verification not confirmed' } : stage);
+      return enrollmentProgressStages.map(stage => stage.key === 'complete' ? { ...stage, label: 'Recorded Complete', detail: 'Sensor A mapping not confirmed' } : stage);
     }
-    return stages;
+    return enrollmentProgressStages;
   }, [trackedEnrollmentDisplayJob]);
   const trackedEnrollmentStageKey = useMemo(() => resolveEnrollmentStageKey(trackedEnrollmentDisplayJob), [trackedEnrollmentDisplayJob]);
   const trackedEnrollmentStageIndex = useMemo(() => Math.max(0, trackedEnrollmentStages.findIndex(stage => stage.key === trackedEnrollmentStageKey)), [trackedEnrollmentStageKey, trackedEnrollmentStages]);
@@ -1569,6 +1636,7 @@ export default function DirectFingerprint({
     expanded = false
   } = {}) {
     const isExpandable = isParentRow && additionalFingerprintCount > 0;
+    const enrollmentAction = getFingerprintEnrollmentAction(fingerprint);
     const enrolledAtParts = formatEnrolledAtParts(fingerprint.enrolledAt || fingerprint.registeredAt, fingerprint);
     return <tr key={rowKey} className={[isParentRow ? 'fingerprint-summary-row' : '', isChildRow ? 'fingerprint-child-row' : '', isExpandable ? 'fingerprint-expandable-row' : '', expanded ? 'is-expanded' : ''].filter(Boolean).join(' ')} onClick={isExpandable ? () => toggleExpandedUser(fingerprint.userId) : undefined}>
         <td>
@@ -1619,16 +1687,24 @@ export default function DirectFingerprint({
           icon: Eye,
           onClick: () => openFingerprintView(fingerprint)
         }, {
-          label: activeActionId === fingerprint.id ? 'Starting...' : getFingerprintActionLabel(fingerprint),
-          icon: FingerprintIcon,
-          disabled: activeActionId === fingerprint.id,
+          label: activeActionId === fingerprint.id ? 'Starting...' : enrollmentAction.label,
+          icon: enrollmentAction.kind === 'view-progress' ? Activity : FingerprintIcon,
+          disabled: activeActionId === fingerprint.id || (enrollmentAction.kind !== 'view-progress' && enrollmentDoorUnlocked),
+          title: enrollmentAction.kind !== 'view-progress' && enrollmentDoorUnlocked ? enrollmentDoorBlockedReason : undefined,
           hidden: !isLargeFingerprintScreen || (fingerprint.status !== 'active' && !canEnrollFingerprints) || (fingerprint.status === 'active' && !canUpdateFingerprints),
-          onClick: () => openEnrollmentModal(fingerprint)
+          onClick: () => {
+            if (enrollmentAction.kind === 'view-progress') {
+              openLiveEnrollmentProgress(enrollmentAction.job);
+              return;
+            }
+            openEnrollmentModal(fingerprint);
+          }
         }, {
           label: 'New fingerprint',
           icon: Plus,
-          hidden: !isLargeFingerprintScreen || !canEnrollFingerprints || !shouldShowAddFingerprintAction(fingerprint),
-          disabled: activeActionId === fingerprint.id,
+          hidden: !isLargeFingerprintScreen || !canEnrollFingerprints || !shouldShowAddFingerprintAction(fingerprint) || enrollmentAction.kind === 'view-progress',
+          disabled: activeActionId === fingerprint.id || enrollmentDoorUnlocked,
+          title: enrollmentDoorUnlocked ? enrollmentDoorBlockedReason : undefined,
           onClick: () => openEnrollmentModal(fingerprint, 'add')
         }, {
           label: activeBackupId === fingerprint.id ? 'Exporting...' : 'Export backup',
@@ -2099,16 +2175,16 @@ export default function DirectFingerprint({
                     </div>
                   </div>
 
-                  {((spotlightJob.is_live ?? ['waiting', 'processing'].includes(spotlightJob.status)) || spotlightJob.can_retry || spotlightJob.can_cancel) && <div className="fingerprint-action-group fingerprint-live-actions">
-                      {(spotlightJob.is_live ?? ['waiting', 'processing'].includes(spotlightJob.status)) && <button type="button" className="fingerprint-secondary-action fingerprint-view-progress-button" onClick={() => openLiveEnrollmentProgress(spotlightJob)}>
+                  {((isLiveEnrollmentJob(spotlightJob)) || spotlightJob.can_retry || spotlightJob.can_cancel) && <div className="fingerprint-action-group fingerprint-live-actions">
+                      {(isLiveEnrollmentJob(spotlightJob)) && <button type="button" className="fingerprint-secondary-action fingerprint-view-progress-button" onClick={() => openLiveEnrollmentProgress(spotlightJob)}>
                           <Eye size={14} aria-hidden="true" />
                           View Progress
                         </button>}
-                      {spotlightJob.can_retry && !isCompletedEnrollmentJob(spotlightJob) && <button type="button" className="fingerprint-secondary-action" onClick={() => handleRetryJob(spotlightJob)} disabled={activeJobActionId === spotlightJob.job_id}>
+                      {canUpdateFingerprints && spotlightJob.can_retry && !isCompletedEnrollmentJob(spotlightJob) && <button type="button" className="fingerprint-secondary-action" onClick={() => handleRetryJob(spotlightJob)} disabled={activeJobActionId === spotlightJob.job_id}>
                           <RotateCcw size={14} aria-hidden="true" />
                           {activeJobActionId === spotlightJob.job_id ? 'Working...' : 'Retry'}
                         </button>}
-                      {spotlightJob.can_cancel && <button type="button" className="fingerprint-secondary-action fingerprint-danger-action" onClick={() => handleCancelJob(spotlightJob)} disabled={activeJobActionId === spotlightJob.job_id}>
+                      {canUpdateFingerprints && canCancelEnrollment(spotlightJob) && <button type="button" className="fingerprint-secondary-action fingerprint-danger-action" onClick={() => handleCancelJob(spotlightJob)} disabled={activeJobActionId === spotlightJob.job_id}>
                           {activeJobActionId === spotlightJob.job_id ? 'Working...' : 'Cancel'}
                         </button>}
                     </div>}
@@ -2309,7 +2385,8 @@ export default function DirectFingerprint({
             </div>
 
             <div className="fingerprint-modal-actions fingerprint-enrollment-modal-actions">
-              <button type="button" className="fingerprint-primary-action fingerprint-enrollment-submit" onClick={handleEnrollmentAction} disabled={activeActionId === selectedFingerprint.id}>
+              {enrollmentDoorUnlocked && <p className="fingerprint-inline-message fingerprint-inline-message-error" role="status">{enrollmentDoorBlockedReason}</p>}
+              <button type="button" className="fingerprint-primary-action fingerprint-enrollment-submit" onClick={handleEnrollmentAction} disabled={activeActionId === selectedFingerprint.id || enrollmentDoorUnlocked}>
                 {activeActionId === selectedFingerprint.id ? 'Starting...' : enrollmentModalCopy.actionLabel}
               </button>
             </div>
@@ -2321,7 +2398,7 @@ export default function DirectFingerprint({
             <h2 id="fingerprint-enrollment-result-title" className={enrollmentResult.tone === 'success' ? 'is-success' : 'is-error'}>{enrollmentResult.title}</h2>
             <p>{enrollmentResult.message}</p>
             <div className="action-confirm-actions">
-              {trackedEnrollmentDisplayJob.can_retry ? <button type="button" className="action-confirm-secondary" onClick={() => handleRetryJob(trackedEnrollmentDisplayJob)} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>
+              {canUpdateFingerprints && trackedEnrollmentDisplayJob.can_retry ? <button type="button" className="action-confirm-secondary" onClick={() => handleRetryJob(trackedEnrollmentDisplayJob)} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>
                   {activeJobActionId === trackedEnrollmentDisplayJob.job_id ? 'Retrying...' : 'Retry'}
                 </button> : null}
               <button type="button" onClick={closeEnrollmentProgressModal} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>OK</button>
@@ -2329,7 +2406,7 @@ export default function DirectFingerprint({
           </section>
         </div>, document.body) : null}
 
-      {trackedEnrollmentProgress && trackedEnrollmentDisplayJob && !enrollmentResult && <div className="fingerprint-modal-overlay">
+      {trackedEnrollmentProgress && trackedEnrollmentDisplayJob && !enrollmentResult && !hasIdentifyMatch(trackedEnrollmentDisplayJob) && <div className="fingerprint-modal-overlay">
           <section className={`fingerprint-modal fingerprint-progress-modal fingerprint-progress-tone-${trackedEnrollmentInstructionTone}`} role="dialog" aria-modal="true" aria-label={`Enrollment progress for ${trackedEnrollmentDisplayJob.user_name}`} onClick={event => event.stopPropagation()}>
             <div className="fingerprint-modal-header fingerprint-progress-modal-header">
               <div className="fingerprint-progress-title-wrap">
@@ -2484,12 +2561,12 @@ export default function DirectFingerprint({
               </div>
             </div>
 
-            {trackedEnrollmentDisplayJob.can_retry && !isCompletedEnrollmentJob(trackedEnrollmentDisplayJob) || trackedEnrollmentDisplayJob.can_cancel ? <div className="fingerprint-modal-actions fingerprint-progress-modal-actions">
+            {canUpdateFingerprints && (trackedEnrollmentDisplayJob.can_retry && !isCompletedEnrollmentJob(trackedEnrollmentDisplayJob) || canCancelEnrollment(trackedEnrollmentDisplayJob)) ? <div className="fingerprint-modal-actions fingerprint-progress-modal-actions">
                 {trackedEnrollmentDisplayJob.can_retry && !isCompletedEnrollmentJob(trackedEnrollmentDisplayJob) && <button type="button" className="fingerprint-secondary-action" onClick={() => handleRetryJob(trackedEnrollmentDisplayJob)} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>
                   <RotateCcw size={14} aria-hidden="true" />
                   {activeJobActionId === trackedEnrollmentDisplayJob.job_id ? 'Working...' : 'Retry'}
                 </button>}
-              {trackedEnrollmentDisplayJob.can_cancel && <button type="button" className="fingerprint-secondary-action fingerprint-danger-action" onClick={() => handleCancelJob(trackedEnrollmentDisplayJob)} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>
+              {canCancelEnrollment(trackedEnrollmentDisplayJob) && <button type="button" className="fingerprint-secondary-action fingerprint-danger-action" onClick={() => handleCancelJob(trackedEnrollmentDisplayJob)} disabled={activeJobActionId === trackedEnrollmentDisplayJob.job_id}>
                   {activeJobActionId === trackedEnrollmentDisplayJob.job_id ? 'Working...' : 'Cancel'}
                 </button>}
               </div> : null}

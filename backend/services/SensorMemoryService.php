@@ -3,9 +3,12 @@
 require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/SensorMemorySchema.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
+require_once __DIR__ . '/FingerprintSlotRegistry.php';
 require_once __DIR__ . '/UserPrivilegeService.php';
 require_once __DIR__ . '/DirectFingerprintImportSchema.php';
+require_once __DIR__ . '/EnrollmentVerifySchema.php';
 require_once __DIR__ . '/DoorStatusService.php';
+require_once __DIR__ . '/../models/FingerprintEnrollmentJob.php';
 
 final class SensorMemoryException extends RuntimeException
 {
@@ -39,10 +42,18 @@ final class SensorMemoryService
         $devices = $this->devices();
         $deviceId = isset($input['device_id']) ? $this->integer($input['device_id']) : ($devices[0]['device_id'] ?? null);
         $response = ['success' => true, 'devices' => $devices, 'device' => null, 'inventory' => null,
-            'active_job' => null, 'rows' => [], 'summary' => $this->emptySummary()];
+            'active_job' => null, 'rows' => [], 'summary' => $this->emptySummary(),
+            'sensor_busy' => false, 'sensor_busy_reason' => ''];
         $response['database_compared_at'] = (string) $this->pdo->query('SELECT NOW()')->fetchColumn();
         $response['time_zone'] = 'Asia/Manila';
         if ($deviceId === null) return $response;
+        // The enrollment controller shares this physical sensor, so report when another
+        // operation (enrollment, restore, verification) is already using it. This only
+        // informs the portal; queued reads still yield safely in claim().
+        if ($this->writeWorkActive($deviceId, false)) {
+            $response['sensor_busy'] = true;
+            $response['sensor_busy_reason'] = 'The fingerprint sensor is currently in use by an enrollment, restore, or verification job. Wait for it to finish before reading or erasing sensor memory.';
+        }
         $response['device'] = $this->device($deviceId);
         $inventoryId = isset($input['inventory_id']) ? $this->integer($input['inventory_id']) : null;
         if (isset($input['template_job_id'])) {
@@ -81,7 +92,7 @@ final class SensorMemoryService
         $actorId = $this->actor($input['actor_id'] ?? null);
         $deviceId = $this->integer($input['device_id'] ?? null);
         $action = $input['action'] ?? null;
-        if (!in_array($action, ['scan', 'read_template', 'cancel', 'empty_sensor'], true)) $this->reject('Use scan, read_template, empty_sensor, or cancel.', 422);
+        if (!in_array($action, ['scan', 'read_template', 'cancel', 'empty_sensor', 'delete_slot'], true)) $this->reject('Use scan, read_template, empty_sensor, delete_slot, or cancel.', 422);
         $this->ready();
         return $this->transaction(function () use ($input, $actorId, $deviceId, $action): array {
             $this->device($deviceId, true, $action !== 'cancel');
@@ -97,15 +108,15 @@ final class SensorMemoryService
             $door = (new DoorStatusService($this->pdo))->snapshot($deviceId);
             if (!$door['can_read_sensor']) {
                 $this->reject($door['state'] === 'unlocked'
-                    ? ($action === 'empty_sensor'
-                        ? 'The door is unlocked. Lock the door before erasing sensor templates.'
+                    ? (in_array($action, ['empty_sensor', 'delete_slot'], true)
+                        ? 'The door is unlocked. Lock the door before deleting sensor templates.'
                         : 'The door is unlocked. Lock the door before reading sensor memory.')
                     : 'Door status is unavailable. Wait for the controller to confirm the door is locked before using the sensor.');
             }
-            if ($action === 'empty_sensor' && $this->writeWorkActive($deviceId)) {
-                $this->reject('Finish or cancel fingerprint enrollment and database restore before erasing the sensor.');
+            if (in_array($action, ['empty_sensor', 'delete_slot'], true) && $this->writeWorkActive($deviceId)) {
+                $this->reject('Finish or cancel fingerprint enrollment and database restore before deleting sensor templates.');
             }
-            $kind = $action === 'empty_sensor' ? 'empty' : ($action === 'scan' ? 'inventory' : 'template');
+            $kind = $action === 'empty_sensor' ? 'empty' : ($action === 'delete_slot' ? 'delete_slot' : ($action === 'scan' ? 'inventory' : 'template'));
             $inventoryId = null;
             $slot = null;
             if ($kind === 'template') {
@@ -113,6 +124,9 @@ final class SensorMemoryService
                 $slot = $this->integer($input['slot_id'] ?? null, true);
                 $inventory = $this->inventory($inventoryId, $deviceId);
                 if (!in_array($slot, $inventory['occupied_slots'], true)) $this->reject('This slot was not occupied in the selected sensor inventory.', 422);
+            }
+            if ($kind === 'delete_slot') {
+                $slot = $this->integer($input['slot_id'] ?? null, true);
             }
             $query = $this->pdo->prepare("SELECT * FROM sensor_memory_jobs WHERE device_id=? AND status IN ('pending','processing') ORDER BY id LIMIT 1 FOR UPDATE");
             $query->execute([$deviceId]);
@@ -126,9 +140,13 @@ final class SensorMemoryService
             }
             $this->pdo->prepare('INSERT INTO sensor_memory_jobs (actor_id,device_id,kind,inventory_id,target_slot,active_device_key) VALUES (?,?,?,?,?,?)')
                 ->execute([$actorId, $deviceId, $kind, $inventoryId, $slot, $deviceId]);
-            return $this->jobResponse($this->job((int) $this->pdo->lastInsertId()), $kind === 'empty'
+            $job = $this->job((int) $this->pdo->lastInsertId());
+            $message = $kind === 'empty'
                 ? 'Erase queued. The controller will delete every fingerprint template and slot ID on the R307S.'
-                : 'Read queued. Waiting for the physical R307S controller.');
+                : ($kind === 'delete_slot'
+                    ? 'Delete queued. The controller will remove fingerprint template slot ' . $slot . ' from the R307S.'
+                    : 'Read queued. Waiting for the physical R307S controller.');
+            return $this->jobResponse($job, $message);
         });
     }
 
@@ -192,6 +210,11 @@ final class SensorMemoryService
                 if ($job['kind'] === 'inventory' || $job['kind'] === 'empty') {
                     $this->pdo->prepare('INSERT INTO sensor_memory_inventories (job_id,device_id,capacity,template_count,occupied_slots,captured_at) VALUES (?,?,?,?,?,?)')
                         ->execute([$jobId, $deviceId, $report['capacity'], $report['template_count'], json_encode($report['occupied_slots']), $report['captured_at']]);
+                    if ($job['kind'] === 'empty') FingerprintSlotRegistry::releaseDevice($this->pdo, $deviceId);
+                } elseif ($job['kind'] === 'delete_slot') {
+                    $deletedSlot = (int) $job['target_slot'];
+                    FingerprintSlotRegistry::release($this->pdo, $deviceId, $deletedSlot);
+                    $this->dropSlotFromLatestInventory($deviceId, $deletedSlot);
                 } else {
                     // Validate the parent again: a template never becomes an
                     // inventory, or attaches to another device or unlisted slot.
@@ -215,6 +238,14 @@ final class SensorMemoryService
             return ['error_message' => $reason, 'report_hash' => hash('sha256', json_encode(['fail', $reason]))];
         }
         $capture = $this->capturedAt($input['captured_at'] ?? null);
+        if ($job['kind'] === 'delete_slot') {
+            $slot = $this->integer($input['target_slot'] ?? null, true);
+            if ($slot !== (int) $job['target_slot']) $this->reject('The deleted slot does not match the queued sensor slot.', 422);
+            if (($input['deleted'] ?? null) !== true && ($input['deleted'] ?? null) !== 1) {
+                $this->reject('The sensor erase is complete only after DeletChar confirms the slot ID is gone.', 422);
+            }
+            return ['captured_at' => $capture, 'report_hash' => hash('sha256', json_encode(['delete_slot', $slot, true, $capture]))];
+        }
         if ($job['kind'] === 'inventory' || $job['kind'] === 'empty') {
             $capacity = $this->integer($input['capacity'] ?? null);
             $count = $this->integer($input['template_count'] ?? null, true);
@@ -273,8 +304,12 @@ final class SensorMemoryService
         $templates = [];
         $templateJobs = [];
         if ($inventory !== null) {
-            $query = $this->pdo->prepare('SELECT * FROM sensor_memory_templates WHERE inventory_id=? ORDER BY job_id');
-            $query->execute([$inventory['job_id']]);
+            // Keep the newest successful template read per slot for this device so a
+            // later "Read sensor" scan does not wipe earlier slot comparisons. Each
+            // template still records the inventory it was read under, so the portal
+            // can tell when a comparison came from an earlier scan.
+            $query = $this->pdo->prepare('SELECT * FROM sensor_memory_templates WHERE device_id=? ORDER BY slot_id, job_id');
+            $query->execute([$deviceId]);
             foreach ($query->fetchAll(PDO::FETCH_ASSOC) as $template) $templates[(int) $template['slot_id']] = $this->safeTemplate($template);
             $query = $this->pdo->prepare("SELECT * FROM sensor_memory_jobs WHERE inventory_id=? AND kind='template' ORDER BY id");
             $query->execute([$inventory['job_id']]);
@@ -285,7 +320,9 @@ final class SensorMemoryService
         foreach ($slots as $slot) {
             $records = $bySlot[$slot] ?? [];
             $present = $inventory === null ? null : isset($sensor[$slot]);
-            $template = $templates[$slot] ?? null;
+            // Only a slot occupied in the current scan can be compared; its stored
+            // bytes may come from an earlier template read of the same slot.
+            $template = $present === true ? ($templates[$slot] ?? null) : null;
             $mapping = count($records) > 1 ? 'conflict' : ($inventory === null ? 'not_scanned' : ($present ? ($records === [] ? 'sensor_only' : 'mapped') : 'database_only'));
             $state = $present === null ? 'not_scanned' : (!$present ? 'not_on_sensor' : 'not_read');
             if ($present === true && $template !== null) {
@@ -344,11 +381,18 @@ final class SensorMemoryService
         return $device;
     }
 
-    private function writeWorkActive(int $deviceId): bool
+    private function writeWorkActive(int $deviceId, bool $lock = true): bool
     {
-        $query = $this->pdo->prepare("SELECT 1 FROM fingerprint_enrollment_jobs WHERE status IN ('waiting','processing') AND (enrollment_device_id=? OR enrollment_device_id IS NULL) LIMIT 1 FOR UPDATE");
+        $liveMinutes = FingerprintEnrollmentJob::PICKUP_TIMEOUT_MINUTES;
+        $query = $this->pdo->prepare("SELECT 1 FROM fingerprint_enrollment_jobs
+            WHERE (enrollment_device_id=? OR enrollment_device_id IS NULL) AND finished_at IS NULL
+            AND status IN ('waiting','processing','stored_pending_commit','needs_reconciliation')
+            AND COALESCE(updated_at, created_at, NOW()) > DATE_SUB(NOW(), INTERVAL {$liveMinutes} MINUTE)
+            LIMIT 1" . ($lock ? ' FOR UPDATE' : ''));
         $query->execute([$deviceId]);
-        return (bool) $query->fetchColumn() || DirectFingerprintImportSchema::hasActiveForDevice($this->pdo, $deviceId);
+        return (bool) $query->fetchColumn()
+            || DirectFingerprintImportSchema::hasActiveForDevice($this->pdo, $deviceId)
+            || EnrollmentVerifySchema::hasActiveForDevice($this->pdo, $deviceId);
     }
 
     private function job(int $id, bool $lock = false): array
@@ -377,6 +421,27 @@ final class SensorMemoryService
     private function sameDevice(array $job, int $deviceId): void
     {
         if ((int) $job['device_id'] !== $deviceId) $this->reject('This sensor memory job belongs to a different device.', 403);
+    }
+
+    private function dropSlotFromLatestInventory(int $deviceId, int $slot): void
+    {
+        $query = $this->pdo->prepare("SELECT i.job_id, i.occupied_slots
+            FROM sensor_memory_inventories i
+            INNER JOIN sensor_memory_jobs j ON j.id = i.job_id
+            WHERE i.device_id = ? AND j.status = 'completed'
+            ORDER BY i.job_id DESC LIMIT 1 FOR UPDATE");
+        $query->execute([$deviceId]);
+        $inventory = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$inventory) return;
+        $slots = json_decode($inventory['occupied_slots'], true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($slots)) return;
+        $remaining = array_values(array_filter(
+            $slots,
+            static fn (mixed $value): bool => (int) $value !== $slot
+        ));
+        if (count($remaining) === count($slots)) return;
+        $this->pdo->prepare('UPDATE sensor_memory_inventories SET template_count = ?, occupied_slots = ? WHERE job_id = ?')
+            ->execute([count($remaining), json_encode($remaining), $inventory['job_id']]);
     }
 
     private function latestInventory(int $deviceId): ?array
@@ -471,6 +536,7 @@ final class SensorMemoryService
                 if (!SensorMemorySchema::tableExists($this->pdo, $table)) $this->reject('Sensor Memory is not installed. Run backend/migrations/create_sensor_memory.php, then retry.', 503);
             }
         }
+        SensorMemorySchema::ensureDeleteSlotKind($this->pdo);
         SensorMemorySchema::expire($this->pdo);
     }
 

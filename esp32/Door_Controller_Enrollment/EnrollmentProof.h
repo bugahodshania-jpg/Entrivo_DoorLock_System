@@ -6,6 +6,7 @@
 namespace DoorEnrollmentProof {
     struct Verification {
         bool freshScanVerified = false;
+        bool storageConfirmed = false;
         int storedSlot = 0;
         int matchedSlot = 0;
         int confidence = 0;
@@ -22,16 +23,27 @@ namespace DoorEnrollmentProof {
     }
 
     constexpr bool validVerification(const Verification &proof, int reservedSlot) {
-        return reservedSlot > 0 && reservedSlot <= UINT16_MAX && proof.freshScanVerified &&
-            proof.storedSlot == reservedSlot && proof.matchedSlot == reservedSlot &&
-            proof.confidence > 0 && R307TemplateStream::supportedSize(proof.templateBytes) &&
-            validHash(proof.templateSha256);
+        if (reservedSlot <= 0 || reservedSlot > UINT16_MAX || proof.storedSlot != reservedSlot) return false;
+        if (proof.freshScanVerified) {
+            return proof.matchedSlot == reservedSlot && proof.confidence > 0 &&
+                R307TemplateStream::supportedSize(proof.templateBytes) && validHash(proof.templateSha256);
+        }
+        return proof.storageConfirmed && proof.storedSlot == reservedSlot &&
+            (proof.templateBytes == 0 || (R307TemplateStream::supportedSize(proof.templateBytes) &&
+                validHash(proof.templateSha256)));
     }
 
     constexpr bool sameVerification(const Verification &expected, const Verification &received) {
         if (!validVerification(expected, expected.storedSlot) ||
-            !validVerification(received, expected.storedSlot) ||
-            expected.confidence != received.confidence || expected.templateBytes != received.templateBytes) return false;
+            !validVerification(received, expected.storedSlot)) return false;
+        if (expected.storageConfirmed && received.storageConfirmed &&
+            expected.storedSlot == received.storedSlot &&
+            (expected.templateBytes == 0 || received.templateBytes == 0 ||
+                expected.templateBytes == received.templateBytes)) {
+            if (expected.templateBytes == 0 || received.templateBytes == 0) return true;
+        } else if (expected.confidence != received.confidence || expected.templateBytes != received.templateBytes) {
+            return false;
+        }
         for (size_t index = 0; index < 64; ++index)
             if (expected.templateSha256[index] != received.templateSha256[index]) return false;
         return true;
@@ -77,32 +89,29 @@ namespace DoorEnrollmentProof {
     }
 
     enum class Result {
-        Verified, OccupiedSlot, CaptureFailed, ProgressFailed, ModelFailed,
-        StoreFailed, RecoveryFailed, StoredReadFailed, InvalidStored, FreshVerificationFailed, StoredVerificationFailed
+        Verified, StoredPending, OccupiedSlot, CaptureFailed, ProgressFailed, ModelFailed,
+        StoreFailed, RecoveryFailed
     };
 
-    // Native enrollment keeps the sensor's own generated model intact.
-    // Check metadata and capture both features before generation. RegModel and
-    // Store are adjacent operations: no host template roundtrip precedes Store.
-    // Recovery verifies an existing slot and never writes flash.
+    // Adafruit two-scan enrollment: RegModel -> Store. The stored-slot
+    // template is read and downloaded after this returns StoredPending.
     template <typename Operations>
     constexpr Result finishNative(Operations &ops, bool recovering, uint8_t *saved,
         size_t capacity, size_t &savedLength) {
         savedLength = 0;
+        (void)saved;
+        (void)capacity;
         if (!recovering && !ops.emptySlot()) return Result::OccupiedSlot;
         if (!ops.capturePair()) return Result::CaptureFailed;
         if (!ops.beforeGeneration()) return Result::ProgressFailed;
         if (!ops.generate()) return Result::ModelFailed;
         if (recovering) {
             if (!ops.confirmRecovery()) return Result::RecoveryFailed;
-        } else {
-            if (!ops.storeNative()) return Result::StoreFailed;
+            return Result::StoredPending;
         }
-        if (!ops.readStored(saved, capacity, savedLength)) return Result::StoredReadFailed;
-        if (savedLength > capacity || !validTemplate(saved, savedLength)) return Result::InvalidStored;
-        if (!ops.verifyFresh()) return Result::FreshVerificationFailed;
-        if (!ops.confirmStored(saved, savedLength)) return Result::StoredVerificationFailed;
-        return Result::Verified;
+        if (!ops.storeNative()) return Result::StoreFailed;
+        ops.markStored();
+        return Result::StoredPending;
     }
 }
 

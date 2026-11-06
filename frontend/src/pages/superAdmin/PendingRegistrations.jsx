@@ -7,6 +7,7 @@ import DeleteRequestToast from '../../components/DeleteRequestToast';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import TableEmptyState from '../../components/TableEmptyState';
+import { userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -477,15 +478,17 @@ export default function PendingRegistrations({ user }) {
               <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" />
               Reject
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="is-danger"
-              onClick={() => deleteRegistration(menuState.registration)}
-            >
-              <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" />
-              Delete
-            </button>
+            {user?.role === 'admin' && !userHasPrivilege(user, 'delete_requests') ? null : (
+              <button
+                type="button"
+                role="menuitem"
+                className="is-danger"
+                onClick={() => deleteRegistration(menuState.registration)}
+              >
+                <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" />
+                Delete
+              </button>
+            )}
           </div>,
           document.body,
         )

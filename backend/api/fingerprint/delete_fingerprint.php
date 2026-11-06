@@ -30,6 +30,9 @@ if (!is_array($input)) {
 
 require_once dirname(__DIR__, 2) . '/models/Fingerprint.php';
 require_once dirname(__DIR__, 2) . '/services/UserPrivilegeService.php';
+require_once dirname(__DIR__, 2) . '/services/FingerprintSlotRegistry.php';
+require_once dirname(__DIR__, 2) . '/services/SensorMemorySchema.php';
+require_once dirname(__DIR__, 2) . '/services/SensorMemoryService.php';
 
 try {
     $fingerprintId = filter_var(
@@ -93,12 +96,36 @@ try {
         exit;
     }
 
+    $deviceId = (int) ($existing['enrollment_device_id'] ?? 0);
+    $slot = (int) ($existing['enrollment_slot'] ?? 0);
+    FingerprintSlotRegistry::release($pdo, $deviceId, $slot);
+
+    $message = 'Fingerprint deleted successfully.';
+    $sensorJob = null;
+    if ($deviceId > 0 && $slot > 0 && SensorMemorySchema::tableExists($pdo)) {
+        try {
+            $queued = (new SensorMemoryService($pdo))->adminAction([
+                'action' => 'delete_slot',
+                'actor_id' => $actorId,
+                'device_id' => $deviceId,
+                'slot_id' => $slot,
+            ]);
+            $sensorJob = $queued['job'] ?? null;
+            $message = 'Fingerprint deleted. Keep the door locked while the controller removes R307S slot '
+                . $slot . '.';
+        } catch (SensorMemoryException $error) {
+            $message = 'Fingerprint record deleted, but R307S slot ' . $slot
+                . ' was not queued for deletion. ' . $error->getMessage();
+        }
+    }
+
     require_once dirname(__DIR__, 2) . '/services/ActivityLogService.php';
     (new ActivityLogService(entrivo_pdo()))->record(
         $actorId,
         'Delete',
         'Deleted fingerprint #' . $fingerprintId
-            . ' for user #' . (int) ($existing['user_id'] ?? 0) . '.',
+            . ' for user #' . (int) ($existing['user_id'] ?? 0)
+            . ($slot > 0 ? ' and queued R307S slot ' . $slot . ' for deletion.' : '.') ,
         'Success',
         isset($existing['user_id']) ? (int) $existing['user_id'] : null,
         'fingerprint',
@@ -107,8 +134,9 @@ try {
 
     echo json_encode([
         'success' => true,
-        'message' => 'Fingerprint deleted successfully.',
+        'message' => $message,
         'fingerprint_id' => $fingerprintId,
+        'sensor_job' => $sensorJob,
     ]);
 } catch (InvalidArgumentException $error) {
     http_response_code(403);

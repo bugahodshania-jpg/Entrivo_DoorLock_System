@@ -29,6 +29,33 @@ require_once dirname(__DIR__, 2) . '/controllers/FingerprintSyncController.php';
 require_once dirname(__DIR__, 2) . '/services/FingerprintSyncService.php';
 require_once dirname(__DIR__, 2) . '/models/FingerprintSyncQueue.php';
 require_once dirname(__DIR__, 2) . '/models/Fingerprint.php';
+require_once dirname(__DIR__, 2) . '/services/UserPrivilegeService.php';
+
+$actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+
+if (!$actorId) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => 'A valid actor id is required to cancel a template sync.',
+    ]);
+    exit;
+}
+
+try {
+    (new UserPrivilegeService(entrivo_pdo()))->assertActorHasPrivilege(
+        $actorId,
+        'fingerprint_update',
+        'You do not have permission to sync fingerprints. Ask a Super Admin to grant Enroll & Update Fingerprints access.'
+    );
+} catch (InvalidArgumentException $error) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'message' => $error->getMessage(),
+    ]);
+    exit;
+}
 
 try {
     $controller = new FingerprintSyncController();

@@ -16,7 +16,7 @@ export function hasVerifiedSensorAEnrollment(fingerprint) {
   const proof = fingerprint.enrollmentVerification;
   const slot = Number(fingerprint.enrollmentSlot);
 
-  return proof?.fresh_scan_verified === true
+  return (proof?.fresh_scan_verified === true || proof?.storage_confirmed === true)
     && Number.isInteger(proof.stored_slot) && proof.stored_slot === slot
     && Number.isInteger(proof.matched_slot) && proof.matched_slot === slot
     && Number.isInteger(proof.confidence) && proof.confidence > 0 && proof.confidence <= 65535

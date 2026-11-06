@@ -391,6 +391,10 @@ class FingerprintSyncService
             return ['success' => false, 'status' => 404, 'message' => 'Fingerprint record not found.'];
         }
 
+        if (($fingerprint['status'] ?? '') !== 'active' || (int) ($fingerprint['enrollment_slot'] ?? 0) <= 0) {
+            return ['success' => false, 'status' => 409, 'message' => 'Sensor B can sync only after the Sensor A mapping is confirmed.'];
+        }
+
         $storedTemplate = $fingerprint['template_data'] ?? null;
 
         if (!is_string($storedTemplate) || $storedTemplate === '') {

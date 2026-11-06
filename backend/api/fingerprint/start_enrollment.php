@@ -37,23 +37,21 @@ try {
     $fingerprintId = filter_var($input['fingerprint_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
     $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
 
-    if ($fingerprintId) {
-        if (!$actorId) {
-            http_response_code(422);
-            echo json_encode([
-                'success' => false,
-                'message' => 'A valid actor id is required to update fingerprints.',
-            ]);
-            exit;
-        }
-
-        $pdo = entrivo_pdo();
-        (new UserPrivilegeService($pdo))->assertActorHasPrivilege(
-            $actorId,
-            'fingerprint_update',
-            'You do not have permission to update fingerprints. Ask a Super Admin to grant Update Fingerprints access.'
-        );
+    if (!$actorId) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'message' => 'A valid actor id is required to enroll or update fingerprints.',
+        ]);
+        exit;
     }
+
+    $pdo = entrivo_pdo();
+    (new UserPrivilegeService($pdo))->assertActorHasPrivilege(
+        $actorId,
+        'fingerprint_update',
+        'You do not have permission to enroll or update fingerprints. Ask a Super Admin to grant Enroll & Update Fingerprints access.'
+    );
 
     $controller = new FingerprintEnrollmentController();
     $result = $controller->startEnrollment($input);

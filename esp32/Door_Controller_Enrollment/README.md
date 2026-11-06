@@ -29,9 +29,8 @@ allowlist is not used. Existing sensor templates are preserved.
    The default firmware token is empty, so entry is denied until configured.
    Restart the backend after changing its environment. Keep a shared token
    private. The existing HTTP URL is intended for the trusted local test network.
-4. Keep **only this board** polling the configured enrollment device ID.
-   Stop any `Enrollment_Station` or `Direct_Fingerprint_Door` board using that ID;
-   otherwise the boards compete to claim the same enrollment/import jobs.
+4. Keep **only this board** polling the configured enrollment device ID so no
+   other board competes to claim the same enrollment/import jobs.
 5. Upload to the board wired below and open Serial Monitor at **115200 baud**.
    `M` prints status, `T` prints RTC time, and `L` locks the door. There is no
    serial command to bypass database verification and unlock it.
@@ -94,12 +93,12 @@ Use **Fingerprint (Direct)** at `/super-admin/fingerprint-direct` or
 
 - For a new fingerprint, follow the two capture prompts and final fresh-scan
   verification. The board checks an empty destination before capture, then uses
-  native `RegModel -> Store(buffer 2)` with no template transfer, metadata query,
+  native `RegModel -> Store(buffer 1)` with no template transfer, metadata query,
   or HTTP between those commands. It loads the stored slot into buffer 1 and
   downloads the flash read-back. Uniform data fails enrollment. Removing and
   rescanning the same finger must identify the reserved slot with positive sensor
   confidence. A second flash read after that scan must match the first read
-  byte-for-byte before completion and backup to the database.
+  byte-for-byte before the backup is staged in MySQL and the final scan begins.
 - For a saved database fingerprint, use **Import from database**, find the
   employee, select a saved finger, and import. The board validates the backup,
   stores it, and checks its read-back SHA-256 before reporting completion.
@@ -130,7 +129,13 @@ Use **Fingerprint (Direct)** at `/super-admin/fingerprint-direct` or
 The web module retains its three-minute transaction timeout and its cancel,
 retry, and one-minute form reset behavior. This sketch does not alter those UI
 timers. The three-minute firmware confirmation limit is separate from finger
-capture prompts (30 seconds per scan, 15 seconds to remove the finger).
+capture prompts (30 seconds per scan, 30 seconds to remove the finger).
+If the first-scan library check is unclear, the screen asks you to lift the
+finger completely before repeating scan 1. Wait for the placement prompt
+before touching Sensor A again. If page-window Search repeatedly returns
+`0x17`, the controller checks occupied slots with `LoadChar` and `Match`.
+Capture the `[FP] Search` and `[FP] Match occupied slot` lines if that check
+also fails.
 
 Completion sends a device-authenticated `verification` object containing
 `fresh_scan_verified`, `stored_slot`, `matched_slot`, the sensor's positive
@@ -203,18 +208,23 @@ fails the restoration. Import requires this verified buffer immediately before
 Store; native enrollment does not use DownChar.
 
 Startup logs show `[FP] Sensor capacity=...` and `[FP] Stored templates=...`.
-Each placement uses one standard full-capacity search. It no longer tries a
-second compatibility search on the same capture. Search sends opcode `0x04`
-against character buffer 1. Responses must pass header, address, packet type,
+Each placement searches the sensor library in page windows with opcode `0x04`
+against character buffer 1. If the sensor returns the undefined status `0x17`,
+the board reads the occupied-slot index, loads each stored template into buffer
+2, and uses the documented `Match` command to compare it with the live scan in
+buffer 1. An empty, verified index needs no comparisons. Search and Match
+responses must pass header, address, packet type,
 length, and checksum checks before their status is trusted. A successful ACK
 must contain exactly five payload bytes: status, slot, and confidence. All
 failed or malformed responses clear the previous match fields.
 
 - `[FP] Search standard=0x09` means that capture did not match a stored template.
   Fully remove the finger before another scan.
-- A validated status `0x17` is kept distinct. The R307S manual does not define
-  it, and its cause is not established. A malformed packet is a host-side
-  protocol failure (`0xFE`), with the specific error printed to Serial Monitor.
+- A validated Search status `0x17` remains visible in Serial Monitor. The R307S
+  manual does not define it, and its cause is not established. The separate
+  `Match` results determine whether occupied slots match; a failed index or
+  Match check stops the job. A malformed packet is a host-side protocol failure
+  (`0xFE`), with the specific error printed to Serial Monitor.
 - An `image`, `image conversion`, or search communication error (`0x01`, `0xFE`,
   or `0xFF`) causes sensor reinitialization. Other sensor errors retain their
   actual status code. Invalid or stale match replies are rejected.
@@ -267,7 +277,7 @@ not upload firmware or change sensor memory.
 
 The portal header displays this controller's reported lock state beside the
 date and time. `DoorStatus.cpp` sends authenticated state changes and a heartbeat
-every three seconds from a separate task; HTTP waits do not delay touch-to-lock.
+every three seconds from the main loop; HTTP waits do not delay touch-to-lock.
 The page and backend block Sensor Memory reads unless the controller has
 confirmed a locked door within fifteen seconds. Unlocking cancels queued or
 running reads for this controller. Install the additive door-status migration

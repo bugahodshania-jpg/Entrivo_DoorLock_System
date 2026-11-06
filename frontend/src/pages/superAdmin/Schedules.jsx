@@ -1914,7 +1914,13 @@ export default function Schedules({ user }) {
                           { label: 'Override', icon: ShieldAlert, hidden: !canCreateOverrideFromSchedule(schedule), onClick: () => openOverrideFromSchedule(schedule) },
                           { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
                           { label: 'History', icon: History, onClick: () => handleHistory(schedule) },
-                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
+                          {
+                            label: 'Delete',
+                            icon: Trash2,
+                            danger: true,
+                            hidden: user?.role === 'admin' && !userHasPrivilege(user, 'delete_requests'),
+                            onClick: () => handleDelete(schedule),
+                          },
                         ]}
                       />
                     </td>
@@ -2108,7 +2114,13 @@ export default function Schedules({ user }) {
                             { label: 'View', icon: Eye, onClick: () => handleView(schedule) },
                             { label: 'Override', icon: ShieldAlert, hidden: !canCreateOverrideFromSchedule(schedule), onClick: () => openOverrideFromSchedule(schedule) },
                             { label: 'Edit', icon: Pencil, onClick: () => handleEdit(schedule) },
-                            { label: 'Delete', icon: Trash2, danger: true, onClick: () => handleDelete(schedule) },
+                            {
+                              label: 'Delete',
+                              icon: Trash2,
+                              danger: true,
+                              hidden: user?.role === 'admin' && !userHasPrivilege(user, 'delete_requests'),
+                              onClick: () => handleDelete(schedule),
+                            },
                           ]}
                         />
                       }

@@ -4,6 +4,8 @@ require_once __DIR__ . '/../models/FingerprintEnrollmentJob.php';
 require_once __DIR__ . '/../models/Fingerprint.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
 require_once __DIR__ . '/FingerprintEnrollmentVerification.php';
+require_once __DIR__ . '/FingerprintEnrollmentBackup.php';
+require_once __DIR__ . '/FingerprintSlotRegistry.php';
 
 final class FingerprintEnrollmentCompletionException extends RuntimeException
 {
@@ -53,6 +55,7 @@ class FingerprintEnrollmentService
             ];
         }
 
+        $fingerprintRecord = null;
         if ($fingerprintId !== null && $fingerprintId > 0) {
             $fingerprintRecord = $this->fingerprintModel->getById($fingerprintId);
 
@@ -107,11 +110,21 @@ class FingerprintEnrollmentService
             ];
         }
 
+        $previousSlot = $isExistingFingerprintUpdate
+            ? (int) (($fingerprintRecord['enrollment_slot'] ?? 0) ?: ($matchingFingerRecord['enrollment_slot'] ?? 0))
+            : 0;
+
         try {
             $jobId = $this->jobModel->createJob(
                 $userId,
                 $fingerName,
                 $deviceId,
+                $fingerprintId
+            );
+            $this->jobModel->annotateJobMode(
+                (int) $jobId,
+                $isExistingFingerprintUpdate ? 'update' : 'enroll',
+                $previousSlot > 0 ? $previousSlot : null,
                 $fingerprintId
             );
         } catch (DirectFingerprintSensorBusyException $error) {
@@ -122,7 +135,11 @@ class FingerprintEnrollmentService
             "success" => true,
             "job_id" => $jobId,
             "fingerprint_id" => $fingerprintId,
-            "message" => "Enrollment job created."
+            "job_mode" => $isExistingFingerprintUpdate ? 'update' : 'enroll',
+            "previous_slot" => $previousSlot > 0 ? $previousSlot : null,
+            "message" => $isExistingFingerprintUpdate
+                ? "Fingerprint update job created. The existing Sensor A mapping stays active until the replacement is confirmed."
+                : "Enrollment job created."
         ];
     }
 
@@ -154,9 +171,14 @@ class FingerprintEnrollmentService
             return null;
         }
 
-        $this->jobModel->requeueStaleProcessingJobs($deviceId);
+        $this->jobModel->expireStaleOpenJobs();
+        $recoverable = $this->jobModel->getRecoverableJob($deviceId);
+        if ($recoverable && !FingerprintEnrollmentBackup::hasIdentifyMatch($this->conn, (int) $recoverable['job_id'])) {
+            return $this->deviceJobPayload($recoverable, true);
+        }
 
-        return $this->jobModel->getNextWaitingJob($deviceId);
+        $waiting = $this->jobModel->getNextWaitingJob($deviceId);
+        return $waiting ? $this->deviceJobPayload($waiting, false) : null;
     }
 
     public function claimJob(int $jobId, ?int $deviceId = null): bool
@@ -166,7 +188,42 @@ class FingerprintEnrollmentService
 
     public function getJobById(int $jobId)
     {
-        return $this->withVerification($this->jobModel->getJobById($jobId));
+        $job = $this->jobModel->getJobById($jobId);
+        return $job ? $this->deviceJobPayload($job, in_array((string) ($job['status'] ?? ''), FingerprintEnrollmentJob::RECOVERABLE_STATUSES, true)) : null;
+    }
+
+    private function deviceJobPayload(array $job, bool $recovery): array
+    {
+        $job = $this->withVerification($job) ?? $job;
+        $userId = (int) ($job['user_id'] ?? 0);
+        $fingerprintId = (int) ($job['fingerprint_id'] ?? 0);
+        $previous = (int) ($job['previous_slot'] ?? 0);
+        if ($fingerprintId > 0 && $previous <= 0) {
+            $record = $this->fingerprintModel->getById($fingerprintId);
+            $previous = (int) ($record['enrollment_slot'] ?? 0);
+        }
+        if ($previous <= 0 && $userId > 0) {
+            $record = $this->fingerprintModel->findByUserAndFingerName($userId, (string) ($job['finger_name'] ?? ''));
+            $previous = is_array($record) ? (int) ($record['enrollment_slot'] ?? 0) : 0;
+        }
+        $owned = [];
+        if ($userId > 0) {
+            $rows = $this->conn->prepare("SELECT enrollment_slot FROM fingerprints
+                WHERE user_id = ? AND status = 'active' AND enrollment_slot IS NOT NULL");
+            $rows->execute([$userId]);
+            foreach ($rows as $row) {
+                $owned[] = (int) $row['enrollment_slot'];
+            }
+        }
+        $mode = (string) ($job['job_mode'] ?? '');
+        if ($mode !== 'update' && $mode !== 'enroll') {
+            $mode = $fingerprintId > 0 ? 'update' : 'enroll';
+        }
+        $job['job_mode'] = $mode;
+        $job['previous_slot'] = $previous > 0 ? $previous : null;
+        $job['owned_slots'] = $owned;
+        $job['recovery'] = $recovery || in_array((string) ($job['status'] ?? ''), FingerprintEnrollmentJob::RECOVERABLE_STATUSES, true);
+        return $job;
     }
 
     public function getSingleJobProgress(int $jobId): ?array
@@ -195,11 +252,12 @@ class FingerprintEnrollmentService
             'updated_at' => $job['updated_at'] ?? null,
             'has_template_data' => (bool) ($job['has_template_data'] ?? false),
             'template_bytes' => (int) ($job['template_bytes'] ?? 0),
-            'is_live' => in_array($status, ['waiting', 'processing'], true),
+            'is_live' => in_array($status, ['waiting', 'processing', 'stored_pending_commit', 'needs_reconciliation'], true),
             'is_closed' => in_array($status, ['completed', 'failed', 'cancelled'], true),
-            'can_retry' => in_array($status, ['failed', 'cancelled'], true),
-            'can_cancel' => $status === 'waiting',
+            'can_retry' => in_array($status, ['failed', 'cancelled', 'needs_reconciliation'], true),
+            'can_cancel' => in_array($status, FingerprintEnrollmentJob::OPEN_STATUSES, true),
             'verification' => $this->verificationForJob($job),
+            'identify_match' => $this->identifyMatchForJob($job),
         ];
     }
 
@@ -223,7 +281,7 @@ class FingerprintEnrollmentService
             ];
         }
 
-        $this->jobModel->cancelIdleWaitingJobs();
+        $this->jobModel->expireStaleOpenJobs();
         $limit = (int) ($query['limit'] ?? 12);
         $jobs = $this->jobModel->getRecentJobs($limit);
 
@@ -252,11 +310,12 @@ class FingerprintEnrollmentService
                 'updated_at' => $job['updated_at'],
                 'has_template_data' => (bool) ($job['has_template_data'] ?? false),
                 'template_bytes' => (int) ($job['template_bytes'] ?? 0),
-                'is_live' => in_array($status, ['waiting', 'processing'], true),
+                'is_live' => in_array($status, ['waiting', 'processing', 'stored_pending_commit', 'needs_reconciliation'], true),
                 'is_closed' => in_array($status, ['completed', 'failed', 'cancelled'], true),
-                'can_retry' => in_array($status, ['failed', 'cancelled'], true),
-                'can_cancel' => $status === 'waiting',
+                'can_retry' => in_array($status, ['failed', 'cancelled', 'needs_reconciliation'], true),
+                'can_cancel' => in_array($status, FingerprintEnrollmentJob::OPEN_STATUSES, true),
                 'verification' => $this->verificationForJob($job),
+                'identify_match' => $this->identifyMatchForJob($job),
             ];
         }, $jobs);
 
@@ -369,22 +428,32 @@ class FingerprintEnrollmentService
             return $this->completionFailure(400, 'Job ID, enrollment device, and the reserved sensor slot are required.');
         }
 
+        $storageConfirmed = is_array($input['verification'] ?? null)
+            && ($input['verification']['storage_confirmed'] ?? null) === true;
         $encoded = $input['template_data_base64'] ?? null;
-        if (!is_string($encoded) || trim($encoded) === '') {
+        $binary = '';
+        if (is_string($encoded) && trim($encoded) !== '') {
+            $decoded = base64_decode(trim($encoded), true);
+            if ($decoded === false) {
+                return $this->completionFailure(400, 'Template data must be valid base64.');
+            }
+            $binary = $decoded;
+            if (!FingerprintTemplateFormat::isSupportedSize(strlen($binary))) {
+                if (!$storageConfirmed) {
+                    return $this->completionFailure(422, sprintf(
+                        'Invalid fingerprint template size. Supported sizes: %s bytes; got %d bytes.',
+                        FingerprintTemplateFormat::describeSupportedSizes(), strlen($binary)
+                    ));
+                }
+                $binary = '';
+            } elseif (!FingerprintTemplateFormat::isUsableTemplate($binary)) {
+                if (!$storageConfirmed) {
+                    return $this->completionFailure(422, 'The sensor returned invalid fingerprint template data containing only one repeated byte. Enroll the finger again; the existing fingerprint was preserved.');
+                }
+                $binary = '';
+            }
+        } elseif (!$storageConfirmed) {
             return $this->completionFailure(400, 'Actual fingerprint template data is required before completion.');
-        }
-        $binary = base64_decode(trim($encoded), true);
-        if ($binary === false) {
-            return $this->completionFailure(400, 'Template data must be valid base64.');
-        }
-        if (!FingerprintTemplateFormat::isSupportedSize(strlen($binary))) {
-            return $this->completionFailure(422, sprintf(
-                'Invalid fingerprint template size. Supported sizes: %s bytes; got %d bytes.',
-                FingerprintTemplateFormat::describeSupportedSizes(), strlen($binary)
-            ));
-        }
-        if (!FingerprintTemplateFormat::isUsableTemplate($binary)) {
-            return $this->completionFailure(422, 'The sensor returned invalid fingerprint template data containing only one repeated byte. Enroll the finger again; the existing fingerprint was preserved.');
         }
         try {
             $proof = FingerprintEnrollmentVerification::normalize($input['verification'] ?? null, $binary);
@@ -392,7 +461,16 @@ class FingerprintEnrollmentService
             return $this->completionFailure(422, $error->getMessage());
         }
         if ($proof['stored_slot'] !== $assignedSlot || $proof['matched_slot'] !== $assignedSlot) {
-            return $this->completionFailure(409, 'The freshly matched and stored sensor slots must both equal the reserved job slot.');
+            return $this->completionFailure(409, 'The stored sensor slots must both equal the reserved job slot.');
+        }
+        if ((int) ($proof['template_bytes'] ?? 0) <= 0 || ($proof['template_sha256'] ?? '') === '') {
+            $this->jobModel->markStoredPending(
+                $jobId,
+                $deviceId,
+                $assignedSlot,
+                'Sensor A storage is recorded. Waiting for a confirmed stored-slot template.'
+            );
+            return $this->completionFailure(409, 'A confirmed stored-slot template is required before this fingerprint can open the door. The stored Sensor A template was preserved.');
         }
         if ($this->conn->inTransaction()) {
             return $this->completionFailure(409, 'Enrollment completion requires its own transaction.');
@@ -409,8 +487,8 @@ class FingerprintEnrollmentService
             if ($reservedSlot <= 0 || $reservedSlot !== $assignedSlot) {
                 throw new FingerprintEnrollmentCompletionException('Assigned slot does not match the stored reserved job slot.', 409);
             }
-            if (!in_array($job['status'], ['processing', 'completed'], true) ||
-                ($job['status'] === 'processing' && !empty($job['finished_at']))) {
+            if (!in_array($job['status'], ['processing', 'stored_pending_commit', 'completed'], true) ||
+                (in_array($job['status'], ['processing', 'stored_pending_commit'], true) && !empty($job['finished_at']))) {
                 throw new FingerprintEnrollmentCompletionException('Only a claimed, processing enrollment job can be completed.', 409);
             }
             if (!FingerprintEnrollmentVerification::tableExists($this->conn)) {
@@ -439,22 +517,49 @@ class FingerprintEnrollmentService
             if (FingerprintEnrollmentVerification::findByJobId($this->conn, $jobId)) {
                 throw new FingerprintEnrollmentCompletionException('This job already has a conflicting verification record.', 409);
             }
+            $staged = FingerprintEnrollmentBackup::find($this->conn, $jobId);
+            if ($staged && ((int) $staged['enrollment_device_id'] !== $deviceId ||
+                (int) $staged['stored_slot'] !== $assignedSlot ||
+                (int) $staged['template_bytes'] !== strlen($binary) ||
+                $staged['template_data'] !== $binary ||
+                !hash_equals((string) $staged['template_sha256'], $proof['template_sha256']))) {
+                throw new FingerprintEnrollmentCompletionException('The stored template does not match the staged slot backup.', 409);
+            }
             $targetId = (int) ($job['fingerprint_id'] ?? 0);
             $previous = $targetId > 0 ? $this->fingerprintModel->getById($targetId) : null;
             if ($targetId > 0 && (!$previous || (int) $previous['user_id'] !== (int) $job['user_id'])) {
                 throw new FingerprintEnrollmentCompletionException('The fingerprint update target no longer belongs to this user.', 409);
             }
             $job['is_update'] = $previous !== null && (!empty($previous['enrollment_slot']) || !empty($previous['template_data']));
-            $fingerprint = $this->fingerprintModel->saveEnrollment(
-                (int) $job['user_id'], (string) $job['finger_name'], $deviceId, $assignedSlot,
-                $binary, $proof['template_sha256'], $targetId > 0 ? $targetId : null
-            );
+            $previousSlot = (int) (($job['previous_slot'] ?? 0) ?: ($previous['enrollment_slot'] ?? 0));
+            if ($binary !== '') {
+                $fingerprint = $this->fingerprintModel->saveEnrollment(
+                    (int) $job['user_id'], (string) $job['finger_name'], $deviceId, $assignedSlot,
+                    $binary, $proof['template_sha256'], $targetId > 0 ? $targetId : null
+                );
+            } else {
+                $fingerprint = $this->fingerprintModel->activateSensorMapping(
+                    (int) $job['user_id'], (string) $job['finger_name'], $deviceId, $assignedSlot,
+                    $targetId > 0 ? $targetId : null
+                );
+            }
             $fingerprint = $this->fingerprintModel->getById((int) ($fingerprint['fingerprint_id'] ?? 0));
             $this->assertSavedEnrollment($fingerprint, $job, $binary, $proof);
+            FingerprintSlotRegistry::markActive(
+                $this->conn,
+                $deviceId,
+                $assignedSlot,
+                (int) ($fingerprint['fingerprint_id'] ?? 0),
+                $jobId
+            );
+            if ($job['is_update'] && $previousSlot > 0 && $previousSlot !== $assignedSlot) {
+                FingerprintSlotRegistry::markAwaitingCleanup($this->conn, $deviceId, $previousSlot);
+            }
             $stored = FingerprintEnrollmentVerification::record($this->conn, $job, $fingerprint, $proof);
             if (!$stored || !$this->jobModel->completeJob($jobId, $assignedSlot, $deviceId)) {
                 throw new FingerprintEnrollmentCompletionException('Unable to atomically confirm the saved fingerprint and enrollment job.', 409);
             }
+            FingerprintEnrollmentBackup::delete($this->conn, $jobId);
             $freshJob = $this->jobModel->lockJobById($jobId);
             if (!$freshJob || $freshJob['status'] !== 'completed' || (int) $freshJob['progress'] !== 100 || empty($freshJob['finished_at'])) {
                 throw new FingerprintEnrollmentCompletionException('The completed enrollment could not be read back.', 409);
@@ -481,8 +586,13 @@ class FingerprintEnrollmentService
             (int) ($fingerprint['enrollment_device_id'] ?? 0) !== (int) $job['enrollment_device_id'] ||
             (int) ($fingerprint['enrollment_slot'] ?? 0) !== $proof['stored_slot'] ||
             (int) ($fingerprint['shared_door_slot'] ?? 0) !== $proof['stored_slot'] ||
-            ($fingerprint['status'] ?? null) !== 'active' ||
-            ($fingerprint['template_data'] ?? null) !== $binary ||
+            ($fingerprint['status'] ?? null) !== 'active') {
+            throw new FingerprintEnrollmentCompletionException('Saved fingerprint bytes, hash, ownership, or sensor mapping did not match the verified enrollment.', 409);
+        }
+        if ($binary === '') {
+            return;
+        }
+        if (($fingerprint['template_data'] ?? null) !== $binary ||
             ($fingerprint['template_hash'] ?? null) !== $proof['template_sha256'] ||
             FingerprintTemplateFormat::verifiedBinary($fingerprint['template_data'] ?? null, $fingerprint['template_hash'] ?? null) !== $binary) {
             throw new FingerprintEnrollmentCompletionException('Saved fingerprint bytes, hash, ownership, or sensor mapping did not match the verified enrollment.', 409);
@@ -509,7 +619,7 @@ class FingerprintEnrollmentService
         $fingerprint['template_bytes'] = $proof['template_bytes'];
         unset($fingerprint['template_data']);
         return ['status' => 200, 'body' => [
-            'success' => true, 'message' => 'Enrollment completed after verified sensor storage and a fresh matching scan.',
+            'success' => true, 'message' => 'Enrollment completed after the stored-slot template was downloaded.',
             'job' => $job, 'fingerprint' => $fingerprint, 'verification' => $proof, 'idempotent' => $idempotent,
         ]];
     }
@@ -526,12 +636,238 @@ class FingerprintEnrollmentService
         return $stored ? FingerprintEnrollmentVerification::metadata($stored) : null;
     }
 
+    private function identifyMatchForJob(array $job): ?array
+    {
+        $status = (string) ($job['status'] ?? '');
+        if (!in_array($status, ['stored_pending_commit', 'needs_reconciliation', 'processing'], true)) {
+            return null;
+        }
+        return FingerprintEnrollmentBackup::identifyMatch($this->conn, (int) $job['job_id']);
+    }
+
+    public function reportIdentifyMatch(array $input): array
+    {
+        $jobId = (int) ($input['job_id'] ?? 0);
+        $deviceId = (int) ($input['enrollment_device_id'] ?? 0);
+        $assignedSlot = (int) ($input['assigned_slot'] ?? 0);
+        $encoded = $input['template_data_base64'] ?? null;
+        $binary = is_string($encoded) ? base64_decode(trim($encoded), true) : false;
+        if ($jobId <= 0 || $deviceId <= 0 || $assignedSlot <= 0 || !is_string($binary) || $binary === '') {
+            return $this->completionFailure(400, 'Job, device, reserved slot, and the stored-slot template are required.');
+        }
+        if (!FingerprintTemplateFormat::isSupportedSize(strlen($binary)) || !FingerprintTemplateFormat::isUsableTemplate($binary)) {
+            return $this->completionFailure(422, 'The stored template is not a usable Sensor A model.');
+        }
+        try {
+            $proof = FingerprintEnrollmentVerification::normalize($input['verification'] ?? null, $binary);
+        } catch (InvalidArgumentException $error) {
+            return $this->completionFailure(422, $error->getMessage());
+        }
+        if ($proof['stored_slot'] !== $assignedSlot || $proof['matched_slot'] !== $assignedSlot) {
+            return $this->completionFailure(409, 'The reported template must belong to the reserved sensor slot.');
+        }
+        if ((int) ($proof['template_bytes'] ?? 0) <= 0 || ($proof['template_sha256'] ?? '') === '') {
+            return $this->completionFailure(409, 'A confirmed stored-slot template is required before download.');
+        }
+        $job = $this->jobModel->getJobById($jobId);
+        if (!$job || (int) ($job['enrollment_device_id'] ?? 0) !== $deviceId) {
+            return $this->completionFailure(404, 'Enrollment job not found for this device.');
+        }
+        if (!in_array($job['status'], ['processing', 'stored_pending_commit', 'needs_reconciliation'], true)) {
+            return $this->completionFailure(409, 'This enrollment is not waiting for a stored-slot template.');
+        }
+        if ((int) ($job['assigned_slot'] ?? 0) !== $assignedSlot) {
+            return $this->completionFailure(409, 'The stored template slot does not match the reserved job slot.');
+        }
+        try {
+            FingerprintEnrollmentBackup::ensure($this->conn);
+            FingerprintEnrollmentBackup::stage($this->conn, $jobId, $deviceId, $assignedSlot, $binary, $proof['template_sha256']);
+            FingerprintEnrollmentBackup::recordIdentifyMatch(
+                $this->conn,
+                $jobId,
+                $proof['matched_slot'],
+                max(1, (int) ($proof['confidence'] ?? 1)),
+                !empty($proof['fresh_scan_verified'])
+            );
+        } catch (InvalidArgumentException $error) {
+            return $this->completionFailure(422, $error->getMessage());
+        } catch (DomainException $error) {
+            return $this->completionFailure(409, $error->getMessage());
+        }
+        $this->jobModel->markStoredPending(
+            $jobId,
+            $deviceId,
+            $assignedSlot,
+            'Stored at slot ' . $proof['stored_slot'] . '. Waiting for download.'
+        );
+        $this->jobModel->updateProgress(
+            $jobId,
+            95,
+            'Stored at slot ' . $proof['stored_slot'] . '. Waiting for download.',
+            $deviceId
+        );
+        return [
+            'status' => 200,
+            'body' => [
+                'success' => true,
+                'job_id' => $jobId,
+                'assigned_slot' => $assignedSlot,
+                'matched_slot' => $proof['matched_slot'],
+                'confidence' => $proof['confidence'],
+                'template_bytes' => $proof['template_bytes'],
+                'template_sha256' => $proof['template_sha256'],
+                'message' => 'The stored-slot template is confirmed. Download it to save it.',
+                'job' => $this->getSingleJobProgress($jobId),
+            ],
+        ];
+    }
+
+    public function commitEnrollmentDownload(array $input): array
+    {
+        $jobId = (int) ($input['job_id'] ?? 0);
+        if ($jobId <= 0) {
+            return $this->completionFailure(400, 'A valid enrollment job is required.');
+        }
+        $job = $this->jobModel->getJobById($jobId);
+        if (!$job) {
+            return $this->completionFailure(404, 'Enrollment job not found.');
+        }
+        $match = FingerprintEnrollmentBackup::identifyMatch($this->conn, $jobId);
+        if (!$match) {
+            return $this->completionFailure(409, 'Sensor A has not confirmed the stored-slot template yet. Wait for the stored template to be read, then download.');
+        }
+        $result = $this->completeEnrollment([
+            'job_id' => $jobId,
+            'enrollment_device_id' => (int) $job['enrollment_device_id'],
+            'assigned_slot' => (int) $job['assigned_slot'],
+            'template_data_base64' => $match['template_data_base64'],
+            'verification' => [
+                'fresh_scan_verified' => !empty($match['fresh_scan_verified']),
+                'storage_confirmed' => true,
+                'stored_slot' => $match['stored_slot'],
+                'matched_slot' => $match['matched_slot'],
+                'confidence' => $match['confidence'],
+                'template_bytes' => $match['template_bytes'],
+                'template_sha256' => $match['template_sha256'],
+            ],
+        ]);
+        if (!empty($result['body']['success'])) {
+            $this->cancelPostDownloadVerifyJobs($jobId);
+        }
+        return $result;
+    }
+
+    private function cancelPostDownloadVerifyJobs(int $jobId): void
+    {
+        try {
+            $this->conn->prepare("UPDATE fingerprint_enrollment_verify_jobs
+                SET status='cancelled', current_step='Enrollment finished after Download. No third scan.',
+                    finished_at=NOW(), error_message='Post-download verify is not part of enrollment.'
+                WHERE enrollment_job_id=? AND status IN ('pending','processing')")->execute([$jobId]);
+        } catch (Throwable $error) {
+            // Table may be absent on older databases.
+        }
+    }
+
     private function withVerification($job): ?array
     {
         if (!$job) return null;
         $job = $this->normalizeBoardJob($job);
         $job['verification'] = $this->verificationForJob($job);
         return $job;
+    }
+
+    public function markStored(array $input): array
+    {
+        $jobId = (int) ($input['job_id'] ?? 0);
+        $deviceId = (int) ($input['enrollment_device_id'] ?? 0);
+        $slot = (int) ($input['assigned_slot'] ?? 0);
+        $step = trim((string) ($input['current_step'] ?? ('Stored at slot ' . $slot)));
+        if ($jobId <= 0 || $deviceId <= 0 || $slot <= 0) {
+            return ['status' => 400, 'body' => ['success' => false, 'message' => 'Job, device, and stored slot are required.']];
+        }
+        $job = $this->jobModel->getJobById($jobId);
+        if (!$job) {
+            return ['status' => 404, 'body' => ['success' => false, 'message' => 'Enrollment job not found.']];
+        }
+        if ((int) ($job['enrollment_device_id'] ?? 0) !== $deviceId) {
+            return ['status' => 409, 'body' => ['success' => false, 'message' => 'This job belongs to a different enrollment device.']];
+        }
+        if (in_array($job['status'], ['completed', 'failed', 'cancelled'], true)) {
+            return ['status' => 409, 'body' => ['success' => false, 'message' => 'This enrollment job is already closed.']];
+        }
+        $updated = $this->jobModel->markStoredPending($jobId, $deviceId, $slot, $step);
+        FingerprintSlotRegistry::reserve($this->conn, $deviceId, $slot, $jobId, (int) ($job['fingerprint_id'] ?? 0) ?: null);
+        return [
+            'status' => $updated ? 200 : 409,
+            'body' => [
+                'success' => $updated,
+                'message' => $updated
+                    ? 'Sensor storage is recorded. The original fingerprint stays usable until this mapping is committed.'
+                    : 'Unable to record sensor storage.',
+                'job' => $this->getJobById($jobId),
+            ],
+        ];
+    }
+
+    public function resolveDuplicateMatch(array $input): array
+    {
+        $jobId = (int) ($input['job_id'] ?? 0);
+        $deviceId = (int) ($input['enrollment_device_id'] ?? 0);
+        $matchedSlot = (int) ($input['matched_slot'] ?? 0);
+        if ($jobId <= 0 || $deviceId <= 0 || $matchedSlot <= 0) {
+            return ['status' => 400, 'body' => ['success' => false, 'message' => 'Job, device, and matched slot are required.']];
+        }
+        $job = $this->jobModel->getJobById($jobId);
+        if (!$job || (int) ($job['enrollment_device_id'] ?? 0) !== $deviceId) {
+            return ['status' => 404, 'body' => ['success' => false, 'message' => 'Enrollment job not found for this device.']];
+        }
+        $owner = FingerprintSlotRegistry::owner($this->conn, $deviceId, $matchedSlot);
+        $fingerprintId = (int) ($job['fingerprint_id'] ?? 0);
+        $previousSlot = (int) ($job['previous_slot'] ?? 0);
+        if ($fingerprintId > 0 && $previousSlot <= 0) {
+            $record = $this->fingerprintModel->getById($fingerprintId);
+            $previousSlot = (int) ($record['enrollment_slot'] ?? 0);
+        }
+
+        if ($owner && (int) $owner['user_id'] === (int) $job['user_id'] && $fingerprintId > 0 &&
+            ((int) $owner['fingerprint_id'] === $fingerprintId || $matchedSlot === $previousSlot)) {
+            return ['status' => 409, 'body' => [
+                'success' => false,
+                'action' => 'reject',
+                'owner' => 'same_fingerprint',
+                'matched_slot' => $matchedSlot,
+                'fingerprint_id' => (int) $owner['fingerprint_id'],
+                'message' => 'This finger is already enrolled as ' . $owner['finger_name'] . ' for this user at sensor slot ' . $matchedSlot . '. The existing enrollment was kept.',
+            ]];
+        }
+        if ($owner && (int) $owner['user_id'] === (int) $job['user_id']) {
+            return ['status' => 409, 'body' => [
+                'success' => false,
+                'action' => 'reject',
+                'owner' => 'same_user_other_finger',
+                'matched_slot' => $matchedSlot,
+                'fingerprint_id' => (int) $owner['fingerprint_id'],
+                'message' => 'This finger is already enrolled as ' . $owner['finger_name'] . ' for this user at sensor slot ' . $matchedSlot . '. Existing sensor data was preserved.',
+            ]];
+        }
+        if ($owner) {
+            return ['status' => 409, 'body' => [
+                'success' => false,
+                'action' => 'reject',
+                'owner' => 'other_user',
+                'matched_slot' => $matchedSlot,
+                'fingerprint_id' => (int) $owner['fingerprint_id'],
+                'message' => 'This finger is already enrolled as ' . $owner['finger_name'] . ' for another user at sensor slot ' . $matchedSlot . '. Existing sensor data was preserved.',
+            ]];
+        }
+        return ['status' => 409, 'body' => [
+            'success' => false,
+            'action' => 'reject',
+            'owner' => 'unknown',
+            'matched_slot' => $matchedSlot,
+            'message' => 'This finger already matches sensor slot ' . $matchedSlot . '. Reconcile the existing fingerprint mapping before retrying. Existing sensor data was preserved.',
+        ]];
     }
 
     public function failEnrollment(array $input): array
@@ -631,7 +967,7 @@ class FingerprintEnrollmentService
             ];
         }
 
-        if (!in_array($job['status'], ['failed', 'cancelled'], true)) {
+        if (!in_array($job['status'], ['failed', 'cancelled', 'needs_reconciliation'], true)) {
             return [
                 'status' => 409,
                 'body' => [
@@ -648,7 +984,9 @@ class FingerprintEnrollmentService
             'status' => $retried ? 200 : 409,
             'body' => [
                 'success' => $retried,
-                'message' => $retried ? 'Enrollment job queued again.' : 'Unable to retry enrollment job.',
+                'message' => $retried
+                    ? 'Enrollment restarted. Sensor A will run a fresh two-scan enrollment.'
+                    : 'Unable to retry enrollment job.',
                 'job' => $freshJob,
             ],
         ];
@@ -691,25 +1029,57 @@ class FingerprintEnrollmentService
             ];
         }
 
-        if ($job['status'] !== 'waiting') {
+        if (!in_array((string) $job['status'], FingerprintEnrollmentJob::OPEN_STATUSES, true)) {
             return [
                 'status' => 409,
                 'body' => [
                     'success' => false,
-                    'message' => 'Only waiting jobs can be cancelled safely.'
+                    'message' => 'This enrollment is already closed and cannot be cancelled.'
                 ],
             ];
         }
 
-        $cancelled = $this->jobModel->cancelWaitingJob($jobId, $reason);
+        $deviceId = (int) ($job['enrollment_device_id'] ?? 0);
+        $slot = (int) ($job['assigned_slot'] ?? 0);
+        $progress = (int) ($job['progress'] ?? 0);
+        $mayHaveStoredTemplate = in_array((string) $job['status'], FingerprintEnrollmentJob::RECOVERABLE_STATUSES, true)
+            || $progress >= 85
+            || str_contains(strtolower((string) ($job['current_step'] ?? '')), 'stored');
+        $actorId = (int) ($input['actor_id'] ?? 0);
+
+        $cancelled = $this->jobModel->cancelOpenJob($jobId, $reason !== '' ? $reason : 'Cancelled by admin.');
         $freshJob = $this->jobModel->getJobById($jobId);
+        $sensorJob = null;
+        $message = $cancelled ? 'Enrollment job cancelled. Start enrollment again.' : 'Unable to cancel enrollment job.';
+
+        if ($cancelled && $mayHaveStoredTemplate && $deviceId > 0 && $slot > 0 && $actorId > 0) {
+            try {
+                require_once __DIR__ . '/SensorMemorySchema.php';
+                require_once __DIR__ . '/SensorMemoryService.php';
+                if (SensorMemorySchema::tableExists($this->conn)) {
+                    $queued = (new SensorMemoryService($this->conn))->adminAction([
+                        'action' => 'delete_slot',
+                        'actor_id' => $actorId,
+                        'device_id' => $deviceId,
+                        'slot_id' => $slot,
+                    ]);
+                    $sensorJob = $queued['job'] ?? null;
+                    $message = 'Enrollment cancelled. Sensor A is clearing slot ' . $slot
+                        . '. Keep the door locked, then start enrollment again.';
+                }
+            } catch (Throwable $error) {
+                $message = 'Enrollment cancelled in the database, but Sensor A slot ' . $slot
+                    . ' still needs clearing in Sensor Memory. ' . $error->getMessage();
+            }
+        }
 
         return [
             'status' => $cancelled ? 200 : 409,
             'body' => [
                 'success' => $cancelled,
-                'message' => $cancelled ? 'Enrollment job cancelled.' : 'Unable to cancel enrollment job.',
+                'message' => $message,
                 'job' => $freshJob,
+                'sensor_job' => $sensorJob,
             ],
         ];
     }

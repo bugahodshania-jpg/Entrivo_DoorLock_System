@@ -8,7 +8,7 @@ function expectEmptySlot(bool $condition, string $message): void
 }
 
 $pdo = entrivo_pdo();
-$tables = ['fingerprint_enrollment_jobs', 'fingerprint_devices', 'fingerprints', 'direct_fingerprint_import_jobs'];
+$tables = ['fingerprint_enrollment_jobs', 'fingerprint_devices', 'fingerprints', 'direct_fingerprint_import_jobs', 'fingerprint_sensor_slots'];
 
 try {
     // Connection-local shadows isolate every query and write from production data.
@@ -22,6 +22,11 @@ try {
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprints (fingerprint_id INT PRIMARY KEY, enrollment_slot INT NULL, shared_door_slot INT NULL, template_data BLOB) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE direct_fingerprint_import_jobs (id INT PRIMARY KEY, enrollment_device_id INT, target_slot INT, status VARCHAR(20), queued_at DATETIME, processing_at DATETIME NULL) ENGINE=InnoDB');
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(32) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     $pdo->exec('INSERT INTO fingerprint_devices VALUES (1),(2)');
     $service = new FingerprintEnrollmentService();
     $model = new FingerprintEnrollmentJob();
@@ -34,6 +39,7 @@ try {
         $pdo->exec('DELETE FROM fingerprint_enrollment_jobs');
         $pdo->exec('DELETE FROM fingerprints');
         $pdo->exec('DELETE FROM direct_fingerprint_import_jobs');
+        $pdo->exec('DELETE FROM fingerprint_sensor_slots');
         $pdo->exec("INSERT INTO fingerprint_enrollment_jobs (job_id,user_id,finger_name,enrollment_device_id,assigned_slot,status,progress,current_step)
             VALUES (24,1,'Fixture finger',1,7,'processing',80,'Generating fingerprint model')");
         $insert = $pdo->prepare('INSERT INTO fingerprints VALUES (?,?,?,?)');

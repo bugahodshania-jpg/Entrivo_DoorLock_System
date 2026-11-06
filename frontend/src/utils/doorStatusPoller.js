@@ -1,4 +1,4 @@
-export const DOOR_STATUS_POLL_MS = 500;
+export const DOOR_STATUS_POLL_MS = 2000;
 export const DOOR_STATUS_TIMEOUT_MS = 3000;
 
 /** Keep one current read, even when focus or reconnect events interrupt polling. */
@@ -54,8 +54,7 @@ export function createDoorStatusPoller({
       })
       .catch(() => {
         if (disposed || requestController.signal.aborted) return;
-        snapshot = null;
-        emit();
+        // Keep the last confirmed snapshot. doorStatusView expires it from startedAt.
       })
       .finally(() => {
         pendingRequest = null;

@@ -6,7 +6,7 @@ One ESP32 at the door runs `esp32/door_controller_for_sync`. That sketch pulls f
 esp32/door_controller_for_sync/Config.h
 ```
 
-The enrollment station is a different board and keeps its own wiring in `esp32/docs/enrollment-station-wiring.md`.
+The combined door-controller and enrollment board (`esp32/Door_Controller_Enrollment`) keeps its own wiring in `esp32/Door_Controller_Enrollment/README.md`.
 
 The fingerprint sensor and both relay channels are the pins the firmware drives today. Channel 1 unlocks the door. Channel 2 is held off. The RFID readers, RTC, and DFPlayer pins are reserved in `Config.h` so those wires are not reused.
 

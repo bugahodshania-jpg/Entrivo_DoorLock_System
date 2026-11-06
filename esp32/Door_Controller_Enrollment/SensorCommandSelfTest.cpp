@@ -19,7 +19,19 @@ namespace {
         if (cleared.length != 1 || cleared.data[0] != 0x0D) return false;
         const Command erased = remove(0x035A);
         if (erased.length != 5 || erased.data[0] != 0x0C || erased.data[1] != 0x03 || erased.data[2] != 0x5A ||
-            erased.data[3] != 0x00 || erased.data[4] != 0x01 || remove(0).length != 0) return false;
+            erased.data[3] != 0x00 || erased.data[4] != 0x01) return false;
+        const Command firstPage = remove(0);
+        if (firstPage.length != 5 || firstPage.data[0] != 0x0C || firstPage.data[1] != 0 || firstPage.data[2] != 0 ||
+            firstPage.data[3] != 0 || firstPage.data[4] != 1) return false;
+        const Command range = remove(0, 1000);
+        if (range.length != 5 || range.data[3] != 0x03 || range.data[4] != 0xE8 || remove(1, 0).length != 0) return false;
+        const Command fast = highSpeedSearch(0, 163);
+        if (fast.length != 6 || fast.data[0] != 0x1B || fast.data[1] != 1 ||
+            fast.data[2] != 0 || fast.data[3] != 0 || fast.data[4] != 0 || fast.data[5] != 0xA3) return false;
+        const Command library = search(256, 163);
+        if (library.length != 6 || library.data[0] != 0x04 || library.data[1] != 1 ||
+            library.data[2] != 1 || library.data[3] != 0 || library.data[4] != 0 || library.data[5] != 0xA3) return false;
+        if (search(0, 0).length != 0 || highSpeedSearch(0, 163, 0).length != 0) return false;
         const uint8_t invalid[] = {0, 3, 0xFF};
         for (uint8_t buffer : invalid) {
             if (convertImage(buffer).length != 0 || upload(buffer).length != 0 ||

@@ -144,6 +144,11 @@ try {
         throw new InvalidArgumentException('You cannot demote your own Super Admin account.');
     }
 
+    // A Super Admin waiting on the dashboard session lock is stored inactive. The
+    // inactive flag is only masked as "inactive" while the role is still super_admin,
+    // so demoting it without reactivating would leave the Admin reading as blocked.
+    $reactivateOnDemote = false;
+
     if ($nextRole === 'admin' && $user['role'] === 'super_admin') {
         $activeSuperAdmins = (int) $pdo->query(
             "SELECT COUNT(*) FROM users WHERE role = 'super_admin' AND is_active = 1"
@@ -152,13 +157,25 @@ try {
         if ($activeSuperAdmins <= 1 && (bool) $user['is_active']) {
             throw new InvalidArgumentException('The last active Super Admin cannot be demoted.');
         }
+
+        if (!(bool) $user['is_active']) {
+            try {
+                $reactivateOnDemote = (new SuperAdminDashboardSession($pdo))->isStandbyUser($userId);
+            } catch (Throwable) {
+                $reactivateOnDemote = false;
+            }
+        }
     }
 
     $pdo->beginTransaction();
 
     try {
         if ($user['role'] !== $nextRole) {
-            $roleUpdate = $pdo->prepare('UPDATE users SET role = :role WHERE id = :id');
+            $roleUpdate = $pdo->prepare(
+                $reactivateOnDemote
+                    ? 'UPDATE users SET role = :role, is_active = 1 WHERE id = :id'
+                    : 'UPDATE users SET role = :role WHERE id = :id'
+            );
             $roleUpdate->execute([
                 'role' => $nextRole,
                 'id' => $userId,

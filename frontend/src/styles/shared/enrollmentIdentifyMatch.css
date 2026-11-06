@@ -1,0 +1,179 @@
+.fingerprint-identify-match-overlay {
+  align-items: center;
+  background: rgba(12, 22, 18, 0.46);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 1400;
+}
+
+.fingerprint-identify-match-modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 28px 70px rgba(10, 25, 18, 0.28);
+  max-height: calc(100vh - 36px);
+  max-width: 640px;
+  overflow: auto;
+  width: min(640px, 100%);
+}
+
+.fingerprint-identify-match-modal .fingerprint-progress-modal-header {
+  align-items: flex-start;
+  background: #f7fbf9;
+  border-bottom: 1px solid #e3ece7;
+  display: flex;
+  justify-content: space-between;
+  padding: 20px 22px;
+}
+
+.fingerprint-identify-match-modal .fingerprint-progress-title-wrap {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fingerprint-identify-match-modal .fingerprint-progress-brand-mark img {
+  display: block;
+  height: 36px;
+  width: auto;
+}
+
+.fingerprint-identify-match-modal .fingerprint-progress-header-copy h3 {
+  color: #1c2b25;
+  font-size: 18px;
+  margin: 0;
+}
+
+.fingerprint-identify-match-modal .fingerprint-progress-header-copy p {
+  color: #5f6f68;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.fingerprint-identify-match-modal .fingerprint-modal-close {
+  background: transparent;
+  border: 0;
+  color: #3f4a55;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.fingerprint-identify-match-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px 8px;
+}
+
+.fingerprint-identify-match-body p {
+  margin: 0;
+  color: #3f4a55;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fingerprint-identify-match-error {
+  color: #9b2c2c;
+  font-weight: 600;
+}
+
+.fingerprint-identify-match-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.fingerprint-identify-match-facts div {
+  background: #f4f7f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.fingerprint-identify-match-facts dt {
+  color: #5f6f68;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fingerprint-identify-match-facts dd {
+  margin: 4px 0 0;
+  color: #1c2b25;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.fingerprint-identify-match-format {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #3f4a55;
+}
+
+.fingerprint-identify-match-format-note {
+  color: #5f6f68;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fingerprint-identify-match-body textarea {
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid #d5ddd8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.fingerprint-identify-match-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 8px 20px 20px;
+}
+
+.fingerprint-identify-match-actions .fingerprint-primary-action,
+.fingerprint-identify-match-actions .fingerprint-secondary-action {
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.fingerprint-identify-match-actions .fingerprint-primary-action {
+  background: #1c6b4a;
+  color: #fff;
+}
+
+.fingerprint-identify-match-actions .fingerprint-secondary-action {
+  background: #eef3f0;
+  color: #1c2b25;
+}
+
+.fingerprint-identify-match-actions .fingerprint-danger-action {
+  background: #fff1f1;
+  color: #933232;
+}
+
+.fingerprint-identify-match-actions .fingerprint-primary-action:disabled,
+.fingerprint-identify-match-actions .fingerprint-secondary-action:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+  .fingerprint-identify-match-facts {
+    grid-template-columns: 1fr;
+  }
+}

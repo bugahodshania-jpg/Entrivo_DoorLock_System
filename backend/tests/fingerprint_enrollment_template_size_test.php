@@ -8,8 +8,14 @@ function expectTemplateEnrollment(bool $condition, string $message): void
 }
 
 $pdo = entrivo_pdo();
-$tables = ['fingerprints', 'fingerprint_enrollment_jobs', 'fingerprint_enrollment_verifications'];
+$tables = ['fingerprints', 'fingerprint_enrollment_jobs', 'fingerprint_enrollment_verifications', 'fingerprint_sensor_slots'];
 try {
+    // Shadow the real slot registry so fixtures never write live sensor rows.
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(20) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     // Connection-local shadows keep real enrollments and template backups intact.
     $pdo->exec("CREATE TEMPORARY TABLE fingerprints (
         fingerprint_id INT PRIMARY KEY AUTO_INCREMENT, user_id INT, finger_name VARCHAR(50),

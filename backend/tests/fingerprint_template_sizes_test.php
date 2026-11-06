@@ -21,7 +21,7 @@ class TemplateSizeFingerprint extends Fingerprint
     {
         $this->record = [
             'fingerprint_id' => 1, 'user_id' => 2, 'finger_name' => 'Right thumb',
-            'status' => 'active', 'shared_door_slot' => 7,
+            'status' => 'active', 'enrollment_slot' => 7, 'shared_door_slot' => 7,
         ];
     }
 

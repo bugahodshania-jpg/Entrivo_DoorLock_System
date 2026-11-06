@@ -54,4 +54,10 @@ expectReadiness(FingerprintEnrollmentReadiness::verifiedMap($pdo, [1]) === [], '
 $pdo->exec('UPDATE fingerprint_enrollment_verifications SET matched_slot=7 WHERE job_id=20');
 $pdo->exec("UPDATE fingerprint_enrollment_jobs SET status='failed' WHERE job_id=20");
 expectReadiness(FingerprintEnrollmentReadiness::verifiedMap($pdo, [1]) === [], 'A proof row alone cannot turn a failed job into a completed enrollment.');
+
+$pdo->prepare("INSERT INTO fingerprints VALUES (2,11,'Left Index','active',1,9,?,?,'2026-10-22 20:00:00')")->execute([$binary, $hash]);
+$pdo->exec("INSERT INTO fingerprint_enrollment_jobs VALUES (22,11,'Left Index',1,9,'completed',100,'2026-10-22 20:00:01')");
+$pdo->prepare("INSERT INTO fingerprint_enrollment_verifications VALUES (22,2,11,'Left Index',1,0,9,9,1,768,?,'2026-10-22 20:00:01')")->execute([$hash]);
+expectReadiness(isset(FingerprintEnrollmentReadiness::verifiedMap($pdo, [2])[2]),
+    'A stored-slot download without a live third scan must still count as verified.');
 echo "PASS: current template/slot/owner proof, legacy records, stale mappings, corrupt backups and unfinished or failed jobs.\n";

@@ -35,6 +35,7 @@
 #define TOUCH_PIN 18
 #define TOUCH_ACTIVE_LEVEL HIGH
 #define TOUCH_DEBOUNCE_MS 300UL
+#define FINGERPRINT_EXIT_WINDOW_MS 15000UL
 
 // IN2 controls the solenoid; IN1 is held OFF. No automatic locking timer.
 #define DOOR_RELAY_PIN 17

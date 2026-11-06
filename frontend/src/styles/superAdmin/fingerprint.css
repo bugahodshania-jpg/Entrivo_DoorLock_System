@@ -7192,3 +7192,66 @@
   margin: 0;
   padding: 14px 16px 16px;
 }
+
+.fingerprint-identify-match-modal {
+  max-width: 640px;
+}
+
+.fingerprint-identify-match-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px 8px;
+}
+
+.fingerprint-identify-match-body p {
+  margin: 0;
+  color: #3f4a55;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fingerprint-identify-match-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.fingerprint-identify-match-facts div {
+  background: #f4f7f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.fingerprint-identify-match-facts dt {
+  color: #5f6f68;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fingerprint-identify-match-facts dd {
+  margin: 4px 0 0;
+  color: #1c2b25;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.fingerprint-identify-match-format {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #3f4a55;
+}
+
+.fingerprint-identify-match-body textarea {
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid #d5ddd8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}

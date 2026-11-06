@@ -2,15 +2,13 @@
 
 PHP API, MySQL database, and React frontend scaffold for the Entrivo smart door lock system.
 
-The separate **Fingerprint (Direct)** module supports enrollment and door access
-on the same Sensor A. **Fingerprint (Sync)** retains the existing Sensor B
-workflow. See [direct fingerprint setup](docs/direct-fingerprint-door.md) for
-the new controller sketch and wiring.
-
-For the combined fingerprint enrollment, fingerprint/RFID door controller using
-the tested GPIO32/33 sensor and GPIO17 relay wiring, see
-[Door Controller + Enrollment](esp32/Door_Controller_Enrollment/README.md).
-This version verifies registered identities; scheduling will be added later.
+The **Fingerprint (Direct)** module enrolls and authorizes fingerprints on the
+same Sensor A used by the door. **Fingerprint (Sync)** retains the existing
+Sensor B workflow. Upload
+[Door Controller + Enrollment](esp32/Door_Controller_Enrollment/README.md)
+for enrollment, RFID, door status, and access on the tested GPIO32/33 sensor
+and GPIO17 lock wiring. See [direct fingerprint setup](docs/direct-fingerprint-door.md)
+for the web module.
 
 ## Start the System
 

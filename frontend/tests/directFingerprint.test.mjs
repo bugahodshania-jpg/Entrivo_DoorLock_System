@@ -23,7 +23,8 @@ const verified = {
   hasTemplateData: true,
   templateBytes: 768,
   enrollmentVerification: {
-    fresh_scan_verified: true,
+    fresh_scan_verified: false,
+    storage_confirmed: true,
     stored_slot: 12,
     matched_slot: 12,
     confidence: 87,
@@ -48,7 +49,7 @@ test('verified Sensor A enrollment requires backend confirmation and proof for t
 
 test('incomplete, mismatched or malformed sensor proof never produces a verified badge', () => {
   for (const change of [
-    { fresh_scan_verified: false }, { fresh_scan_verified: 'true' },
+    { storage_confirmed: false, fresh_scan_verified: false }, { storage_confirmed: 'true' },
     { stored_slot: 13 }, { matched_slot: 13 }, { matched_slot: '12' },
     { confidence: 0 }, { confidence: -1 }, { confidence: 65536 }, { confidence: 87.5 },
     { template_bytes: 769 }, { template_bytes: 512 },

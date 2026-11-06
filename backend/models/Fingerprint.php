@@ -55,7 +55,8 @@ class Fingerprint
              FROM fingerprints
              WHERE user_id = :user_id
                AND finger_name IS NOT NULL
-               AND TRIM(finger_name) <> ''"
+               AND TRIM(finger_name) <> ''
+               AND status IN ('active', 'pending')"
         );
         $statement->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $statement->execute();
@@ -110,6 +111,77 @@ class Fingerprint
         $record = $statement->fetch();
 
         return $record ?: null;
+    }
+
+    public function activateSensorMapping(
+        int $userId,
+        string $fingerName,
+        int $enrollmentDeviceId,
+        int $assignedSlot,
+        ?int $fingerprintId = null
+    ): array {
+        $existing = null;
+        if ($fingerprintId !== null && $fingerprintId > 0) {
+            $existing = $this->getById($fingerprintId);
+        }
+        if (!$existing) {
+            $existing = $this->findByUserAndFingerName($userId, $fingerName);
+        }
+        if (!$existing) {
+            $statement = $this->conn->prepare(
+                "INSERT INTO fingerprints
+                    (user_id, finger_name, enrollment_device_id, enrollment_slot, shared_door_slot, status, door_sync_status, enrolled_at)
+                 VALUES
+                    (:user_id, :finger_name, :enrollment_device_id, :enrollment_slot, :shared_door_slot, 'active', 'pending', CURRENT_TIMESTAMP)"
+            );
+            $statement->execute([
+                'user_id' => $userId,
+                'finger_name' => $fingerName,
+                'enrollment_device_id' => $enrollmentDeviceId,
+                'enrollment_slot' => $assignedSlot,
+                'shared_door_slot' => $assignedSlot,
+            ]);
+            return $this->getById((int) $this->conn->lastInsertId()) ?: [];
+        }
+
+        $statement = $this->conn->prepare(
+            "UPDATE fingerprints
+             SET finger_name = :finger_name,
+                 enrollment_device_id = :enrollment_device_id,
+                 enrollment_slot = :enrollment_slot,
+                 shared_door_slot = :shared_door_slot,
+                 status = 'active',
+                 enrolled_at = CURRENT_TIMESTAMP
+             WHERE fingerprint_id = :fingerprint_id"
+        );
+        $statement->execute([
+            'finger_name' => $fingerName,
+            'enrollment_device_id' => $enrollmentDeviceId,
+            'enrollment_slot' => $assignedSlot,
+            'shared_door_slot' => $assignedSlot,
+            'fingerprint_id' => (int) $existing['fingerprint_id'],
+        ]);
+        return $this->getById((int) $existing['fingerprint_id']) ?: [];
+    }
+
+    public function createPendingEnrollment(int $userId, string $fingerName): array
+    {
+        $existing = $this->findByUserAndFingerName($userId, $fingerName);
+        if ($existing) {
+            return $existing;
+        }
+
+        $statement = $this->conn->prepare(
+            "INSERT INTO fingerprints
+                (user_id, finger_name, status, door_sync_status, door_synced_at, enrolled_at)
+             VALUES
+                (:user_id, :finger_name, 'pending', 'pending', NULL, NULL)"
+        );
+        $statement->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $statement->bindValue(':finger_name', $fingerName);
+        $statement->execute();
+
+        return $this->getById((int) $this->conn->lastInsertId()) ?: [];
     }
 
     public function saveEnrollment(

@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/FingerprintTemplateFormat.php';
+
 /** Durable board proof. Read paths never create or migrate database tables. */
 final class FingerprintEnrollmentVerification
 {
@@ -26,6 +28,10 @@ final class FingerprintEnrollmentVerification
     /** Validate sensor facts independently of the advisory progress text. */
     public static function normalize(mixed $proof, string $binary): array
     {
+        if (is_array($proof) && !array_is_list($proof) && ($proof['storage_confirmed'] ?? null) === true
+            && ($proof['fresh_scan_verified'] ?? null) !== true) {
+            return self::normalizeStored($proof, $binary);
+        }
         if (!is_array($proof) || array_is_list($proof) || ($proof['fresh_scan_verified'] ?? null) !== true) {
             throw new InvalidArgumentException('Fresh sensor verification proof is required. Update the enrollment firmware and verify the saved finger again.');
         }
@@ -46,10 +52,49 @@ final class FingerprintEnrollmentVerification
         }
         return [
             'fresh_scan_verified' => true,
+            'storage_confirmed' => true,
             'stored_slot' => $proof['stored_slot'],
             'matched_slot' => $proof['matched_slot'],
             'confidence' => $proof['confidence'],
             'template_bytes' => $proof['template_bytes'],
+            'template_sha256' => $hash,
+        ];
+    }
+
+    /** Sensor A storage succeeded; a later 0x17 or backup export must not discard the slot. */
+    private static function normalizeStored(array $proof, string $binary): array
+    {
+        $slot = $proof['stored_slot'] ?? null;
+        if (!is_int($slot) || $slot <= 0 || $slot > 65535) {
+            throw new InvalidArgumentException('A confirmed Sensor A slot is required after storage.');
+        }
+        if ($binary === '') {
+            return [
+                'fresh_scan_verified' => false,
+                'storage_confirmed' => true,
+                'stored_slot' => $slot,
+                'matched_slot' => $slot,
+                'confidence' => 1,
+                'template_bytes' => 0,
+                'template_sha256' => '',
+            ];
+        }
+        if (!FingerprintTemplateFormat::isSupportedSize(strlen($binary)) || !FingerprintTemplateFormat::isUsableTemplate($binary)) {
+            throw new InvalidArgumentException('Stored template backup is incomplete. Sensor A storage can still be committed without Sensor B sync.');
+        }
+        $hash = $proof['template_sha256'] ?? hash('sha256', $binary);
+        if (!is_string($hash) || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1 || !hash_equals(hash('sha256', $binary), $hash)) {
+            throw new InvalidArgumentException('Stored template SHA-256 must match the downloaded backup.');
+        }
+        $matched = $proof['matched_slot'] ?? $slot;
+        $confidence = $proof['confidence'] ?? 1;
+        return [
+            'fresh_scan_verified' => false,
+            'storage_confirmed' => true,
+            'stored_slot' => $slot,
+            'matched_slot' => is_int($matched) && $matched > 0 ? $matched : $slot,
+            'confidence' => is_int($confidence) && $confidence > 0 ? $confidence : 1,
+            'template_bytes' => strlen($binary),
             'template_sha256' => $hash,
         ];
     }
@@ -82,6 +127,7 @@ final class FingerprintEnrollmentVerification
             'template_sha256' => (string) $row['template_sha256'],
             'fingerprint_id' => (int) $row['fingerprint_id'],
             'verified_at' => (string) $row['verified_at'],
+            'storage_confirmed' => true,
         ];
     }
 
@@ -90,11 +136,13 @@ final class FingerprintEnrollmentVerification
         $statement = $pdo->prepare('INSERT INTO fingerprint_enrollment_verifications
             (job_id, fingerprint_id, user_id, finger_name, enrollment_device_id, fresh_scan_verified,
              stored_slot, matched_slot, confidence, template_bytes, template_sha256, verified_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
         $statement->execute([
             (int) $job['job_id'], (int) $fingerprint['fingerprint_id'], (int) $job['user_id'],
-            (string) $job['finger_name'], (int) $job['enrollment_device_id'], $proof['stored_slot'],
-            $proof['matched_slot'], $proof['confidence'], $proof['template_bytes'], $proof['template_sha256'],
+            (string) $job['finger_name'], (int) $job['enrollment_device_id'],
+            !empty($proof['fresh_scan_verified']) ? 1 : 0,
+            $proof['stored_slot'], $proof['matched_slot'], $proof['confidence'],
+            $proof['template_bytes'], $proof['template_sha256'] ?: str_repeat('0', 64),
         ]);
         return self::findByJobId($pdo, (int) $job['job_id']) ?? [];
     }

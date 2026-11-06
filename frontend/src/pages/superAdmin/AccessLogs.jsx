@@ -25,6 +25,7 @@ import TableEmptyState from '../../components/TableEmptyState';
 import useLiveAccessLogs from '../../hooks/useLiveAccessLogs';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import { userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
@@ -607,7 +608,13 @@ export default function AccessLogs({ user }) {
                         label={`Actions for access log #${log.id}`}
                         items={[
                           { label: 'View', icon: Eye, onClick: () => setViewLog(log) },
-                          { label: 'Delete', icon: Trash2, danger: true, onClick: () => deleteAccessLog(log) },
+                          {
+                            label: 'Delete',
+                            icon: Trash2,
+                            danger: true,
+                            hidden: user?.role === 'admin' && !userHasPrivilege(user, 'delete_requests'),
+                            onClick: () => deleteAccessLog(log),
+                          },
                         ]}
                       />
                     </td>

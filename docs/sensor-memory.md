@@ -41,19 +41,18 @@ firmware, or failed read must not appear as an empty sensor.
 ## Install the firmware support
 
 The web server cannot access the R307S UART directly. The ESP32 must receive the
-request and return the actual sensor result. Update whichever sketch is running
-on that board:
+request and return the actual sensor result. Header lock status and Sensor Memory
+lock checks are reported only by the combined door controller:
 
 - Combined RFID/fingerprint door controller and enrollment:
   `esp32/Door_Controller_Enrollment/Door_Controller_Enrollment.ino`
-- Standalone direct fingerprint controller:
-  `esp32/Direct_Fingerprint_Door/Direct_Fingerprint_Door.ino`
 
-Set `SERVER_URL` and `ENROLLMENT_DEVICE_ID` for that controller. Set the same
-private `DOOR_DEVICE_TOKEN` in its `Config.h` and `backend/.env`; the standalone
-sketch's new token setting is empty until configured. Preserve the existing
-network settings, wiring, and token of a configured combined controller.
-Keep only one controller polling each enrollment device ID.
+Fingerprint enrollment and import also run in that combined sketch.
+
+Set `SERVER_URL` and `ENROLLMENT_DEVICE_ID` on `Door_Controller_Enrollment`. Set
+the same private `DOOR_DEVICE_TOKEN` in its `Config.h` and `backend/.env`.
+Preserve the existing network settings, wiring, and token of a configured
+combined controller. Keep only one controller polling each enrollment device ID.
 
 Verify and upload the selected sketch through Arduino IDE. Adding the web module
 does not update firmware already flashed on a board. Firmware verification alone
@@ -89,11 +88,19 @@ Templates are binary fingerprint features. A hex or Base64 view represents those
 bytes; it is not a captured fingerprint photograph. Raw sensor readings are
 stored separately from the original fingerprint database backup.
 
-The controller reports its lock relay state on changes and every three seconds
+Enrollment follows the Adafruit two-scan flow (quality-checked scans, Search
+for duplicates, RegModel, Store). Download is offered only after a successful
+Store and uses that same stored-slot template. If enrollment fails or is
+cancelled before Download commits, the database job is rolled back and the
+controller clears the incomplete Sensor A template when it can. Use
+**Delete slot** or **Erase sensor templates** for any leftover sensor-only
+pages.
+
+The combined controller reports its lock relay state on changes and every three seconds
 to `backend/api/door_status_device.php`, using the existing `X-Device-Token`.
 Reporting runs in a separate ESP32 task so network waits do not delay the
-touch-to-lock path or the standalone controller's unlock timer. Portal headers
-refresh through `backend/api/door_status.php` every half second while visible
+touch-to-lock path. Portal headers
+refresh through `backend/api/door_status.php` every two seconds while visible
 and online, and refresh immediately on focus, tab return, or network reconnection.
 Failed requests retry automatically without reloading the page or restarting the
 system. Reports expire

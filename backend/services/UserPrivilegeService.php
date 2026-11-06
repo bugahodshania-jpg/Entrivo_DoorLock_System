@@ -18,6 +18,11 @@ class UserPrivilegeService
             'description' => 'Permanently delete user accounts from Manage Users.',
             'path' => null,
         ],
+        'delete_requests' => [
+            'label' => 'Delete Requests',
+            'description' => 'Submit delete requests for records, and review or approve requests sent by Admins.',
+            'path' => '/super-admin/delete-requests',
+        ],
         'pending_registrations' => [
             'label' => 'Pending Registration',
             'description' => 'Review and approve pending registrations.',
@@ -25,12 +30,12 @@ class UserPrivilegeService
         ],
         'fingerprint' => [
             'label' => 'Fingerprint',
-            'description' => 'View fingerprint records and enroll new fingerprints.',
+            'description' => 'View fingerprint records.',
             'path' => '/super-admin/fingerprint',
         ],
         'fingerprint_update' => [
-            'label' => 'Update Fingerprints',
-            'description' => 'Update existing fingerprint templates.',
+            'label' => 'Enroll & Update Fingerprints',
+            'description' => 'Enroll new fingerprints and update or delete existing fingerprint templates.',
             'path' => null,
         ],
         'rfid_cards' => [
@@ -89,9 +94,9 @@ class UserPrivilegeService
         'admin' => [
             'dashboard',
             'manage_users',
+            'delete_requests',
             'pending_registrations',
             'fingerprint',
-            'fingerprint_update',
             'rfid_cards',
             'schedules',
             'pending_overrides',

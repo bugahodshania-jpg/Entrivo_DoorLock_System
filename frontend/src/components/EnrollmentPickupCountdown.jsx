@@ -28,6 +28,6 @@ export default function EnrollmentPickupCountdown({ job }) {
     <Clock size={13} aria-hidden="true" />
     {remaining > 0
       ? `Automatic cancellation in ${minutes}:${seconds}`
-      : 'Three-minute wait ended. Checking Sensor A status...'}
+      : 'Ten-minute wait ended. Checking enrollment status...'}
   </span>;
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActionConfirmProvider, useActionConfirm } from '../../components/ActionConfirm';
 import NotificationBell from '../../components/NotificationBell';
 import DoorStatusCard from '../../components/DoorStatusCard';
+import GlobalAccessStatusModal from '../../components/GlobalAccessStatusModal';
 import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import {
   ClipboardCheck,
@@ -492,6 +493,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
         </footer>
       </div>
     </div>
+    <GlobalAccessStatusModal actorId={user?.id} />
     </ActionConfirmProvider>
     </DoorStatusProvider>
   );

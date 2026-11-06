@@ -11,5 +11,6 @@ void playDeniedFeedback();
 void printDeviceTime();
 bool isDoorUnlocked();
 bool isExitAuthorized();
+bool consumeFingerprintExitTouch();
 
 #endif

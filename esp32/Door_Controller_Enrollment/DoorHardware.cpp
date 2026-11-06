@@ -19,7 +19,10 @@ namespace {
     bool unlocked = false;
     bool exitAuthorized = false;
     bool previousTouch = false;
+    bool fingerprintExitTouchPending = false;
     unsigned long lastTouchAt = 0;
+    unsigned long lastLockedTouchMsgAt = 0;
+    constexpr unsigned long LOCKED_TOUCH_MSG_COOLDOWN_MS = 5000UL;
 
     void mp3Command(uint8_t command, uint16_t value) {
         if (!audioReady) return;
@@ -76,10 +79,11 @@ void openDoorRelay() {
     if (unlocked) return;
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
     unlocked = true;
+    fingerprintExitTouchPending = false;
     queueDoorStatus(true);
     exitAuthorized = false;
     printDeviceTime();
-    Serial.println("[DOOR] UNLOCKED. Scan a registered EXIT RFID, then touch to lock.");
+    Serial.println("[DOOR] UNLOCKED. Students: scan an exit card, then touch outside to lock. Faculty and staff: touch, then scan a finger to record the exit and lock.");
     playAudio(1);
 }
 
@@ -89,6 +93,7 @@ void lockDoorRelay() {
     const bool wasUnlocked = unlocked;
     unlocked = false;
     exitAuthorized = false;
+    fingerprintExitTouchPending = false;
     if (wasUnlocked) {
         queueDoorStatus(false);
         printDeviceTime();
@@ -110,8 +115,13 @@ void updateDoorHardware() {
     if (pressed && !previousTouch && millis() - lastTouchAt >= TOUCH_DEBOUNCE_MS) {
         lastTouchAt = millis();
         if (unlocked && exitAuthorized) lockDoorRelay();
-        else if (unlocked) Serial.println("[TOUCH] Scan a registered EXIT RFID before touching to lock.");
-        else Serial.println("[TOUCH] Door is already locked.");
+        else if (unlocked) {
+            fingerprintExitTouchPending = true;
+            Serial.println("[TOUCH] Fingerprint exit armed. Scan your finger to record the exit and lock the door.");
+        } else if (millis() - lastLockedTouchMsgAt >= LOCKED_TOUCH_MSG_COOLDOWN_MS) {
+            lastLockedTouchMsgAt = millis();
+            Serial.println("[TOUCH] Door is locked. Faculty: scan your finger to enter. Students: tap the entrance card.");
+        }
     }
     previousTouch = pressed;
 }
@@ -119,3 +129,8 @@ void updateDoorHardware() {
 void playDeniedFeedback() { playAudio(3); }
 bool isDoorUnlocked() { return unlocked; }
 bool isExitAuthorized() { return exitAuthorized; }
+bool consumeFingerprintExitTouch() {
+    const bool accepted = fingerprintExitTouchPending && unlocked && !exitAuthorized;
+    fingerprintExitTouchPending = false;
+    return accepted;
+}

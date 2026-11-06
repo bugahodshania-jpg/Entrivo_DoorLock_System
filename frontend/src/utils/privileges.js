@@ -11,6 +11,10 @@ export const PRIVILEGE_META = {
     label: 'Delete Users',
     path: null,
   },
+  delete_requests: {
+    label: 'Delete Requests',
+    path: null,
+  },
   pending_registrations: {
     label: 'Pending Registration',
     path: '/super-admin/pending-registrations',
@@ -20,7 +24,7 @@ export const PRIVILEGE_META = {
     path: '/super-admin/fingerprint',
   },
   fingerprint_update: {
-    label: 'Update Fingerprints',
+    label: 'Enroll & Update Fingerprints',
     path: null,
   },
   rfid_cards: {
@@ -60,13 +64,15 @@ export const PRIVILEGE_PATHS = Object.fromEntries(
 );
 
 export const ROLE_PRIVILEGE_DEFAULTS = {
-  super_admin: Object.keys(PRIVILEGE_META),
+  // Super Admins delete records directly, so the requester-side delete_requests
+  // privilege is Admin-only and is never part of the Super Admin set.
+  super_admin: Object.keys(PRIVILEGE_META).filter((key) => key !== 'delete_requests'),
   admin: [
     'dashboard',
     'manage_users',
+    'delete_requests',
     'pending_registrations',
     'fingerprint',
-    'fingerprint_update',
     'rfid_cards',
     'schedules',
     'pending_overrides',
@@ -124,6 +130,12 @@ export function canDeleteRecords(user) {
 }
 
 export function privilegeForPath(pathname) {
+  // Only the Admin request page is gated by the privilege. The Super Admin review
+  // page is a plain Super Admin capability, since Super Admins delete directly.
+  if (pathname === '/admin/delete-requests') {
+    return 'delete_requests';
+  }
+
   const path = normalizePortalPath(pathname);
   const exact = Object.entries(PRIVILEGE_PATHS).find(([, privilegePath]) => privilegePath === path);
 

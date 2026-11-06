@@ -1,13 +1,17 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <memory>
+#include <new>
 
 #include "API.h"
 #include "Config.h"
 #include "DoorHardware.h"
 #include "DirectImport.h"
 #include "Fingerprint.h"
+#include "HttpLock.h"
 #include "SensorTransfer.h"
+#include "SerialLog.h"
 
 namespace
 {
@@ -21,6 +25,8 @@ namespace
     EnrollmentJob g_enrollmentResultJob;
     String g_enrollmentResultTemplate;
     unsigned long g_enrollmentResultStartedAt = 0;
+    int g_verifyJobId = 0;
+    String g_verifyClaimToken;
 
     bool isExplicitTrue(JsonVariantConst value)
     {
@@ -32,24 +38,23 @@ namespace
         proof = {};
         if (!node.is<JsonObjectConst>()) return false;
         const JsonObjectConst object = node.as<JsonObjectConst>();
-        if (!isExplicitTrue(object["fresh_scan_verified"]) || !object["stored_slot"].is<int>() ||
-            !object["matched_slot"].is<int>() || !object["confidence"].is<int>() ||
-            !object["template_bytes"].is<int>() || !object["template_sha256"].is<const char *>()) return false;
-        const char *hash = object["template_sha256"].as<const char *>();
-        if (strlen(hash) != 64) return false;
-        proof.freshScanVerified = true;
+        if (!object["stored_slot"].is<int>()) return false;
+        proof.freshScanVerified = isExplicitTrue(object["fresh_scan_verified"]);
+        proof.storageConfirmed = isExplicitTrue(object["storage_confirmed"]) || proof.freshScanVerified;
         proof.storedSlot = object["stored_slot"].as<int>();
-        proof.matchedSlot = object["matched_slot"].as<int>();
-        proof.confidence = object["confidence"].as<int>();
-        proof.templateBytes = object["template_bytes"].as<int>();
-        memcpy(proof.templateSha256, hash, 64);
+        proof.matchedSlot = object["matched_slot"].is<int>() ? object["matched_slot"].as<int>() : proof.storedSlot;
+        proof.confidence = object["confidence"].is<int>() ? object["confidence"].as<int>() : 1;
+        proof.templateBytes = object["template_bytes"].is<int>() ? object["template_bytes"].as<int>() : 0;
+        if (object["template_sha256"].is<const char *>()) {
+            const char *hash = object["template_sha256"].as<const char *>();
+            if (strlen(hash) == 64) memcpy(proof.templateSha256, hash, 64);
+        }
         return DoorEnrollmentProof::validVerification(proof, proof.storedSlot);
     }
 
     bool beginRequest(HTTPClient &http, const String &endpoint)
     {
-        // EXIT RFID verification must still work while the door is latched open.
-        if (WiFi.status() != WL_CONNECTED)
+        if (isDoorUnlocked() || WiFi.status() != WL_CONNECTED)
         {
             return false;
         }
@@ -67,9 +72,12 @@ namespace
         {
             *statusCode = 0;
         }
+        EntrivoHttpLock httpLock;
         HTTPClient http;
         if (!beginRequest(http, endpoint))
         {
+            SerialLog::httpFailure(endpoint, WiFi.status() == WL_CONNECTED ? 0 : -4,
+                isDoorUnlocked() ? "Request skipped: door is unlocked." : "Request skipped: WiFi is not connected.");
             return false;
         }
 
@@ -82,27 +90,36 @@ namespace
         {
             *statusCode = responseCode;
         }
-        if (responseCode <= 0)
-        {
-            http.end();
-            return false;
-        }
-
         const String responseBody = http.getString();
         http.end();
-        const bool parsed = !deserializeJson(response, responseBody) && response.is<JsonObject>();
-        return responseCode == HTTP_CODE_OK && parsed &&
-            isExplicitTrue(response["success"]);
+        if (deserializeJson(response, responseBody) || !response.is<JsonObject>()) {
+            SerialLog::httpFailure(endpoint, responseCode, responseCode > 0
+                ? "Response was not valid JSON (PHP warning or HTML error page?). First bytes: " + responseBody.substring(0, 80)
+                : String(""));
+            return false;
+        }
+        const bool accepted = responseCode == HTTP_CODE_OK && isExplicitTrue(response["success"]);
+        if (!accepted) {
+            String detail = String(response["message"] | "");
+            const String reason = String(response["reason"] | "");
+            if (reason.length()) detail += " [reason: " + reason + "]";
+            const String error = String(response["error"] | "");
+            if (error.length()) detail += " [error: " + error + "]";
+            SerialLog::httpFailure(endpoint, responseCode, detail);
+        }
+        return accepted;
     }
 
     bool fetchPendingJob(EnrollmentJob &job)
     {
+        EntrivoHttpLock httpLock;
         HTTPClient http;
         if (!beginRequest(http, "/api/fingerprint/get_pending_job.php?enrollment_device_id=" +
                           String(ENROLLMENT_DEVICE_ID)))
         {
             return false;
         }
+        http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
 
         if (http.GET() != HTTP_CODE_OK)
         {
@@ -122,14 +139,19 @@ namespace
         const JsonObjectConst jobNode = response["job"].as<JsonObjectConst>();
         job.jobId = jobNode["job_id"] | 0;
         job.userId = jobNode["user_id"] | 0;
+        job.fingerprintId = jobNode["fingerprint_id"] | 0;
         job.deviceId = jobNode["enrollment_device_id"] | 0;
         job.assignedSlot = jobNode["assigned_slot"] | 0;
+        job.previousSlot = jobNode["previous_slot"] | 0;
+        job.isUpdate = String(jobNode["job_mode"] | "") == "update";
+        job.recovery = jobNode["recovery"] | false;
         job.fingerName = String(jobNode["finger_name"] | "Fingerprint");
         return job.jobId > 0 && job.deviceId == ENROLLMENT_DEVICE_ID;
     }
 
     bool fetchPendingImport(DirectImportJob &job)
     {
+        EntrivoHttpLock httpLock;
         HTTPClient http;
         if (!beginRequest(http, "/api/fingerprint/direct_import_device.php?enrollment_device_id=" +
                           String(ENROLLMENT_DEVICE_ID)))
@@ -175,22 +197,7 @@ namespace
 
     bool importResultRejected(int statusCode)
     {
-        return statusCode == 404 || statusCode == 409 || statusCode == 403 || statusCode == 422;
-    }
-
-    bool enrollmentConfirmationRejected(int statusCode)
-    {
-        // The server refused this completion and did not keep this attempt.
-        return statusCode == 400 || statusCode == 401 || statusCode == 403 || statusCode == 404 ||
-            statusCode == 409 || statusCode == 422 || statusCode == 503;
-    }
-
-    void rejectUnconfirmedEnrollment(EnrollmentJob &job, int statusCode)
-    {
-        String reason = "Backend rejected verified enrollment confirmation (HTTP " + String(statusCode) + ").";
-        discardUnconfirmedEnrollment(job, reason);
-        Serial.println(reason);
-        failEnrollmentJob(job.jobId, reason);
+        return statusCode == 401 || statusCode == 404 || statusCode == 409 || statusCode == 403 || statusCode == 422;
     }
 }
 
@@ -203,23 +210,17 @@ bool checkPendingEnrollment()
 
     if (g_enrollmentResultJob.jobId > 0)
     {
-        int statusCode = 0;
-        if (completeEnrollmentJob(g_enrollmentResultJob, g_enrollmentResultTemplate, &statusCode))
+        String reportError;
+        if (reportIdentifyMatch(g_enrollmentResultJob, g_enrollmentResultTemplate, reportError))
         {
-            Serial.println("Enrollment and database backup confirmed. Remove your finger before scanning.");
+            SerialLog::ok("Stored template reported. Waiting for Super Admin download.");
             g_enrollmentResultJob.jobId = 0;
             g_enrollmentResultTemplate = "";
         }
-        else if (enrollmentConfirmationRejected(statusCode) || millis() - g_enrollmentResultStartedAt >= IMPORT_CONFIRMATION_TIMEOUT_MS)
+        else if (millis() - g_enrollmentResultStartedAt >= IMPORT_CONFIRMATION_TIMEOUT_MS)
         {
-            if (enrollmentConfirmationRejected(statusCode)) {
-                rejectUnconfirmedEnrollment(g_enrollmentResultJob, statusCode);
-            } else {
-                const String reason = "Verified enrollment confirmation timed out before a matching completed response.";
-                Serial.println(reason);
-                failEnrollmentJob(g_enrollmentResultJob.jobId, reason);
-                Serial.println("Check the web module before retrying. The sensor template was left in place because the server result was not received.");
-            }
+            SerialLog::step(reportError.length() ? reportError :
+                "Stored-template report timed out. The stored slot is preserved for recovery.");
             g_enrollmentResultJob.jobId = 0;
             g_enrollmentResultTemplate = "";
         }
@@ -240,39 +241,64 @@ bool checkPendingEnrollment()
         return true;
     }
 
-    Serial.print("Enrollment claimed. Door scanning paused for job #");
-    Serial.println(job.jobId);
+    SerialLog::section(String(job.recovery ? "ENROLLMENT RECOVERY" : "ENROLLMENT") + " JOB #" + String(job.jobId));
+    SerialLog::kv("Finger", job.fingerName);
+    SerialLog::kv("User ID", String(job.userId));
+    SerialLog::kv("Mode", job.isUpdate ? "Update existing fingerprint" : "New enrollment");
+    SerialLog::kv("Reserved slot", String(job.assignedSlot));
+    if (job.previousSlot > 0) SerialLog::kv("Previous slot", String(job.previousSlot));
+    SerialLog::kv("Sensor capacity", String(finger.capacity));
+    SerialLog::kv("Door scanning", "paused until this job ends");
     String templateDataBase64;
     String errorMessage;
     if (!runEnrollmentJob(job, templateDataBase64, errorMessage))
     {
-        Serial.print("Enrollment failure: ");
-        Serial.println(errorMessage);
-        failEnrollmentJob(job.jobId, errorMessage);
-        Serial.println("Enrollment failed. Remove your finger before scanning for access.");
-        return true;
-    }
 
-    int statusCode = 0;
-    if (!completeEnrollmentJob(job, templateDataBase64, &statusCode))
-    {
-        // Retry this exact proof after connection loss; never capture/store a second model.
-        if (!enrollmentConfirmationRejected(statusCode))
-        {
-            g_enrollmentResultJob = job;
-            g_enrollmentResultTemplate = templateDataBase64;
-            g_enrollmentResultStartedAt = millis();
-            Serial.println("Enrollment proof awaiting confirmation. Retrying while access scanning is paused.");
+        // Unsuccessful enrollment / recovery must close the job so the admin restarts
+        // a fresh two-scan Adafruit enrollment. Sensor rollback is handled in Enrollment.cpp.
+        if (errorMessage.length() == 0) {
+            errorMessage = job.recovery
+                ? "Could not read the stored slot for download. Start enrollment again."
+                : "Enrollment failed before download. Start enrollment again.";
         }
-        else rejectUnconfirmedEnrollment(job, statusCode);
+        const bool reported = failEnrollmentJob(job.jobId, errorMessage);
+        SerialLog::result(false, "Enrollment job #" + String(job.jobId) + " rolled back", errorMessage);
+        if (!reported) SerialLog::warn("The backend did not confirm the failure. The dashboard may need a refresh.");
+        return true;
+    }
+    if (!job.verification.storageConfirmed || job.verification.templateBytes <= 0
+        || templateDataBase64.length() == 0)
+    {
+        // Safety net: never open Download without the exact stored-slot template.
+        String eraseError;
+        deleteStoredFingerprint(static_cast<uint16_t>(job.assignedSlot), eraseError);
+        String rollbackError = "Enrollment stored on Sensor A but the download template was incomplete. "
+            "The sensor template was rolled back. Start enrollment again.";
+        if (eraseError.length()) {
+            rollbackError += " " + eraseError;
+        }
+        failEnrollmentJob(job.jobId, rollbackError);
+        SerialLog::result(false, "Enrollment job #" + String(job.jobId) + " rolled back", rollbackError);
         return true;
     }
 
-    Serial.println("Enrollment completed and backed up. Remove your finger before scanning for access.");
+    String reportError;
+    if (!reportIdentifyMatch(job, templateDataBase64, reportError))
+    {
+        g_enrollmentResultJob = job;
+        g_enrollmentResultTemplate = templateDataBase64;
+        g_enrollmentResultStartedAt = millis();
+        SerialLog::step(reportError.length() ? reportError :
+            "Stored slot confirmed. Retrying the template report while access scanning is paused.");
+        return true;
+    }
+
+    SerialLog::result(true, "Enrollment job #" + String(job.jobId) + " verified at slot " + String(job.assignedSlot),
+        "Waiting for the Super Admin to download the template.");
     return true;
 }
 
-bool reportEnrollmentProgress(int jobId, int progress, const String &currentStep)
+bool reportEnrollmentProgress(int jobId, int progress, const String &currentStep, String *errorMessage)
 {
     DynamicJsonDocument payload(512);
     payload["job_id"] = jobId;
@@ -280,9 +306,97 @@ bool reportEnrollmentProgress(int jobId, int progress, const String &currentStep
     payload["progress"] = progress;
     payload["current_step"] = currentStep;
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
-    const bool updated = postJson("/api/fingerprint/update_progress.php", payload, response);
-    Serial.println(currentStep);
+    int statusCode = 0;
+    SerialLog::step(currentStep + "  (" + String(progress) + "%)");
+    const bool updated = postJson("/api/fingerprint/update_progress.php", payload, response, &statusCode);
+    if (!updated) {
+        String detail = String(response["message"] | "");
+        if (detail.length() == 0) detail = statusCode <= 0
+            ? String("Could not reach the backend (transport code ") + String(statusCode) + "). Check WiFi and SERVER_URL."
+            : String("The backend returned HTTP ") + String(statusCode) + " without a valid progress confirmation.";
+        if (errorMessage) *errorMessage = String("Enrollment progress was not confirmed: ") + detail;
+
+    }
     return updated;
+}
+
+bool reportEnrollmentStored(const EnrollmentJob &job, const String &currentStep)
+{
+    DynamicJsonDocument payload(768);
+    payload["job_id"] = job.jobId;
+    payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
+    payload["assigned_slot"] = job.assignedSlot;
+    payload["current_step"] = currentStep;
+    DynamicJsonDocument response(JSON_BUFFER_SIZE);
+    const bool updated = postJson("/api/fingerprint/mark_stored.php", payload, response);
+    if (updated) SerialLog::ok("Backend recorded: " + currentStep);
+    return updated;
+}
+
+bool reportIdentifyMatch(const EnrollmentJob &job, const String &templateDataBase64, String &errorMessage)
+{
+    if (job.jobId <= 0 ||
+        !job.verification.storageConfirmed ||
+        !DoorEnrollmentProof::validVerification(job.verification, job.assignedSlot) ||
+        job.verification.templateBytes <= 0) {
+        errorMessage = "The stored-slot template is incomplete.";
+        return false;
+    }
+    if (job.verification.templateBytes > 0 &&
+        templateDataBase64.length() != ((job.verification.templateBytes + 2) / 3) * 4) {
+        errorMessage = "The stored-slot template encoding is incomplete.";
+        return false;
+    }
+    DynamicJsonDocument payload(4096);
+    payload["job_id"] = job.jobId;
+    payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
+    payload["assigned_slot"] = job.assignedSlot;
+    payload["template_data_base64"] = templateDataBase64;
+    JsonObject verification = payload.createNestedObject("verification");
+    verification["fresh_scan_verified"] = job.verification.freshScanVerified;
+    verification["storage_confirmed"] = true;
+    verification["stored_slot"] = job.verification.storedSlot;
+    verification["matched_slot"] = job.verification.matchedSlot;
+    verification["confidence"] = job.verification.confidence;
+    verification["template_bytes"] = job.verification.templateBytes;
+    verification["template_sha256"] = job.verification.templateSha256;
+    DynamicJsonDocument response(JSON_BUFFER_SIZE);
+    if (!postJson("/api/fingerprint/report_identify_match.php", payload, response)) {
+        errorMessage = String(response["message"] | "The backend did not accept the stored-slot template.");
+        return false;
+    }
+    if ((response["job_id"] | 0) != job.jobId ||
+        (response["matched_slot"] | 0) != job.verification.matchedSlot ||
+        (response["template_bytes"] | 0) != (int) job.verification.templateBytes) {
+        errorMessage = "The backend returned a different stored-slot template.";
+        return false;
+    }
+    errorMessage = "";
+    return true;
+}
+
+bool stageEnrollmentBackup(const EnrollmentJob &job, const String &templateDataBase64, size_t templateBytes, const String &templateHash, String &errorMessage)
+{
+    DynamicJsonDocument payload(4096);
+    payload["job_id"] = job.jobId;
+    payload["enrollment_device_id"] = job.deviceId;
+    payload["assigned_slot"] = job.assignedSlot;
+    payload["template_data_base64"] = templateDataBase64;
+    payload["template_bytes"] = templateBytes;
+    payload["template_sha256"] = templateHash;
+    DynamicJsonDocument response(JSON_BUFFER_SIZE);
+    if (!postJson("/api/fingerprint/stage_enrollment_backup.php", payload, response)) {
+        errorMessage = String(response["message"] | "MySQL did not confirm the fingerprint backup. The sensor slot is preserved for recovery.");
+        return false;
+    }
+    if ((response["job_id"] | 0) != job.jobId ||
+        (response["assigned_slot"] | 0) != job.assignedSlot ||
+        (response["template_bytes"] | 0) != templateBytes ||
+        String(response["template_sha256"] | "") != templateHash) {
+        errorMessage = "MySQL returned a backup confirmation for a different job, slot, or template.";
+        return false;
+    }
+    return true;
 }
 
 bool reserveEmptyEnrollmentSlot(EnrollmentJob &job, String &errorMessage)
@@ -339,10 +453,8 @@ bool reserveEmptyEnrollmentSlot(EnrollmentJob &job, String &errorMessage)
     }
     // Completion and any pending completion proof must use the backend's new reservation.
     job.assignedSlot = reservedSlot;
-    Serial.print("Preserved occupied sensor slot ");
-    Serial.print(previousSlot);
-    Serial.print(". Backend reserved replacement slot ");
-    Serial.println(job.assignedSlot);
+    SerialLog::warn("Slot " + String(previousSlot) + " was occupied and preserved. Backend reserved replacement slot "
+        + String(job.assignedSlot) + ".");
     return true;
 }
 
@@ -350,7 +462,9 @@ bool completeEnrollmentJob(const EnrollmentJob &job, const String &templateDataB
 {
     if (statusCode) *statusCode = 0;
     if (job.jobId <= 0 || job.deviceId != ENROLLMENT_DEVICE_ID ||
-        !DoorEnrollmentProof::validVerification(job.verification, job.assignedSlot) ||
+        !job.verification.freshScanVerified ||
+        !DoorEnrollmentProof::validVerification(job.verification, job.assignedSlot)) return false;
+    if (job.verification.templateBytes > 0 &&
         templateDataBase64.length() != ((job.verification.templateBytes + 2) / 3) * 4) return false;
     // A 1536-byte sensor template needs 2048 Base64 characters plus JSON fields.
     DynamicJsonDocument payload(4096);
@@ -360,6 +474,7 @@ bool completeEnrollmentJob(const EnrollmentJob &job, const String &templateDataB
     payload["template_data_base64"] = templateDataBase64;
     JsonObject verification = payload.createNestedObject("verification");
     verification["fresh_scan_verified"] = job.verification.freshScanVerified;
+    verification["storage_confirmed"] = job.verification.storageConfirmed;
     verification["stored_slot"] = job.verification.storedSlot;
     verification["matched_slot"] = job.verification.matchedSlot;
     verification["confidence"] = job.verification.confidence;
@@ -391,21 +506,26 @@ bool failEnrollmentJob(int jobId, const String &errorMessage)
     return postJson("/api/fingerprint/fail_enrollment.php", payload, response);
 }
 
-bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message)
+bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit)
 {
     message = "Door access unavailable. Check WiFi and the backend.";
-    if (matchedSlot == 0 || isDoorUnlocked() || isFingerprintWorkPending())
+    if (matchedSlot == 0 || isFingerprintWorkPending())
+    {
+        return false;
+    }
+    if (isDoorUnlocked() && !isExit)
     {
         return false;
     }
 
     String liveTemplateHash;
-    if (!readStoredTemplateHash(matchedSlot, liveTemplateHash, message)) return false;
+    if (!readStoredTemplateHash(matchedSlot, liveTemplateHash, message, isExit)) return false;
     DynamicJsonDocument payload(512);
     payload["method"] = "fingerprint";
     payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
     payload["matched_slot"] = matchedSlot;
     payload["template_hash"] = liveTemplateHash;
+    payload["direction"] = isExit ? "exit" : "entry";
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     if (!postJson("/api/door/verify_access.php", payload, response))
     {
@@ -433,7 +553,12 @@ bool authorizeRfid(const String &uid, bool isExit, String &message)
 
 bool isFingerprintWorkPending()
 {
-    return g_importResultJobId > 0 || g_enrollmentResultJob.jobId > 0;
+    return g_importResultJobId > 0 || g_enrollmentResultJob.jobId > 0 || g_verifyJobId > 0;
+}
+
+bool checkPendingEnrollmentVerify()
+{
+    return false;
 }
 
 bool reportDirectImportProgress(int jobId, int progress, const String &currentStep)
@@ -459,14 +584,14 @@ bool checkPendingDirectImport()
         int statusCode = 0;
         if (confirmImportResult(statusCode))
         {
-            Serial.println(g_importResultHash.length() == 64 ?
+            SerialLog::step(g_importResultHash.length() == 64 ?
                 "Direct import verified and confirmed by the backend. Remove your finger before scanning." :
                 "Direct import failure reported. Check the web module for its reason.");
             g_importResultJobId = 0;
         }
         else if (importResultRejected(statusCode) || millis() - g_importResultStartedAt >= IMPORT_CONFIRMATION_TIMEOUT_MS)
         {
-            Serial.println("Direct import confirmation expired. Check the web module and retry the same import.");
+            SerialLog::step("Direct import confirmation expired. Check the web module and retry the same import.");
             g_importResultJobId = 0;
         }
         return true;
@@ -478,7 +603,8 @@ bool checkPendingDirectImport()
         return false;
     }
     lockDoorRelay();
-    Serial.println("Direct import claimed. Enrollment and door scanning are paused.");
+    SerialLog::section("DIRECT FINGERPRINT IMPORT");
+    SerialLog::step("Direct import claimed. Enrollment and door scanning are paused.");
     g_importResultStartedAt = millis();
     String verifiedHash;
     String errorMessage;
@@ -490,18 +616,18 @@ bool checkPendingDirectImport()
     int statusCode = 0;
     if (confirmImportResult(statusCode))
     {
-        Serial.println(imported ? "Direct import completed. Remove your finger before scanning for access." : errorMessage);
+        SerialLog::step(imported ? "Direct import completed. Remove your finger before scanning for access." : errorMessage);
         g_importResultJobId = 0;
     }
     else if (importResultRejected(statusCode))
     {
-        Serial.println("The backend rejected this import result. Check the web module before retrying.");
+        SerialLog::step("The backend rejected this import result. Check the web module before retrying.");
         g_importResultJobId = 0;
     }
     else
     {
         // A lost completion response must retry the same proof, never allocate/write another slot.
-        Serial.println("Import result could not be confirmed. Retrying the same job while the door stays locked.");
+        SerialLog::step("Import result could not be confirmed. Retrying the same job while the door stays locked.");
     }
     return true;
 }

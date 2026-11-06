@@ -28,6 +28,7 @@ import SuperAdminDashboard from './pages/superAdmin/SuperAdminDashboard.jsx';
 import SuperAdminLayout from './pages/superAdmin/SuperAdminLayout.jsx';
 import UserLayout from './pages/user/UserLayout.jsx';
 import OverrideNoticeMonitor from './components/OverrideNoticeMonitor.jsx';
+import GlobalEnrollmentIdentifyMatch from './components/GlobalEnrollmentIdentifyMatch.jsx';
 import UserDashboard from './pages/user/UserDashboard.jsx';
 import MyAccount from './pages/user/MyAccount.jsx';
 import UserAccessLogs from './pages/user/UserAccessLogs.jsx';
@@ -303,6 +304,7 @@ export default function App() {
           <SuperAdminPage user={user} onLogout={logout} />
         </SuperAdminLayout>
         <OverrideNoticeMonitor user={user} />
+        <GlobalEnrollmentIdentifyMatch user={user} />
       </>
     );
   }
@@ -333,6 +335,7 @@ export default function App() {
           <AdminPage user={user} onLogout={logout} />
         </AdminLayout>
         <OverrideNoticeMonitor user={user} />
+        <GlobalEnrollmentIdentifyMatch user={user} />
       </>
     );
   }

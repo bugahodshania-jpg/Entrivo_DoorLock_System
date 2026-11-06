@@ -5,6 +5,7 @@ require_once __DIR__ . '/DirectFingerprintImportSchema.php';
 require_once __DIR__ . '/SensorMemorySchema.php';
 require_once __DIR__ . '/UserPrivilegeService.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
+require_once __DIR__ . '/../models/FingerprintEnrollmentJob.php';
 
 final class DirectFingerprintImportException extends RuntimeException
 {
@@ -294,17 +295,16 @@ final class DirectFingerprintImportService
 
     private function noLiveEnrollment(int $deviceId,int $userId): void
     {
-        $query=$this->pdo->prepare("SELECT job_id FROM fingerprint_enrollment_jobs WHERE status IN ('waiting','processing') AND (enrollment_device_id=? OR enrollment_device_id IS NULL OR user_id=?) LIMIT 1 FOR UPDATE");
+        (new FingerprintEnrollmentJob($this->pdo))->expireStaleOpenJobs();
+        $query=$this->pdo->prepare("SELECT job_id FROM fingerprint_enrollment_jobs WHERE status IN ('waiting','processing','stored_pending_commit','needs_reconciliation') AND (enrollment_device_id=? OR enrollment_device_id IS NULL OR user_id=?) LIMIT 1 FOR UPDATE");
         $query->execute([$deviceId,$userId]);
         if ($query->fetch()) $this->reject('An enrollment is already waiting or running for this sensor or employee. Finish it before restoring a database backup.');
     }
 
     private function nextSlot(): int
     {
-        $fingerprints=$this->pdo->query('SELECT GREATEST(COALESCE(MAX(enrollment_slot),0),COALESCE(MAX(shared_door_slot),0)) FROM fingerprints')->fetchColumn();
-        $enrollments=$this->pdo->query("SELECT COALESCE(MAX(assigned_slot),0) FROM fingerprint_enrollment_jobs WHERE status IN ('waiting','processing') OR (status='failed' AND progress>=90)")->fetchColumn();
-        $imports=$this->pdo->query('SELECT COALESCE(MAX(target_slot),0) FROM direct_fingerprint_import_jobs')->fetchColumn();
-        return max((int)$fingerprints,(int)$enrollments,(int)$imports)+1;
+        require_once __DIR__ . '/FingerprintSlotRegistry.php';
+        return FingerprintSlotRegistry::nextFreeSlot($this->pdo);
     }
 
     private function job(int $id,bool $lock=false): array

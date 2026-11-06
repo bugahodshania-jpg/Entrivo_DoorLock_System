@@ -23,7 +23,7 @@ final class SensorMemorySchema
         if ($pdo->inTransaction()) throw new LogicException('Migrate sensor memory before starting a transaction.');
         foreach (self::definitions() as $definition) $pdo->exec($definition);
         // Existing installations keep the original enum until this additive change.
-        $pdo->exec("ALTER TABLE sensor_memory_jobs MODIFY kind ENUM('inventory','template','empty') NOT NULL");
+        $pdo->exec("ALTER TABLE sensor_memory_jobs MODIFY kind ENUM('inventory','template','empty','delete_slot') NOT NULL");
     }
 
     public static function definitions(): array
@@ -32,7 +32,7 @@ final class SensorMemorySchema
             "CREATE TABLE IF NOT EXISTS sensor_memory_jobs (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 actor_id INT NOT NULL, device_id INT NOT NULL,
-                kind ENUM('inventory','template','empty') NOT NULL,
+                kind ENUM('inventory','template','empty','delete_slot') NOT NULL,
                 inventory_id BIGINT UNSIGNED NULL, target_slot INT UNSIGNED NULL,
                 status ENUM('pending','processing','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
                 claim_token CHAR(64) NULL, report_hash CHAR(64) NULL,
@@ -68,18 +68,26 @@ final class SensorMemorySchema
         if (!self::tableExists($pdo)) return false;
         $query = $pdo->prepare("SELECT 1 FROM sensor_memory_jobs WHERE device_id=? AND (
             (status='processing' AND processing_at > DATE_SUB(NOW(), INTERVAL 3 MINUTE))
-            OR (kind='empty' AND status='pending' AND queued_at > DATE_SUB(NOW(), INTERVAL 3 MINUTE))
+            OR (kind IN ('empty','delete_slot') AND status='pending' AND queued_at > DATE_SUB(NOW(), INTERVAL 3 MINUTE))
         ) LIMIT 1");
         $query->execute([$deviceId]);
         return (bool) $query->fetchColumn();
+    }
+
+    public static function ensureDeleteSlotKind(PDO $pdo): void
+    {
+        if (!self::tableExists($pdo) || $pdo->inTransaction()) return;
+        $column = $pdo->query("SHOW COLUMNS FROM sensor_memory_jobs LIKE 'kind'")->fetch(PDO::FETCH_ASSOC);
+        if (!$column || str_contains(strtolower((string) ($column['Type'] ?? '')), 'delete_slot')) return;
+        $pdo->exec("ALTER TABLE sensor_memory_jobs MODIFY kind ENUM('inventory','template','empty','delete_slot') NOT NULL");
     }
 
     public static function expire(PDO $pdo): void
     {
         $pdo->exec("UPDATE sensor_memory_jobs SET
             error_message=CASE
-                WHEN kind='empty' AND status='pending' THEN 'Sensor did not pick up the erase within 3 minutes. Check its power, WiFi, and Sensor Memory firmware, then retry.'
-                WHEN kind='empty' THEN 'Sensor did not finish erasing templates within 3 minutes. Read the sensor before enrolling again.'
+                WHEN kind IN ('empty','delete_slot') AND status='pending' THEN 'Sensor did not pick up the erase within 3 minutes. Check its power, WiFi, and Sensor Memory firmware, then retry.'
+                WHEN kind IN ('empty','delete_slot') THEN 'Sensor did not finish deleting fingerprint templates within 3 minutes. Read the sensor before enrolling again.'
                 WHEN status='pending' THEN 'Sensor did not pick up the read within 3 minutes. Check its power, WiFi, and Sensor Memory firmware, then retry.'
                 ELSE 'Sensor did not finish the read within 3 minutes. The last completed inventory is preserved; retry the read.' END,
             status=CASE WHEN status='pending' THEN 'cancelled' ELSE 'failed' END,

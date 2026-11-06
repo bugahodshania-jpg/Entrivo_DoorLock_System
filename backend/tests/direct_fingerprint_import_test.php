@@ -11,11 +11,17 @@ function rejectImport(callable $work,int $status=409): void {
 }
 
 $pdo=entrivo_pdo();
-$tables=['direct_fingerprint_import_jobs','users','user_privileges','faculty_info','staff_info','admin_info','fingerprint_devices','fingerprints','fingerprint_enrollment_jobs','schedules','access_overrides','access_log'];
+$tables=['direct_fingerprint_import_jobs','users','user_privileges','faculty_info','staff_info','admin_info','fingerprint_devices','fingerprints','fingerprint_enrollment_jobs','schedules','access_overrides','access_log','fingerprint_sensor_slots'];
 $template=str_repeat("\x43\x44",256);
 $hash=hash('sha256',$template);
 $now=new DateTimeImmutable('2026-10-21 10:00:00',new DateTimeZone('Asia/Manila'));
 try {
+    // Shadow the real slot registry so fixtures never write live sensor rows.
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(20) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     // Temporary shadows are created before fixtures or services run. No real user,
     // policy, fingerprint, import queue, access log, or schema is modified.
     $pdo->exec("CREATE TEMPORARY TABLE direct_fingerprint_import_jobs (
@@ -142,19 +148,19 @@ try {
 
     $reset();
     $new=$service->queue([...$request,'fingerprint_id'=>2])['job'];
-    assertImport($new['target_slot']===12,'A backup without a local mapping must reserve a fresh slot beyond all mapped/reserved slots.');
+    assertImport($new['target_slot']===1,'A backup without a local mapping must take the first confirmed-free sensor slot.');
     assertImport($pdo->query('SELECT enrollment_slot FROM fingerprints WHERE fingerprint_id=2')->fetchColumn()===null,'Queueing alone must not pretend the template exists on the sensor.');
     $service->claim(['enrollment_device_id'=>1]);
     $service->deviceUpdate(['action'=>'fail','job_id'=>$new['job_id'],'enrollment_device_id'=>1,'error_message'=>'Target occupied by a different template.']);
     assertImport($pdo->query('SELECT enrollment_slot FROM fingerprints WHERE fingerprint_id=2')->fetchColumn()===null,'An occupied-slot failure must preserve the original mapping.');
     $retried=$service->queue([...$request,'fingerprint_id'=>2])['job'];
     assertImport($retried['job_id']===$new['job_id']&&$retried['target_slot']===$new['target_slot'],'Unchanged-backup retries must reuse both job and target to avoid physical duplicates.');
-    assertImport($model->getNextAvailableSlot()===13,'Normal enrollment allocation must honor import reservations including uncertain failed writes.');
+    assertImport($model->getNextAvailableSlot()===2,'Normal enrollment allocation must skip reserved import and mapped slots and reuse the first free gap.');
     $service->claim(['enrollment_device_id'=>1]);
-    $complete($new['job_id'],12);
+    $complete($new['job_id'],1);
     $legacy=$pdo->query('SELECT enrolled_at,enrollment_slot,shared_door_slot,door_sync_status FROM fingerprints WHERE fingerprint_id=2')->fetch();
-    assertImport($legacy['enrolled_at']==='2026-10-21 10:00:00'&&(int)$legacy['enrollment_slot']===12&&(int)$legacy['shared_door_slot']===11&&$legacy['door_sync_status']==='synced','Verified legacy imports must fill only a missing local enrollment date and preserve Sensor B metadata.');
-    assertImport((new DirectFingerprintAccessService($pdo))->verify(['enrollment_device_id'=>1,'matched_slot'=>12],$now)['access_granted'],'A verified legacy backup with missing capture date must become usable under its approved policy.');
+    assertImport($legacy['enrolled_at']==='2026-10-21 10:00:00'&&(int)$legacy['enrollment_slot']===1&&(int)$legacy['shared_door_slot']===11&&$legacy['door_sync_status']==='synced','Verified legacy imports must fill only a missing local enrollment date and preserve Sensor B metadata.');
+    assertImport((new DirectFingerprintAccessService($pdo))->verify(['enrollment_device_id'=>1,'matched_slot'=>1],$now)['access_granted'],'A verified legacy backup with missing capture date must become usable under its approved policy.');
 
     $reset();
     $job=$service->queue([...$request,'fingerprint_id'=>2])['job'];

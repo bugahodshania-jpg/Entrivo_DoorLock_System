@@ -11,7 +11,9 @@ CREATE TABLE fingerprint_enrollment_jobs (
     status ENUM(
         'waiting',
         'processing',
+        'stored_pending_commit',
         'completed',
+        'needs_reconciliation',
         'failed',
         'cancelled'
     ) DEFAULT 'waiting',

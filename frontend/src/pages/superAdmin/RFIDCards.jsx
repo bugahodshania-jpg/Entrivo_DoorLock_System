@@ -24,6 +24,7 @@ import RowActionMenu from '../../components/RowActionMenu';
 import TableEmptyState from '../../components/TableEmptyState';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import { userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -976,6 +977,7 @@ export default function RFIDCards({ user }) {
                               label: 'Delete',
                               icon: Trash2,
                               danger: true,
+                              hidden: user?.role === 'admin' && !userHasPrivilege(user, 'delete_requests'),
                               onClick: () => deleteCard(card),
                             },
                           ]}

@@ -10,25 +10,34 @@
 #include "SensorMemory.h"
 #include "Rfid.h"
 #include "WiFiManager.h"
+#include "SerialLog.h"
 
 namespace {
     bool sensorReady = false;
     bool waitingForFingerRemoval = true;
+    bool fingerprintExitArmed = false;
     bool previousDoorState = false;
     unsigned long lastSensorAttemptAt = 0;
     unsigned long lastJobPollAt = 0;
     unsigned long lastAccessScanAt = 0;
+    unsigned long fingerprintExitArmedAt = 0;
 
     void printStatus() {
-        Serial.print("Door: ");
-        Serial.println(isDoorUnlocked() ? "UNLOCKED" : "LOCKED");
-        Serial.print("EXIT touch armed: "); Serial.println(isExitAuthorized() ? "yes" : "no");
-        Serial.print("Fingerprint sensor: "); Serial.println(sensorReady ? "ready" : "unavailable");
-        Serial.print("WiFi: "); Serial.println(WiFi.status() == WL_CONNECTED ? "connected" : "offline");
-        Serial.print("Device token: "); Serial.println(String(DOOR_DEVICE_TOKEN).length() ? "configured" : "MISSING - set Config.h and backend/.env");
-        Serial.print("Enrollment device ID: "); Serial.println(ENROLLMENT_DEVICE_ID);
-        Serial.println("Scheduling is deferred. Registered identities are verified by the backend.");
-        Serial.println("Serial commands: M = status, T = RTC time, L = lock.");
+        SerialLog::section("DOOR CONTROLLER STATUS");
+        SerialLog::kv("Door", isDoorUnlocked() ? "UNLOCKED" : "LOCKED");
+        SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
+        SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
+        SerialLog::kv("Fingerprint sensor", sensorReady ? "ready" : "UNAVAILABLE");
+        SerialLog::kv("WiFi", WiFi.status() == WL_CONNECTED ? String("connected (") + WiFi.localIP().toString() + ")" : String("OFFLINE"));
+        SerialLog::kv("Backend", SERVER_URL);
+        SerialLog::kv("Device token", String(DOOR_DEVICE_TOKEN).length() ? "configured" : "MISSING - set Config.h and backend/.env");
+        SerialLog::kv("Enrollment device", String(ENROLLMENT_DEVICE_ID));
+        SerialLog::blank();
+        SerialLog::step("Registered identities and schedules are verified by the backend.");
+        SerialLog::step("Serial commands: M = status, T = RTC time, L = lock.");
+        if (!sensorReady) SerialLog::debug("Sensor unavailable: check the R307S wiring/power. It is retried automatically.");
+        if (WiFi.status() != WL_CONNECTED) SerialLog::debug("WiFi offline: check WIFI_SSID / WIFI_PASSWORD in Config.h.");
+        SerialLog::blank();
     }
 
     void readSerialCommands() {
@@ -42,6 +51,7 @@ namespace {
 
     void discardBufferedScans() {
         waitingForFingerRemoval = true;
+        fingerprintExitArmed = false;
         resetRfidReaders();
     }
 
@@ -50,13 +60,16 @@ namespace {
         bool isExit = false;
         if (!pollRfidReader(uid, isExit)) return false;
         if (isExit && !isDoorUnlocked()) {
-            Serial.println("[EXIT] Door is already locked. Use the entrance reader to unlock.");
+            SerialLog::warn("[EXIT] Door is already locked. Use the entrance reader to unlock.");
             resetRfidReaders();
             return true;
         }
+        SerialLog::section(String("DOOR ACCESS  RFID ") + (isExit ? "EXIT" : "ENTRY"));
+        SerialLog::kv("Card UID", uid);
         String message;
         const bool granted = authorizeRfid(uid, isExit, message);
-        Serial.println(message);
+        SerialLog::result(granted, granted ? (isExit ? "Exit approved, touch to lock" : "Access granted, door unlocked")
+            : "Access denied", message);
         if (!granted) playDeniedFeedback();
         else if (isExit) authorizeExit();
         else openDoorRelay();
@@ -68,10 +81,11 @@ namespace {
         sensorReady = false;
         lastSensorAttemptAt = millis();
         waitingForFingerRemoval = true;
-        Serial.println("Fingerprint communication lost. RFID remains available; retrying the sensor.");
+        SerialLog::fail("Fingerprint communication lost. RFID remains available; retrying the sensor.");
+        SerialLog::debug("Check the R307S TX/RX wires and power. A loose wire gives 0x01 / 0xFE / 0xFF.");
     }
 
-    void scanFingerprint() {
+    void scanFingerprint(bool isExit) {
         const uint8_t imageStatus = finger.getImage();
         if (DoorFingerprintSearch::communicationError(imageStatus)) {
             logFingerprintStatus("image", imageStatus);
@@ -84,31 +98,42 @@ namespace {
         }
         if (waitingForFingerRemoval) return;
         waitingForFingerRemoval = true;
+        SerialLog::clearStatus();
+        SerialLog::section(String("DOOR ACCESS  FINGERPRINT ") + (isExit ? "EXIT" : "ENTRY"));
         if (imageStatus != FINGERPRINT_OK) {
             logFingerprintStatus("image", imageStatus);
-            Serial.println("Fingerprint could not be read. Remove your finger and try again.");
+            SerialLog::result(false, "Fingerprint could not be read", "Remove your finger and try again.");
             playDeniedFeedback();
             return;
         }
-        const uint8_t templateStatus = finger.image2Tz(1);
-        if (templateStatus != FINGERPRINT_OK) {
-            logFingerprintStatus("image conversion", templateStatus);
-            if (DoorFingerprintSearch::communicationError(templateStatus)) retryFingerprintConnection();
-            else Serial.println("Fingerprint features could not be read. Remove your finger and try again.");
-            playDeniedFeedback();
+        bool fingerLifted = false;
+        const DoorFingerprintSearch::Result match = identifySettledFingerprintForAccess(fingerLifted);
+        if (fingerLifted) {
+            SerialLog::step("Finger lifted before the scan settled. Nothing was checked.");
+            SerialLog::blank();
+            waitingForFingerRemoval = false;
             return;
         }
-        const DoorFingerprintSearch::Result match = searchFingerprintForAccess();
         if (match.outcome != DoorFingerprintSearch::Outcome::Matched) {
-            if (match.outcome == DoorFingerprintSearch::Outcome::CommunicationError) retryFingerprintConnection();
+            if (match.outcome == DoorFingerprintSearch::Outcome::CommunicationError &&
+                match.standardStatus != 0xFE) retryFingerprintConnection();
+            SerialLog::result(false, "Fingerprint not recognized by Sensor A",
+                "No stored slot matched this finger. Door stays locked.");
             playDeniedFeedback();
             return;
         }
+        SerialLog::kv("Matched slot", String(match.matchedSlot) + " (confidence " + String(match.confidence) + ")");
         String message;
-        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message);
-        Serial.println(message);
-        if (granted) { openDoorRelay(); discardBufferedScans(); }
-        else playDeniedFeedback();
+        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit);
+        SerialLog::result(granted, granted ? (isExit ? "Exit granted, door locked" : "Access granted, door unlocked")
+            : "Access denied by backend", message);
+        if (!granted && message.indexOf("not linked") >= 0)
+            SerialLog::debug("Slot " + String(match.matchedSlot) + " has no database fingerprint. Delete it in Sensor Memory or re-enroll.");
+        if (granted) {
+            if (isExit) lockDoorRelay();
+            else openDoorRelay();
+            discardBufferedScans();
+        } else playDeniedFeedback();
     }
 }
 
@@ -116,7 +141,9 @@ void setup() {
     // Set both relay outputs LOW before serial, sensor, or network initialization.
     initDoorHardware();
     Serial.begin(115200);
-    Serial.println("Combined door controller and fingerprint enrollment starting.");
+    delay(50);
+    SerialLog::section("ENTRIVO DOOR CONTROLLER  BOOT");
+    SerialLog::step("Combined door controller and fingerprint enrollment starting.");
     initDoorFeedback();
     sensorReady = initFingerprint();
     lastSensorAttemptAt = millis();
@@ -138,9 +165,28 @@ void loop() {
     // Once EXIT is approved, no network or sensor operation can delay touch-to-lock.
     if (isDoorUnlocked() && isExitAuthorized()) { delay(2); return; }
     ensureWiFiConnected();
+    serviceDoorStatus();
     if (isDoorUnlocked()) {
-        waitingForFingerRemoval = true;
-        scanRfid(); // EXIT reader only; no enrollment/import while open.
+        scanRfid(); // Student exit card arms the outside touch. It does not lock by itself.
+        if (consumeFingerprintExitTouch()) {
+            fingerprintExitArmed = true;
+            fingerprintExitArmedAt = millis();
+            waitingForFingerRemoval = true;
+        }
+        if (fingerprintExitArmed && millis() - fingerprintExitArmedAt >= FINGERPRINT_EXIT_WINDOW_MS) {
+            fingerprintExitArmed = false;
+            waitingForFingerRemoval = true;
+            SerialLog::warn("[TOUCH] Fingerprint exit timed out. The door stays unlocked.");
+        }
+        if (!sensorReady && millis() - lastSensorAttemptAt >= SENSOR_RETRY_INTERVAL_MS) {
+            lastSensorAttemptAt = millis();
+            sensorReady = initFingerprint();
+            waitingForFingerRemoval = true;
+        }
+        if (sensorReady && fingerprintExitArmed && millis() - lastAccessScanAt >= ACCESS_SCAN_INTERVAL_MS) {
+            lastAccessScanAt = millis();
+            scanFingerprint(true);
+        }
         delay(2);
         return;
     }
@@ -165,7 +211,7 @@ void loop() {
     if (scanRfid()) return;
     if (sensorReady && millis() - lastAccessScanAt >= ACCESS_SCAN_INTERVAL_MS) {
         lastAccessScanAt = millis();
-        scanFingerprint();
+        scanFingerprint(false);
     }
     delay(2);
 }

@@ -32,10 +32,11 @@ final class CombinedDoorAccessService
 
         $now = ($now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))
             ->setTimezone(new DateTimeZone('Asia/Manila'));
+        $hasRole = (bool) $this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
         AccessLogSchema::ensureRfidUid($this->pdo);
         $this->pdo->beginTransaction();
         try {
-            $decision = $this->authorizeRfid($input);
+            $decision = $this->authorizeRfid($input, $hasRole);
             $this->recordRfidDecision($decision, $now);
             $this->pdo->commit();
             return $decision;
@@ -45,7 +46,7 @@ final class CombinedDoorAccessService
         }
     }
 
-    private function authorizeRfid(array $input): array
+    private function authorizeRfid(array $input, bool $hasRole): array
     {
         $rawDeviceId = $input['enrollment_device_id'] ?? null;
         $deviceId = (is_int($rawDeviceId) || is_string($rawDeviceId))
@@ -65,7 +66,8 @@ final class CombinedDoorAccessService
             return $this->decision(false, 'device_unavailable', 'The combined controller is not registered and active.', $scan);
         }
 
-        $query = $this->pdo->prepare('SELECT c.card_id,c.user_id,c.status AS card_status,u.username,u.is_active,u.approval_status,u.must_change_password,u.onboarding_step
+        $query = $this->pdo->prepare('SELECT c.card_id,c.user_id,c.status AS card_status,u.username,u.is_active,u.approval_status,u.must_change_password,u.onboarding_step'
+            . ($hasRole ? ',u.role' : '') . '
             FROM rfid_cards c LEFT JOIN users u ON u.id=c.user_id
             WHERE UPPER(c.rfid_uid)=? FOR SHARE');
         $query->execute([$uid]);
@@ -88,6 +90,9 @@ final class CombinedDoorAccessService
         }
         if ((int) $card['must_change_password'] !== 0 || $card['onboarding_step'] !== 'done') {
             return $this->decision(false, 'account_incomplete', 'Complete the account setup before using door access.', $identity);
+        }
+        if ($hasRole && (string) ($card['role'] ?? '') !== 'student') {
+            return $this->decision(false, 'unauthorized', 'Faculty, staff, and administrators use a fingerprint to enter and leave. RFID access is for students.', $identity);
         }
         return $this->decision(true, 'access_granted', 'Registered RFID card verified.', $identity);
     }

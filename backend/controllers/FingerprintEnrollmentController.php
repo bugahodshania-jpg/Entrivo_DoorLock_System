@@ -45,19 +45,21 @@ class FingerprintEnrollmentController
             ];
         }
 
-        $claimed = $this->service->claimJob((int) $job['job_id'], $deviceId);
+        if (empty($job['recovery'])) {
+            $claimed = $this->service->claimJob((int) $job['job_id'], $deviceId);
 
-        if (!$claimed) {
-            return [
-                'status' => 200,
-                'body' => [
-                    'success' => false,
-                    'message' => 'No pending enrollment.'
-                ],
-            ];
+            if (!$claimed) {
+                return [
+                    'status' => 200,
+                    'body' => [
+                        'success' => false,
+                        'message' => 'No pending enrollment.'
+                    ],
+                ];
+            }
+
+            $job = $this->service->getJobById((int) $job['job_id']);
         }
-
-        $job = $this->service->getJobById((int) $job['job_id']);
 
         return [
             'status' => 200,
@@ -81,6 +83,26 @@ class FingerprintEnrollmentController
     public function failEnrollment(array $input): array
     {
         return $this->service->failEnrollment($input);
+    }
+
+    public function markStored(array $input): array
+    {
+        return $this->service->markStored($input);
+    }
+
+    public function reportIdentifyMatch(array $input): array
+    {
+        return $this->service->reportIdentifyMatch($input);
+    }
+
+    public function commitEnrollmentDownload(array $input): array
+    {
+        return $this->service->commitEnrollmentDownload($input);
+    }
+
+    public function resolveDuplicateMatch(array $input): array
+    {
+        return $this->service->resolveDuplicateMatch($input);
     }
 
     public function retryEnrollmentJob(array $input): array

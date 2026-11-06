@@ -20,7 +20,8 @@ function memoryReject(callable $work, int $status = 409): void
 
 $pdo = entrivo_pdo();
 $tables = ['door_controller_status', 'sensor_memory_jobs', 'sensor_memory_inventories', 'sensor_memory_templates', 'users', 'user_privileges',
-    'faculty_info', 'staff_info', 'admin_info', 'fingerprint_devices', 'fingerprints', 'fingerprint_enrollment_jobs', 'direct_fingerprint_import_jobs'];
+    'faculty_info', 'staff_info', 'admin_info', 'fingerprint_devices', 'fingerprints', 'fingerprint_enrollment_jobs', 'direct_fingerprint_import_jobs',
+    'fingerprint_sensor_slots'];
 $template = str_repeat("\x43\x44", 256);
 $hash = hash('sha256', $template);
 $now = new DateTimeImmutable('2026-10-22 10:00:00', new DateTimeZone('Asia/Manila'));
@@ -38,8 +39,13 @@ try {
     }
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_name VARCHAR(100),device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprints (fingerprint_id INT PRIMARY KEY,user_id INT,finger_name VARCHAR(50),enrollment_device_id INT,enrollment_slot INT,template_data BLOB,template_hash CHAR(64),status VARCHAR(20)) ENGINE=InnoDB');
-    $pdo->exec('CREATE TEMPORARY TABLE fingerprint_enrollment_jobs (job_id INT AUTO_INCREMENT PRIMARY KEY,enrollment_device_id INT NULL,status VARCHAR(20)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TEMPORARY TABLE fingerprint_enrollment_jobs (job_id INT AUTO_INCREMENT PRIMARY KEY,enrollment_device_id INT NULL,status VARCHAR(20),created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP,finished_at DATETIME NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE direct_fingerprint_import_jobs (id INT AUTO_INCREMENT PRIMARY KEY,enrollment_device_id INT,status VARCHAR(20),queued_at DATETIME,processing_at DATETIME) ENGINE=InnoDB');
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(32) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     $pdo->exec('SET timestamp=' . $now->getTimestamp());
     $reset = static function () use ($pdo, $tables, $template, $hash): void {
         foreach ($tables as $table) $pdo->exec('DELETE FROM ' . $table);
@@ -55,6 +61,7 @@ try {
         $insert->execute([3,2,'Right index',1,7,$template,$hash,'inactive']);
         $insert->execute([4,2,'Left index',1,10,'invalid',str_repeat('0',64),'active']);
         $insert->execute([5,2,'Other device finger',2,5,$template,$hash,'active']);
+        $pdo->exec("INSERT INTO fingerprint_sensor_slots (device_id,slot,state,fingerprint_id,job_id) VALUES (1,7,'active',1,1),(1,9,'orphaned',NULL,2),(2,5,'active',5,3)");
     };
     $service = new SensorMemoryService($pdo);
     $admin = ['actor_id' => 9, 'device_id' => 1];
@@ -108,6 +115,12 @@ try {
     memoryAssert(!$doorStatus->snapshot(1)['online'], 'A replay cannot refresh an expired report.');
     $reportDoor('locked',6);
     memoryAssert($doorStatus->snapshot(1)['can_read_sensor'], 'A new locked heartbeat must restore read availability.');
+    $pdo->exec("UPDATE door_controller_status SET received_at=DATE_SUB(NOW(6),INTERVAL 15 SECOND) WHERE device_id=1");
+    $doorStatus->refreshLocked(1);
+    memoryAssert($doorStatus->snapshot(1)['can_read_sensor'], 'A locked enrollment poll must refresh an expired report.');
+    $reportDoor('unlocked',7);
+    $doorStatus->refreshLocked(1);
+    memoryAssert($doorStatus->snapshot(1)['state'] === 'locked', 'A locked enrollment poll must replace an unlocked report.');
     $pdo->exec('DELETE FROM door_controller_status WHERE device_id=1');
     memoryReject(fn() => $queue());
     memoryAssert($doorStatus->snapshot(1)['state'] === 'unknown', 'A controller that has never reported must not appear locked.');
@@ -140,6 +153,14 @@ try {
     memoryAssert(!SensorMemorySchema::hasProcessingForDevice($pdo,1), 'A pending read must yield to enrollment.');
     $pdo->exec("INSERT INTO fingerprint_enrollment_jobs (enrollment_device_id,status) VALUES (1,'waiting')");
     memoryAssert($claim() === null, 'An enrollment must defer the read claim.');
+    $pdo->exec('DELETE FROM fingerprint_enrollment_jobs');
+    $pdo->exec("INSERT INTO fingerprint_enrollment_jobs (enrollment_device_id,status,created_at,updated_at) VALUES (1,'processing',DATE_SUB(NOW(),INTERVAL 4 MINUTE),DATE_SUB(NOW(),INTERVAL 4 MINUTE))");
+    memoryAssert($claim() === null, 'A four-minute-old enrollment is still live and must defer the read.');
+    $pdo->exec('DELETE FROM fingerprint_enrollment_jobs');
+    $pdo->exec("INSERT INTO fingerprint_enrollment_jobs (enrollment_device_id,status,created_at,updated_at) VALUES (1,'processing',DATE_SUB(NOW(),INTERVAL 11 MINUTE),DATE_SUB(NOW(),INTERVAL 11 MINUTE))");
+    $staleClaim = $claim();
+    memoryAssert($staleClaim !== null, 'A stale enrollment job must not block a sensor read.');
+    $pdo->exec('UPDATE sensor_memory_jobs SET status=\'pending\',claim_token=NULL,processing_at=NULL,active_device_key=NULL WHERE id='.(int) $staleClaim['job_id']);
     $pdo->exec('DELETE FROM fingerprint_enrollment_jobs');
     $pdo->exec("INSERT INTO direct_fingerprint_import_jobs (enrollment_device_id,status,queued_at) VALUES (1,'pending',NOW())");
     memoryAssert($claim() === null, 'An active database restore must defer the read claim.');
@@ -267,7 +288,7 @@ try {
     $reset();
     $pdo->exec("ALTER TABLE users ADD email VARCHAR(100) DEFAULT 'fixture@example.invalid',ADD must_change_password INT DEFAULT 0,ADD onboarding_step VARCHAR(20) DEFAULT 'done'");
     $pdo->exec("ALTER TABLE fingerprints ADD shared_door_slot INT NULL,ADD enrolled_at DATETIME NULL,ADD door_sync_status VARCHAR(20) DEFAULT 'pending',ADD door_synced_at DATETIME NULL");
-    $pdo->exec("ALTER TABLE fingerprint_enrollment_jobs ADD user_id INT,ADD fingerprint_id INT NULL,ADD finger_name VARCHAR(50),ADD progress INT DEFAULT 0,ADD current_step VARCHAR(150),ADD assigned_slot INT NULL,ADD error_message TEXT NULL,ADD started_at DATETIME NULL,ADD finished_at DATETIME NULL,ADD created_at DATETIME DEFAULT CURRENT_TIMESTAMP,ADD updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+    $pdo->exec("ALTER TABLE fingerprint_enrollment_jobs ADD user_id INT,ADD fingerprint_id INT NULL,ADD finger_name VARCHAR(50),ADD progress INT DEFAULT 0,ADD current_step VARCHAR(150),ADD assigned_slot INT NULL,ADD error_message TEXT NULL,ADD started_at DATETIME NULL");
     $pdo->exec("ALTER TABLE direct_fingerprint_import_jobs ADD actor_id INT,ADD user_id INT,ADD fingerprint_id INT,ADD target_slot INT,ADD employee_id VARCHAR(100),ADD user_name VARCHAR(255),ADD finger_name VARCHAR(50),ADD template_data BLOB,ADD template_hash CHAR(64),ADD source_enrolled_at DATETIME NULL,ADD source_device_id INT NULL,ADD source_slot INT NULL,ADD progress INT DEFAULT 0,ADD current_step VARCHAR(150) DEFAULT 'Waiting for Sensor A',ADD error_message TEXT NULL,ADD finished_at DATETIME NULL,ADD updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,ADD active_device_key INT NULL UNIQUE,ADD active_fingerprint_key INT NULL UNIQUE");
     $pdo->exec("ALTER TABLE direct_fingerprint_import_jobs MODIFY status VARCHAR(20) DEFAULT 'pending',MODIFY queued_at DATETIME DEFAULT CURRENT_TIMESTAMP");
     $pdo->exec("INSERT INTO user_privileges VALUES (9,'fingerprint_update')");
@@ -347,8 +368,28 @@ try {
     memoryAssert($erased['job']['status'] === 'completed', 'A proven empty sensor must complete the erase.');
     $afterErase = $service->read($admin);
     memoryAssert($afterErase['inventory']['template_count'] === 0 && $afterErase['inventory']['occupied_slots'] === [], 'The saved reading after erase must show no fingerprint templates or slot IDs.');
+    memoryAssert((int) $pdo->query("SELECT COUNT(*) FROM fingerprint_sensor_slots WHERE device_id=1 AND state<>'free'")->fetchColumn() === 0,
+        'A completed sensor erase must free this device sensor slot registry.');
+    memoryAssert($pdo->query("SELECT state FROM fingerprint_sensor_slots WHERE device_id=2 AND slot=5")->fetchColumn() === 'active',
+        'Erasing one R307S must not free another device slot registry.');
 
-    echo "PASS: protected administrator reads/actions, device tokens and claim leases, actual slot 0 and unknown slots, atomic inventories, count/bitmap validation, conflict and missing mappings, real binary comparisons and exports, supported and suspicious actual template bytes, isolated cancellation/retries, idempotent reports, three-minute expiry, unchanged fingerprint data, real enrollment/create/claim/reservation plus import/queue/claim interlocks with pending, expired, completed, and other-device reads, and password-gated full R307S template erasure.\n";
+    $pdo->exec("UPDATE fingerprint_sensor_slots SET state='active', fingerprint_id=1 WHERE device_id=1 AND slot=7");
+    $shownInventoryId = (int) $afterErase['inventory']['job_id'];
+    $pdo->prepare('UPDATE sensor_memory_inventories SET template_count=2, occupied_slots=? WHERE job_id=?')
+        ->execute(['[6,7]', $shownInventoryId]);
+    $deleteSlot = $service->adminAction([...$admin, 'action' => 'delete_slot', 'slot_id' => 7]);
+    memoryAssert($deleteSlot['job']['kind'] === 'delete_slot' && (int) $deleteSlot['job']['target_slot'] === 7, 'Delete slot must queue DeletChar for that R307S page.');
+    $deleteClaim = $claim();
+    memoryReject(fn() => $service->deviceUpdate(['action'=>'complete','device_id'=>1,'job_id'=>$deleteClaim['job_id'],'claim_token'=>$deleteClaim['claim_token'],'target_slot'=>7]), 422);
+    $deletedSlot = $service->deviceUpdate(['action'=>'complete','device_id'=>1,'job_id'=>$deleteClaim['job_id'],'claim_token'=>$deleteClaim['claim_token'],'target_slot'=>7,'deleted'=>true]);
+    memoryAssert($deletedSlot['job']['status'] === 'completed', 'DeletChar must complete only after the controller proves the slot ID is gone.');
+    memoryAssert($pdo->query("SELECT state FROM fingerprint_sensor_slots WHERE device_id=1 AND slot=7")->fetchColumn() === 'free',
+        'A completed slot delete must free that R307S slot ID in the registry.');
+    $afterDelete = $service->read($admin);
+    memoryAssert($afterDelete['inventory']['occupied_slots'] === [6] && $afterDelete['inventory']['template_count'] === 1,
+        'A completed slot delete must remove that slot from the sensor reading shown on the page.');
+
+    echo "PASS: protected administrator reads/actions, device tokens and claim leases, actual slot 0 and unknown slots, atomic inventories, count/bitmap validation, conflict and missing mappings, real binary comparisons and exports, supported and suspicious actual template bytes, isolated cancellation/retries, idempotent reports, three-minute expiry, unchanged fingerprint data, real enrollment/create/claim/reservation plus import/queue/claim interlocks with pending, expired, completed, and other-device reads, password-gated full R307S template erasure, and per-slot DeletChar.\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $pdo->exec('SET timestamp=0');

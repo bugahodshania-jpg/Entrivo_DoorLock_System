@@ -19,6 +19,7 @@ namespace DoorFingerprintSearch {
         uint8_t standardStatus = 0xFF;
         uint16_t matchedSlot = UNSET_MATCH;
         uint16_t confidence = UNSET_MATCH;
+        bool usedMatchFallback = false;
     };
 
     constexpr Result protocolFailure() {

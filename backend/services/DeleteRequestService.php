@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ActivityLogService.php';
+require_once __DIR__ . '/UserPrivilegeService.php';
 
 /** Admin deletion requests. Only a super admin approval removes the record. */
 final class DeleteRequestService
@@ -51,6 +52,7 @@ final class DeleteRequestService
     {
         $this->ensureSchema();
         $this->assertRole($actorId, 'admin', 'Only an admin can submit a delete request.');
+        $this->assertDeleteRequestPrivilege($actorId);
 
         if (!isset(self::TYPES[$targetType]) || $targetId <= 0) {
             throw new InvalidArgumentException('Choose a record that can be sent for deletion review.');
@@ -138,6 +140,7 @@ final class DeleteRequestService
     {
         $this->ensureSchema();
         $this->assertRole($actorId, 'admin', 'Only an admin can view their own delete requests.');
+        $this->assertDeleteRequestPrivilege($actorId);
         $status = in_array($status, ['pending', 'approved', 'rejected', 'cancelled', 'all'], true) ? $status : 'all';
         $sql = 'SELECT r.*, requester.username AS requester_username, reviewer.username AS reviewer_username
                 FROM delete_requests r
@@ -293,6 +296,7 @@ final class DeleteRequestService
     {
         $this->ensureSchema();
         $this->assertRole($actorId, 'admin', 'Only an admin can cancel a delete request.');
+        $this->assertDeleteRequestPrivilege($actorId);
         $this->assertPassword($actorId, $password, 'admin');
 
         $this->pdo->beginTransaction();
@@ -698,6 +702,22 @@ final class DeleteRequestService
     {
         if ($this->roleOf($actorId) !== $role) {
             throw new InvalidArgumentException($message);
+        }
+    }
+
+    /**
+     * The requester side (Admin) is gated by the grantable "delete_requests" privilege
+     * so a Super Admin can revoke the feature per Admin. Reviewing requests stays a
+     * plain Super Admin capability: Super Admins delete records directly.
+     */
+    private function assertDeleteRequestPrivilege(int $actorId): void
+    {
+        $service = new UserPrivilegeService($this->pdo);
+
+        if (!$service->actorHasPrivilege($actorId, 'delete_requests')) {
+            throw new InvalidArgumentException(
+                'You do not have permission to use delete requests. Ask a Super Admin to grant Delete Requests access.'
+            );
         }
     }
 

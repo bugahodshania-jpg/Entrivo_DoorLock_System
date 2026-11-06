@@ -5,8 +5,8 @@ export const LOG_GROUPS = {
   login: {
     key: 'login',
     title: 'Login Logs',
-    description: 'Sign-in and sign-out attempts, including failed logins.',
-    userDescription: 'Your sign-in and sign-out attempts, including failed logins.',
+    description: 'Successful sign-in and sign-out attempts.',
+    userDescription: 'Your successful sign-in and sign-out attempts.',
     empty: 'No login activity has been recorded yet.',
     filteredEmpty: 'No login logs match these filters.',
     userFilteredEmpty: 'No login logs match the current filters.',

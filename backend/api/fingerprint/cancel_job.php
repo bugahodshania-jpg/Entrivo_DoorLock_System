@@ -31,6 +31,33 @@ if (!is_array($input)) {
 require_once dirname(__DIR__, 2) . '/controllers/FingerprintEnrollmentController.php';
 require_once dirname(__DIR__, 2) . '/services/FingerprintEnrollmentService.php';
 require_once dirname(__DIR__, 2) . '/models/FingerprintEnrollmentJob.php';
+require_once dirname(__DIR__, 2) . '/services/UserPrivilegeService.php';
+
+$actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+
+if (!$actorId) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => 'A valid actor id is required to cancel an enrollment.',
+    ]);
+    exit;
+}
+
+try {
+    (new UserPrivilegeService(entrivo_pdo()))->assertActorHasPrivilege(
+        $actorId,
+        'fingerprint_update',
+        'You do not have permission to enroll or update fingerprints. Ask a Super Admin to grant Enroll & Update Fingerprints access.'
+    );
+} catch (InvalidArgumentException $error) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'message' => $error->getMessage(),
+    ]);
+    exit;
+}
 
 try {
     $controller = new FingerprintEnrollmentController();

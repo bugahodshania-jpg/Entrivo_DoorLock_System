@@ -16,10 +16,16 @@ foreach ([null, false, '', 'wrong-token', ' fixture-token', ['fixture-token']] a
 }
 
 $pdo = entrivo_pdo();
-$tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_log'];
+$tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_log', 'fingerprint_sensor_slots'];
 $now = new DateTimeImmutable('2026-10-21 10:00:00', new DateTimeZone('Asia/Manila'));
 $template = str_repeat("\x44\x45", 256);
 try {
+    // Shadow the real slot registry so fixtures never write live sensor rows.
+    $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (
+        device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(20) NOT NULL DEFAULT 'free',
+        fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL,
+        PRIMARY KEY (device_id, slot)
+    ) ENGINE=InnoDB");
     // All application tables referenced below are connection-local temporary
     // shadows. Real accounts, credentials, policies and logs are never changed.
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');

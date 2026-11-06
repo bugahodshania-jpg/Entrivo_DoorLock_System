@@ -33,7 +33,7 @@ Write-Host "Frontend:    $StartUrl"
 Write-Host ''
 Write-Host 'Keep the two server windows open while using the system.'
 
-Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "cd /d `"$ProjectDir`" && `"$PhpExe`" -S 127.0.0.1:8000 -t backend")
+Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "cd /d `"$ProjectDir`" && `"$PhpExe`" -S 0.0.0.0:8000 -t backend")
 Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "cd /d `"$FrontendDir`" && `"$NpmCmd`" run dev")
 
 Start-Sleep -Seconds 3

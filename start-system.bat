@@ -34,7 +34,7 @@ echo.
 echo Keep the two server windows open while using the system.
 echo.
 
-start "Entrivo Backend API" cmd /k "cd /d "%PROJECT_DIR%" && "%PHP_EXE%" -S 127.0.0.1:8000 -t backend"
+start "Entrivo Backend API" cmd /k "cd /d "%PROJECT_DIR%" && "%PHP_EXE%" -S 0.0.0.0:8000 -t backend"
 start "Entrivo Frontend Vite" cmd /k "cd /d "%PROJECT_DIR%frontend" && "%NPM_CMD%" run dev"
 
 ping 127.0.0.1 -n 4 >nul

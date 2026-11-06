@@ -17,6 +17,14 @@ const mappingLabels = { sensor_only: 'Sensor only', database_only: 'Database onl
 const templateLabels = { not_scanned: 'Read sensor first', not_read: 'Not read', match: 'Matches backup', different: 'Different from backup', no_backup: 'No database backup', conflict: 'Multiple database records', not_on_sensor: 'Not on sensor', invalid_sensor_template: 'Invalid sensor template' };
 const isActive = (job) => job && ['pending', 'processing'].includes(job.status);
 const errorText = (error, fallback) => error?.response?.data?.message || (error?.code === 'ECONNABORTED' ? 'The server took too long to respond. Retrying automatically.' : fallback);
+// A slot template read during an earlier scan still compares against the database,
+// but its bytes may not reflect the slot's current contents.
+const isEarlierTemplateRead = (row, inventory) => Boolean(row?.sensor_template && inventory
+  && Number(row.sensor_template.inventory_id) !== Number(inventory.job_id));
+const templateStatusText = (row, inventory) => {
+  const label = templateLabels[row.template_status] || 'Not read';
+  return isEarlierTemplateRead(row, inventory) ? `${label} · earlier read` : label;
+};
 
 function SensorMemoryFilter({ label, value, options, disabled = false, onChange }) {
   const menuId = useId();
@@ -119,7 +127,7 @@ function DetailField({ label, children, wide = false }) {
   return <div className={wide ? 'is-wide' : undefined}><dt>{label}</dt><dd>{children ?? '—'}</dd></div>;
 }
 
-function SlotModal({ row, inventory, deviceId, template, loadingTemplate, templateError, activeJob, onReadTemplate, onClose, busy, door }) {
+function SlotModal({ row, inventory, deviceId, template, loadingTemplate, templateError, activeJob, onReadTemplate, onClose, busy, door, sensorBusy, sensorBusyReason }) {
   const modalRef = useRef(null);
   const closeRef = useRef(null);
   const [rawFormat, setRawFormat] = useState('hex');
@@ -152,6 +160,7 @@ function SlotModal({ row, inventory, deviceId, template, loadingTemplate, templa
 
   const readingThisSlot = isActive(activeJob) && activeJob.kind === 'template' && Number(activeJob.target_slot) === Number(row.slot_id);
   const actualTemplate = row.sensor_template;
+  const readBlockedReason = door.readBlockedReason || (sensorBusy ? sensorBusyReason : '');
   return createPortal(
     <div className="pending-registration-review-backdrop" role="presentation" onClick={onClose}>
       <section className="pending-registration-review sensor-memory-modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="sensor-slot-title" onClick={(event) => event.stopPropagation()}>
@@ -187,7 +196,7 @@ function SlotModal({ row, inventory, deviceId, template, loadingTemplate, templa
           <section className="pending-registration-review-card">
             <h3>Actual Sensor Template</h3>
             <dl>
-              <DetailField label="Template comparison" wide><span className={`sensor-memory-badge is-${row.template_status}`}>{inventory ? (templateLabels[row.template_status] || 'Not read') : 'Read sensor first'}</span></DetailField>
+              <DetailField label="Template comparison" wide><span className={`sensor-memory-badge is-${row.template_status}`}>{inventory ? templateStatusText(row, inventory) : 'Read sensor first'}</span></DetailField>
               <DetailField label="Actual template size">{actualTemplate ? `${actualTemplate.template_bytes} bytes` : 'Not read yet'}</DetailField>
               <DetailField label={actualTemplate?.captured_at ? 'Template read (Asia/Manila)' : 'Result received (Asia/Manila)'}>{formatDateTimeInManila(actualTemplate?.captured_at || actualTemplate?.received_at)}</DetailField>
               <DetailField label="Actual sensor template SHA-256" wide><code>{actualTemplate?.template_hash || 'Not read yet'}</code></DetailField>
@@ -195,8 +204,9 @@ function SlotModal({ row, inventory, deviceId, template, loadingTemplate, templa
             <div className="sensor-memory-template-actions">
               <p>Read this slot directly from the R307S to compare its template bytes with the database backup. The sensor holds binary fingerprint features, not a fingerprint image.</p>
               {actualTemplate?.template_valid === false ? <span className="sensor-memory-inline-error">The sensor returned uniform or invalid template data. The original bytes are preserved below for inspection.</span> : null}
-              <button type="button" className="sensor-memory-button is-primary" disabled={!inventory || !row.sensor_present || busy || isActive(activeJob) || !door.canReadSensor} title={door.readBlockedReason || undefined} onClick={() => onReadTemplate(row.slot_id)}><Fingerprint size={15} />{readingThisSlot ? 'Reading template…' : actualTemplate ? 'Read template again' : 'Read template'}</button>
-              {door.readBlockedReason ? <span className="sensor-memory-help" role="status">{door.readBlockedReason}</span> : null}
+              <button type="button" className="sensor-memory-button is-primary" disabled={!inventory || !row.sensor_present || busy || isActive(activeJob) || !door.canReadSensor || sensorBusy} title={readBlockedReason || undefined} onClick={() => onReadTemplate(row.slot_id)}><Fingerprint size={15} />{readingThisSlot ? 'Reading template…' : actualTemplate ? 'Read template again' : 'Read template'}</button>
+              {readBlockedReason ? <span className="sensor-memory-help" role="status">{readBlockedReason}</span> : null}
+              {isEarlierTemplateRead(row, inventory) ? <span className="sensor-memory-help">This comparison was read during an earlier scan and may not reflect the slot's current contents. Use Read template to re-check it now.</span> : null}
               {readingThisSlot ? <span className="sensor-memory-help" role="status">{activeJob.status === 'pending' ? 'Waiting for the controller…' : 'Reading this slot from the sensor…'}</span> : null}
               {!inventory ? <span className="sensor-memory-help">Read the sensor first to confirm which slots are occupied.</span> : !row.sensor_present ? <span className="sensor-memory-help">This slot was not occupied in the last sensor read.</span> : null}
               {templateError ? <span className="sensor-memory-inline-error" role="alert">{templateError}</span> : null}
@@ -312,6 +322,11 @@ export default function SensorMemory({ user: currentUser } = {}) {
   }, [actorId, deviceId]);
 
   const inventory = data?.inventory;
+  const sensorBusy = data?.sensor_busy === true;
+  const sensorBusyReason = data?.sensor_busy_reason || 'The fingerprint sensor is in use by another operation. Wait for it to finish before reading or erasing sensor memory.';
+  const readBlockedReason = door.readBlockedReason || (sensorBusy ? sensorBusyReason : '');
+  // Erasing is meaningful only when the current snapshot actually holds sensor templates.
+  const hasSensorTemplates = Boolean(inventory) && Number(inventory.template_count) > 0;
   const rows = data?.rows || [];
   const selectedRow = selectedSlot == null ? null : rows.find((row) => Number(row.slot_id) === Number(selectedSlot));
   const templateJobId = selectedRow?.sensor_template?.job_id;
@@ -333,8 +348,8 @@ export default function SensorMemory({ user: currentUser } = {}) {
   }, [actorId, deviceId, selectedSlot, templateJobId]);
 
   async function eraseSensorTemplates() {
-    if (busy || isActive(job) || !door.canReadSensor) {
-      if (!door.canReadSensor) setError(door.readBlockedReason);
+    if (busy || isActive(job) || !door.canReadSensor || sensorBusy || !hasSensorTemplates) {
+      setError(!door.canReadSensor ? door.readBlockedReason : sensorBusy ? sensorBusyReason : 'There are no sensor templates to erase. Read the sensor first, then try again.');
       return;
     }
     const confirmed = await confirmAction({
@@ -347,9 +362,25 @@ export default function SensorMemory({ user: currentUser } = {}) {
     await performAction('empty_sensor');
   }
 
+  async function deleteSensorSlot(slotId) {
+    if (busy || isActive(job) || !door.canReadSensor || sensorBusy) {
+      setError(!door.canReadSensor ? door.readBlockedReason : sensorBusy ? sensorBusyReason : '');
+      return;
+    }
+    const confirmed = await confirmAction({
+      title: `Delete sensor slot ${slotId}`,
+      message: `This removes only the fingerprint template stored in R307S slot ${slotId}. Other slots stay on the sensor. Keep the door locked until the controller finishes. Your account password is required. Use Read sensor afterward to confirm the slot is empty.`,
+      confirmLabel: 'Delete slot',
+      danger: true,
+    });
+    if (!confirmed) return;
+    await performAction('delete_slot', slotId);
+  }
+
   async function performAction(action, slotId) {
     if (busy || (action !== 'cancel' && isActive(job))) return;
     if (action !== 'cancel' && !door.canReadSensor) { setError(door.readBlockedReason); return; }
+    if (action !== 'cancel' && sensorBusy) { setError(sensorBusyReason); return; }
     const scope = scopeRef.current;
     const controller = new AbortController();
     mutationControllerRef.current = controller;
@@ -358,6 +389,7 @@ export default function SensorMemory({ user: currentUser } = {}) {
       const response = await axiosClient.post(endpoint, {
         action, actor_id: actorId, device_id: Number(deviceId),
         ...(action === 'read_template' ? { inventory_id: inventory?.job_id, slot_id: Number(slotId) } : {}),
+        ...(action === 'delete_slot' ? { slot_id: Number(slotId) } : {}),
         ...(action === 'cancel' ? { job_id: job?.job_id } : {}),
       }, { signal: controller.signal, timeout: 10000 });
       if (scope !== scopeRef.current) return;
@@ -383,6 +415,9 @@ export default function SensorMemory({ user: currentUser } = {}) {
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
   const active = isActive(job);
   const terminalError = job && ['failed', 'cancelled'].includes(job.status);
+  // Reads, deletes and erases all require a fresh locked door and a free sensor.
+  const sensorActionDisabled = loading || busy || active || !actorId || !deviceId || !data?.device || !door.canReadSensor || sensorBusy;
+  const eraseDisabled = sensorActionDisabled || !hasSensorTemplates;
   const deviceName = data?.device?.device_name || (deviceId ? `Device ${deviceId}` : 'Fingerprint sensor');
   const missingCount = Number(data?.summary?.sensor_only || 0) + Number(data?.summary?.database_only || 0) + Number(data?.summary?.conflict || 0);
   const summaryCards = [
@@ -400,14 +435,14 @@ export default function SensorMemory({ user: currentUser } = {}) {
         <div className="dashboard-panel-header sensor-memory-header">
           <div><h1>Sensor Memory</h1><p>See the actual occupied slots on the R307S and compare them with the database.</p></div>
           <div className="sensor-memory-actions">
-            <button className="sensor-memory-button is-danger" type="button" onClick={eraseSensorTemplates} title={door.readBlockedReason || 'Delete every fingerprint template and slot ID on this R307S'} disabled={loading || busy || active || !actorId || !deviceId || !data?.device || !door.canReadSensor}><Trash2 size={15} />{active && job.kind === 'empty' ? 'Erasing sensor…' : 'Erase sensor templates'}</button>
-            <button className="sensor-memory-button is-primary" type="button" onClick={() => performAction('scan')} title={door.readBlockedReason || undefined} disabled={loading || busy || active || !actorId || !deviceId || !data?.device || !door.canReadSensor}><RefreshCw size={15} className={active && job.kind === 'inventory' ? 'sensor-memory-spin' : undefined} />{active && job.kind === 'inventory' ? 'Reading sensor…' : 'Read sensor'}</button>
+            <button className="sensor-memory-button is-danger" type="button" onClick={eraseSensorTemplates} title={readBlockedReason || (!hasSensorTemplates ? 'There are no sensor templates to erase. Read the sensor first.' : 'Delete every fingerprint template and slot ID on this R307S')} disabled={eraseDisabled}><Trash2 size={15} />{active && (job.kind === 'empty' || job.kind === 'delete_slot') ? 'Deleting templates…' : 'Erase sensor templates'}</button>
+            <button className="sensor-memory-button is-primary" type="button" onClick={() => performAction('scan')} title={readBlockedReason || undefined} disabled={sensorActionDisabled}><RefreshCw size={15} className={active && job.kind === 'inventory' ? 'sensor-memory-spin' : undefined} />{active && job.kind === 'inventory' ? 'Reading sensor…' : 'Read sensor'}</button>
           </div>
         </div>
 
-        {door.readBlockedReason ? <div className="sensor-memory-notice" role="status"><AlertCircle size={17} /><span>{door.readBlockedReason}</span></div> : null}
+        {readBlockedReason ? <div className="sensor-memory-notice" role="status"><AlertCircle size={17} /><span>{readBlockedReason}</span></div> : null}
         {error ? <div className="sensor-memory-notice is-error" role="alert"><AlertCircle size={17} /><span>{error}</span></div> : null}
-        {active ? <div className="sensor-memory-notice" role="status" aria-live="polite"><Clock3 size={18} /><div><strong>{job.status === 'pending' ? 'Waiting for the controller' : job.kind === 'empty' ? 'Erasing every R307S fingerprint' : job.kind === 'template' ? `Reading template from slot ${job.target_slot}` : 'Reading the R307S sensor'}</strong><p>{job.kind === 'empty' ? 'The controller is deleting every fingerprint template and slot ID. Keep the door locked and the controller powered on.' : job.status === 'pending' ? `${deviceName} will read the sensor when its controller connects. Keep the controller powered on with the updated firmware.` : 'Results appear here automatically when the sensor read finishes.'}{inventory && job.kind !== 'empty' ? ' The previous sensor read remains visible below.' : ''}</p></div><button className="sensor-memory-button" type="button" disabled={busy} onClick={() => performAction('cancel')}>{job.kind === 'empty' ? 'Cancel erase' : 'Cancel read'}</button></div> : terminalError ? <div className="sensor-memory-notice is-warning" role="status"><AlertCircle size={18} /><div><strong>{job.status === 'cancelled' ? (job.kind === 'empty' ? 'Sensor erase cancelled' : 'Sensor read cancelled') : (job.kind === 'empty' ? 'Sensor erase could not finish' : 'Sensor read could not finish')}</strong><p>{job.error_message || 'Try again when the controller is connected.'}{inventory ? ' The last completed sensor read is still shown.' : ''}</p></div></div> : null}
+        {active ? <div className="sensor-memory-notice" role="status" aria-live="polite"><Clock3 size={18} /><div><strong>{job.status === 'pending' ? 'Waiting for the controller' : job.kind === 'empty' ? 'Erasing every R307S fingerprint' : job.kind === 'delete_slot' ? `Deleting R307S slot ${job.target_slot}` : job.kind === 'template' ? `Reading template from slot ${job.target_slot}` : 'Reading the R307S sensor'}</strong><p>{job.kind === 'empty' ? 'The controller is deleting every fingerprint template and slot ID with Empty and DeletChar. Keep the door locked and the controller powered on.' : job.kind === 'delete_slot' ? `The controller is removing the fingerprint template in slot ${job.target_slot}. Keep the door locked.` : job.status === 'pending' ? `${deviceName} will read the sensor when its controller connects. Keep the controller powered on with the updated firmware.` : 'Results appear here automatically when the sensor read finishes.'}{inventory && job.kind !== 'empty' ? ' The previous sensor read remains visible below.' : ''}</p></div><button className="sensor-memory-button" type="button" disabled={busy} onClick={() => performAction('cancel')}>{job.kind === 'empty' || job.kind === 'delete_slot' ? 'Cancel erase' : 'Cancel read'}</button></div> : terminalError ? <div className="sensor-memory-notice is-warning" role="status"><AlertCircle size={18} /><div><strong>{job.status === 'cancelled' ? (job.kind === 'empty' || job.kind === 'delete_slot' ? 'Sensor erase cancelled' : 'Sensor read cancelled') : (job.kind === 'empty' || job.kind === 'delete_slot' ? 'Sensor erase could not finish' : 'Sensor read could not finish')}</strong><p>{job.error_message || 'Try again when the controller is connected.'}{inventory ? ' The last completed sensor read is still shown.' : ''}</p></div></div> : null}
 
         <div className={`sensor-memory-snapshot ${inventory ? '' : 'is-empty'}`}>
           {inventory ? <><CheckCircle2 size={17} /><div><strong>{inventory.captured_at ? 'Last sensor read' : 'Last sensor result received'}: {formatDateTimeInManila(inventory.captured_at || inventory.received_at)}</strong><p>Physical R307S · {deviceName} · Asia/Manila. This is a saved reading; use Read sensor to check for changes.</p></div></> : <><Fingerprint size={22} /><div><strong>{loading ? 'Loading sensor memory…' : data && !data.devices?.length ? 'No fingerprint sensor configured' : 'No completed sensor read yet'}</strong><p>Connect the ESP32 with the updated firmware, then select Read sensor. Database records alone cannot confirm what is stored on the R307S.</p></div></>}
@@ -420,13 +455,13 @@ export default function SensorMemory({ user: currentUser } = {}) {
         <div className="sensor-memory-table-scroll">
           <table className="sensor-memory-table">
             <thead><tr>{['Slot ID', 'R307S Sensor', 'Database User', 'Finger Name', 'Mapping', 'Template', 'Action'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
-            <tbody>{pageRows.length ? pageRows.map((row) => <tr key={row.slot_id}><td><strong className="sensor-memory-slot">{row.slot_id}</strong></td><td><span className={`sensor-memory-presence ${inventory && row.sensor_present ? 'is-present' : ''}`}><i />{inventory ? (row.sensor_present ? 'Occupied' : 'Not found') : 'Not read'}</span></td><td>{row.database_records?.length ? row.database_records.map((record) => <div className="sensor-memory-user" key={record.fingerprint_id}><strong>{record.full_name || 'Unknown user'}</strong><small>{record.employee_id || `User #${record.user_id}`}</small></div>) : <span className="sensor-memory-muted">No database record</span>}</td><td>{row.database_records?.length ? row.database_records.map((record) => <div className="sensor-memory-finger" key={record.fingerprint_id}>{record.finger_name || '—'}</div>) : '—'}</td><td>{inventory ? <span className={`sensor-memory-badge is-${row.mapping_status}`}>{mappingLabels[row.mapping_status] || 'Not checked'}</span> : <span className="sensor-memory-muted">Read sensor first</span>}</td><td><span className={`sensor-memory-badge is-${row.template_status}`}>{inventory ? (templateLabels[row.template_status] || 'Not read') : 'Not checked'}</span></td><td><RowActionMenu label={`Actions for sensor slot ${row.slot_id}`} items={[{ label: 'View', icon: Eye, onClick: () => setSelectedSlot(row.slot_id) }]} /></td></tr>) : <tr><td colSpan={7}><div className="sensor-memory-empty"><HardDrive size={28} /><strong>{loading ? 'Loading sensor memory…' : search || filter !== 'all' ? 'No slots match your filters.' : inventory ? 'No occupied or database-mapped slots.' : 'Read the sensor to view its occupied slots.'}</strong><p>{inventory && !search && filter === 'all' ? 'This sensor read contains no occupied slots and there are no mapped database records.' : 'Slot IDs include templates with no registered database user.'}</p></div></td></tr>}</tbody>
+            <tbody>{pageRows.length ? pageRows.map((row) => <tr key={row.slot_id}><td><strong className="sensor-memory-slot">{row.slot_id}</strong></td><td><span className={`sensor-memory-presence ${inventory && row.sensor_present ? 'is-present' : ''}`}><i />{inventory ? (row.sensor_present ? 'Occupied' : 'Not found') : 'Not read'}</span></td><td>{row.database_records?.length ? row.database_records.map((record) => <div className="sensor-memory-user" key={record.fingerprint_id}><strong>{record.full_name || 'Unknown user'}</strong><small>{record.employee_id || `User #${record.user_id}`}</small></div>) : <span className="sensor-memory-muted">No database record</span>}</td><td>{row.database_records?.length ? row.database_records.map((record) => <div className="sensor-memory-finger" key={record.fingerprint_id}>{record.finger_name || '—'}</div>) : '—'}</td><td>{inventory ? <span className={`sensor-memory-badge is-${row.mapping_status}`}>{mappingLabels[row.mapping_status] || 'Not checked'}</span> : <span className="sensor-memory-muted">Read sensor first</span>}</td><td><span className={`sensor-memory-badge is-${row.template_status}`}>{inventory ? templateStatusText(row, inventory) : 'Not checked'}</span></td><td><RowActionMenu label={`Actions for sensor slot ${row.slot_id}`} items={[{ label: 'View', icon: Eye, onClick: () => setSelectedSlot(row.slot_id) }, { label: active && job.kind === 'template' && Number(job.target_slot) === Number(row.slot_id) ? 'Reading template…' : 'Read template', icon: Fingerprint, hidden: !inventory || !row.sensor_present, disabled: sensorActionDisabled, title: readBlockedReason || 'Read this slot directly from the R307S to compare its template bytes with the database backup', onClick: () => performAction('read_template', row.slot_id) }, { label: 'Delete slot', icon: Trash2, danger: true, hidden: !inventory || !row.sensor_present, disabled: sensorActionDisabled, title: readBlockedReason || 'Delete this fingerprint template from the R307S', onClick: () => deleteSensorSlot(row.slot_id) }]} /></td></tr>) : <tr><td colSpan={7}><div className="sensor-memory-empty"><HardDrive size={28} /><strong>{loading ? 'Loading sensor memory…' : search || filter !== 'all' ? 'No slots match your filters.' : inventory ? 'No occupied or database-mapped slots.' : 'Read the sensor to view its occupied slots.'}</strong><p>{inventory && !search && filter === 'all' ? 'This sensor read contains no occupied slots and there are no mapped database records.' : 'Slot IDs include templates with no registered database user.'}</p></div></td></tr>}</tbody>
           </table>
         </div>
         <div className="manage-users-pagination sensor-memory-pagination"><p>{filteredRows.length ? `Showing ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filteredRows.length)} of ${filteredRows.length} slots` : '0 slots'}{lastUpdated ? <small>Comparison updated {formatDateTimeInManila(lastUpdated)}</small> : null}</p><div className="manage-users-pagination-controls"><button type="button" disabled={safePage === 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {safePage} of {pageCount}</span><button type="button" disabled={safePage === pageCount} onClick={() => setPage((value) => value + 1)}>Next</button></div></div>
-        <p className="sensor-memory-footnote">Mapped means a database record uses this slot ID. A template matches only after its actual sensor bytes have been read and compared with a valid database backup.</p>
+        <p className="sensor-memory-footnote">Mapped means a database record uses this slot ID. A template matches only after its actual sensor bytes have been read and compared with a valid database backup. Failed or cancelled enrollments roll back the database job and clear incomplete Sensor A templates when possible; use Delete slot or Erase if a sensor-only leftover remains.</p>
       </section>
-      {selectedRow ? <SlotModal key={`${deviceId}:${selectedRow.slot_id}`} row={selectedRow} inventory={inventory} deviceId={deviceId} template={template?.job_id === templateJobId ? template : null} loadingTemplate={loadingTemplate} templateError={templateError} activeJob={job} onReadTemplate={(slotId) => performAction('read_template', slotId)} onClose={closeModal} busy={busy} door={door} /> : null}
+      {selectedRow ? <SlotModal key={`${deviceId}:${selectedRow.slot_id}`} row={selectedRow} inventory={inventory} deviceId={deviceId} template={template?.job_id === templateJobId ? template : null} loadingTemplate={loadingTemplate} templateError={templateError} activeJob={job} onReadTemplate={(slotId) => performAction('read_template', slotId)} onClose={closeModal} busy={busy} door={door} sensorBusy={sensorBusy} sensorBusyReason={sensorBusyReason} /> : null}
     </main>
   );
 }

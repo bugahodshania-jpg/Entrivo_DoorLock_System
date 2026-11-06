@@ -29,7 +29,7 @@ test('successive reads update lock, unlock, and relock without replacing the pol
   const calls = [];
   let next = response();
   const { poller, states } = setup({ get: async (...args) => { calls.push(args); return next; } });
-  assert.ok(DOOR_STATUS_POLL_MS <= 500);
+  assert.ok(DOOR_STATUS_POLL_MS >= 2000);
   for (const state of ['locked', 'unlocked', 'locked']) {
     next = response(state);
     await poller.poll();
@@ -76,7 +76,7 @@ test('busy timer ticks never overlap and repeated resume events queue one fresh 
   assert.equal(states.at(-1).doors[0].state, 'unlocked');
 });
 
-test('failures and invalid responses show unavailable and recover automatically on the next read', async () => {
+test('failures and invalid responses keep the last good snapshot and recover on the next read', async () => {
   let next = response();
   const { poller, states } = setup({ get: async () => {
     if (next instanceof Error) throw next;
@@ -89,12 +89,18 @@ test('failures and invalid responses show unavailable and recover automatically 
     assert.equal(states.at(-1).doors[0].state, 'locked');
     next = failure;
     await poller.poll();
-    assert.equal(states.at(-1), null);
-    assert.equal(doorStatusView(states.at(-1)).state, 'unknown');
+    assert.equal(states.at(-1).doors[0].state, 'locked');
     next = response();
   }
   await poller.poll();
   assert.equal(states.at(-1).doors[0].state, 'locked');
+});
+
+test('the first failed read still shows unavailable', async () => {
+  const { poller, states } = setup({ get: async () => { throw new Error('timeout'); } });
+  await poller.poll();
+  assert.equal(states.length, 0);
+  assert.equal(doorStatusView(null).state, 'unknown');
 });
 
 test('hiding or disconnecting aborts a read and a quick return ignores its stale result', async () => {

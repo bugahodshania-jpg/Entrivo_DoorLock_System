@@ -42,10 +42,12 @@ $userCounts = $pdo->query(
          WHERE status IN ('approved', 'overridden')"
     )->fetch();
 
+    $hasAccessType = (bool) $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
+    $attendanceFilter = $hasAccessType ? "AND (access_type IS NULL OR access_type IN ('IN','OUT'))" : '';
     $accessCounts = $pdo->query(
         "SELECT
-            SUM(access_status = 'granted') AS granted_access,
-            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE()) AS denied_today
+            SUM(access_status = 'granted' {$attendanceFilter}) AS granted_access,
+            SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS denied_today
          FROM access_log"
     )->fetch();
 
@@ -56,6 +58,7 @@ $userCounts = $pdo->query(
             COUNT(*) AS total
          FROM access_log
          WHERE access_timestamp >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+           {$attendanceFilter}
          GROUP BY DATE(access_timestamp), access_status
          ORDER BY access_date ASC"
     );

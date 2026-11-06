@@ -92,7 +92,7 @@ const navSections = [
         label: 'My Delete Requests',
         href: '/admin/delete-requests',
         icon: Trash2,
-        privilege: null,
+        privilege: 'delete_requests',
       },
       {
         label: 'Access Logs',

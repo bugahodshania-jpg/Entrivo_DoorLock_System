@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "DoorHardware.h"
 #include "Fingerprint.h"
+#include "HttpLock.h"
 #include "SensorTransfer.h"
 
 #include <WiFi.h>
@@ -15,14 +16,11 @@
 namespace {
     constexpr uint16_t MAX_SENSOR_CAPACITY = 4096;
     constexpr unsigned long POLL_INTERVAL_MS = 2000UL;
-    // Read-only dashboard polling should yield quickly when the local API is down.
-    constexpr int HTTP_CONNECT_LIMIT_MS = 250;
-    constexpr int HTTP_READ_LIMIT_MS = 500;
     // Leave room before the backend's three-minute processing lease expires.
     constexpr unsigned long RESULT_LIFETIME_MS = 150000UL;
     constexpr const char *ENDPOINT = "/api/fingerprint/sensor_memory_device.php";
 
-    enum class Phase { Idle, Parameters, Count, Index, VerifyCount, Template, Empty, Result };
+    enum class Phase { Idle, Parameters, Count, Index, VerifyCount, Template, Empty, DeleteSlot, Result };
     Phase g_phase = Phase::Idle;
     int g_jobId = 0;
     int g_targetSlot = -1;
@@ -59,9 +57,11 @@ namespace {
         if (isDoorUnlocked() || WiFi.status() != WL_CONNECTED ||
             String(DOOR_DEVICE_TOKEN).length() == 0) return false;
 
+        EntrivoHttpLock httpLock;
         HTTPClient http;
-        http.setConnectTimeout(HTTP_CONNECT_LIMIT_MS);
-        http.setTimeout(HTTP_READ_LIMIT_MS);
+        http.setReuse(false);
+        http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+        http.setTimeout(HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
         if (!http.begin(String(SERVER_URL) + ENDPOINT)) return false;
         http.addHeader("Content-Type", "application/json");
@@ -129,21 +129,23 @@ namespace {
             !job["kind"].is<const char *>() || !job["claim_token"].is<const char *>()) return false;
         const String kind = job["kind"].as<const char *>();
         const String token = job["claim_token"].as<const char *>();
-        if ((kind != "inventory" && kind != "template" && kind != "empty") || token.length() == 0 || token.length() > 128) return false;
-        if (kind == "template" && (!job["target_slot"].is<int>() ||
+        if ((kind != "inventory" && kind != "template" && kind != "empty" && kind != "delete_slot") ||
+            token.length() == 0 || token.length() > 128) return false;
+        if ((kind == "template" || kind == "delete_slot") && (!job["target_slot"].is<int>() ||
             job["target_slot"].as<int>() < 0 || job["target_slot"].as<int>() >= MAX_SENSOR_CAPACITY)) return false;
         if (String(job["status"] | "") != "processing") return false;
 
         g_jobId = job["job_id"].as<int>();
         g_kind = kind;
         g_claimToken = token;
-        g_targetSlot = kind == "template" ? job["target_slot"].as<int>() : -1;
+        g_targetSlot = (kind == "template" || kind == "delete_slot") ? job["target_slot"].as<int>() : -1;
         g_claimedAt = millis();
         g_capacity = g_templateCount = g_occupiedCount = g_page = 0;
         memset(g_occupied, 0, sizeof(g_occupied));
         g_phase = Phase::Parameters;
         Serial.println(kind == "inventory" ? "[SENSOR MEMORY] Reading actual sensor slot index." :
             kind == "empty" ? "[SENSOR MEMORY] Erasing every R307S fingerprint template and slot ID." :
+            kind == "delete_slot" ? "[SENSOR MEMORY] Deleting one R307S fingerprint template and slot ID." :
             "[SENSOR MEMORY] Reading one requested stored template.");
         return true;
     }
@@ -287,6 +289,33 @@ namespace {
         payload.createNestedArray("occupied_slots");
         saveResult(payload);
     }
+
+    void deleteOneSlot() {
+        String error;
+        bool occupied = false;
+        if (!isSensorSlotOccupied(static_cast<uint16_t>(g_targetSlot), occupied, error)) {
+            queueFailure("The requested sensor slot could not be checked. " + error);
+            return;
+        }
+        if (occupied && !deleteStoredFingerprint(static_cast<uint16_t>(g_targetSlot), error)) {
+            queueFailure("The R307S could not delete slot " + String(g_targetSlot) + ". " + error);
+            return;
+        }
+        delay(80);
+        if (!isSensorSlotOccupied(static_cast<uint16_t>(g_targetSlot), occupied, error)) {
+            queueFailure("The sensor index could not be checked after deleting slot " + String(g_targetSlot) + ". " + error);
+            return;
+        }
+        if (occupied) {
+            queueFailure("Sensor slot " + String(g_targetSlot) + " still contains a fingerprint after DeletChar.");
+            return;
+        }
+        DynamicJsonDocument payload(JSON_OBJECT_SIZE(8) + 128);
+        addJobFields(payload, "complete");
+        payload["target_slot"] = g_targetSlot;
+        payload["deleted"] = true;
+        saveResult(payload);
+    }
 }
 
 void interruptSensorMemoryRead() {
@@ -346,6 +375,9 @@ bool serviceSensorMemory(bool sensorReady) {
             if (g_kind == "template") {
                 if (g_targetSlot >= g_capacity) queueFailure("The requested slot is outside the actual sensor capacity.");
                 else g_phase = Phase::Template;
+            } else if (g_kind == "delete_slot") {
+                if (g_targetSlot >= g_capacity) queueFailure("The requested slot is outside the actual sensor capacity.");
+                else g_phase = Phase::DeleteSlot;
             } else if (g_kind == "empty") g_phase = Phase::Empty;
             else g_phase = Phase::Count;
         }
@@ -358,5 +390,6 @@ bool serviceSensorMemory(bool sensorReady) {
     else if (g_phase == Phase::VerifyCount) finishInventory();
     else if (g_phase == Phase::Template) readTemplate();
     else if (g_phase == Phase::Empty) eraseLibrary();
+    else if (g_phase == Phase::DeleteSlot) deleteOneSlot();
     return true;
 }

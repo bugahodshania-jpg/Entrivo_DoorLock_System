@@ -1,0 +1,149 @@
+/* Door Access Status modal. Builds on .action-confirm-* so it matches the
+   portal's other modals (same card, font, 20px title, green/red palette). */
+
+.access-status-backdrop {
+  /* Above page content and other modals: an access event must always be seen. */
+  z-index: 10100;
+}
+
+.access-status-modal {
+  animation: access-status-in 120ms ease-out;
+  gap: 14px;
+  width: min(460px, 100%);
+}
+
+@keyframes access-status-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-status-modal { animation: none; }
+}
+
+.access-status-modal.is-granted { border-top: 4px solid #0c4b2d; }
+.access-status-modal.is-denied { border-top: 4px solid #9d3030; }
+
+.access-status-header {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
+.access-status-icon {
+  align-items: center;
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
+}
+
+.is-granted .access-status-icon { background: #e7f2ec; color: #0c4b2d; }
+.is-denied .access-status-icon { background: #f8e9e9; color: #9d3030; }
+
+.access-status-eyebrow {
+  color: #7a8882;
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.access-status-modal h2 { margin-top: 2px; }
+.access-status-modal.is-granted h2 { color: #0c4b2d; }
+.access-status-modal.is-denied h2 { color: #9d3030; }
+
+.access-status-modal .access-status-subtitle {
+  align-items: center;
+  color: #7a8882;
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.access-status-details {
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  margin: 0;
+}
+
+.access-status-details > div {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  padding: 9px 12px;
+}
+
+.access-status-details > div + div { border-top: 1px solid #eef3f0; }
+
+.access-status-details dt {
+  color: #7a8882;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.access-status-details dd {
+  color: #10251d;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.access-status-modal .access-status-reason {
+  background: #fbf1f1;
+  border: 1px solid #f0d6d6;
+  border-radius: 5px;
+  color: #7d2424;
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+.access-status-door {
+  align-items: center;
+  background: #f6f9f7;
+  border: 1px solid #e3ebe6;
+  border-radius: 5px;
+  color: #42564e;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  padding: 9px 12px;
+}
+
+.access-status-door strong { color: #10251d; }
+.access-status-door.is-unlocked strong { color: #0c4b2d; }
+.access-status-door.is-unknown strong { color: #8a6d1f; }
+
+.access-status-door i {
+  background: #9aa8a2;
+  border-radius: 50%;
+  height: 8px;
+  margin-left: auto;
+  width: 8px;
+}
+
+.access-status-door.is-locked i { background: #0c4b2d; }
+.access-status-door.is-unlocked i { background: #2fa36b; box-shadow: 0 0 0 3px rgba(47, 163, 107, 0.18); }
+.access-status-door.is-unknown i { background: #c9a227; }
+
+.access-status-door small {
+  color: #7a8882;
+  font-size: 11px;
+}
+
+.access-status-actions { justify-content: space-between; }
+.access-status-actions button { margin-left: auto; }
+
+.access-status-queue {
+  color: #7a8882;
+  font-size: 12px;
+}
+
+@media (max-width: 420px) {
+  .access-status-details > div { grid-template-columns: 1fr; gap: 2px; }
+}

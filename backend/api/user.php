@@ -1150,6 +1150,19 @@ function setUserBlockStatusById(
 
     $isCurrentlyActive = (bool) $user['is_active'];
     $role = (string) ($user['role'] ?? '');
+
+    if ($actorId !== null) {
+        $actorStatement = $pdo->prepare('SELECT role FROM users WHERE id = :id LIMIT 1');
+        $actorStatement->execute(['id' => $actorId]);
+        $actorRole = (string) ($actorStatement->fetchColumn() ?: '');
+
+        if ($actorRole === 'admin' && in_array($role, ['admin', 'super_admin'], true)) {
+            throw new InvalidArgumentException(
+                'Admins cannot block or unblock other Admin or Super Admin accounts.'
+            );
+        }
+    }
+
     $dashboardSession = null;
 
     try {
