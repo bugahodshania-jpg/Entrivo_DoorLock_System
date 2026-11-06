@@ -316,7 +316,7 @@ export function enrollmentCancelConfirmMessage(job) {
     || Number(job?.progress) >= 85
     || Boolean(job?.identify_match);
   if (late) {
-    return 'Cancel this enrollment even though Sensor A may already have stored a template? The database job will roll back and Sensor A will be asked to clear that slot. You will need to start enrollment again.';
+    return 'Cancel this enrollment even though Sensor A may already have stored a template? The database job will roll back and the slot will be marked for cleanup; clear it from Sensor Memory if it still shows occupied. You will need to start enrollment again.';
   }
   return 'Cancel this enrollment? Incomplete progress will be rolled back and you can start again.';
 }
