@@ -2630,7 +2630,7 @@
 }
 
 .password-reset-modal.is-profile .password-reset-grid {
-  gap: 14px 14px;
+  gap: 12px 14px;
 }
 
 .password-reset-modal.is-profile label {
@@ -2711,9 +2711,15 @@
 
 .password-reset-field-error {
   color: #d12424;
+  display: block;
   font-size: 12px;
   font-weight: 500;
   margin: 0;
+}
+
+/* No message: take no room, and cancel the label's gap above it. */
+.password-reset-modal label > .password-reset-field-error:empty {
+  margin-top: -6px;
 }
 
 .password-reset-modal.is-security {
