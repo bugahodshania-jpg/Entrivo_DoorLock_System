@@ -62,12 +62,9 @@ class UserRegistrationService
             throw new InvalidArgumentException('Role must be student, faculty, staff, admin, or superadmin.');
         }
 
-        if (in_array($role, ['admin', 'super_admin'], true)) {
-            if ($role === 'super_admin') {
-                $this->assertCanCreateSuperAdmin();
-            } else {
-                $this->assertCanCreateActiveAdmin();
-            }
+        // Only Super Admin is capped (2 slots); admins and other roles are unlimited.
+        if ($role === 'super_admin') {
+            $this->assertCanCreateSuperAdmin();
         }
 
         $username = $this->normalizeUsername($this->requiredText($input, 'username', 'Username'));
@@ -958,19 +955,6 @@ class UserRegistrationService
             'superadmin', 'super_admin' => 'super_admin',
             default => $normalized,
         };
-    }
-
-    private function assertCanCreateActiveAdmin(): void
-    {
-        $activeAdminCount = (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM users WHERE role IN ('admin', 'super_admin') AND is_active = 1"
-        )->fetchColumn();
-
-        if ($activeAdminCount >= 2) {
-            throw new InvalidArgumentException(
-                'Only 2 active admin accounts are allowed. Block an existing admin before creating another.'
-            );
-        }
     }
 
     private function assertCanCreateSuperAdmin(): void
