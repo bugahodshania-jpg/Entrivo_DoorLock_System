@@ -341,13 +341,15 @@
   border-radius: 12px;
   box-shadow: 0 18px 42px rgba(0, 31, 0, 0.08);
   box-sizing: border-box;
+  /* Height follows the content, so no empty gap opens above the form on large screens. */
+  align-content: start;
   display: grid;
   gap: 28px;
   max-height: none;
   max-width: none;
-  min-height: 590px;
+  min-height: 0;
   overflow: hidden;
-  padding: 56px 32px 32px;
+  padding: 48px 32px 32px;
   position: relative;
   width: 100%;
   z-index: 1;
