@@ -2492,6 +2492,28 @@
   background: #083d24;
 }
 
+.password-reset-done-icon {
+  align-items: center;
+  align-self: center;
+  background: #e6f2eb;
+  border-radius: 999px;
+  color: #0c4b2d;
+  display: inline-flex;
+  height: 56px;
+  justify-content: center;
+  margin: 10px 0 14px;
+  width: 56px;
+}
+
+.password-reset-modal.is-done h2,
+.password-reset-modal.is-done .password-reset-heading p:last-child {
+  text-align: center;
+}
+
+.password-reset-modal.is-done > button {
+  margin-top: 24px;
+}
+
 .password-reset-modal form > button:disabled {
   cursor: wait;
   opacity: 0.7;

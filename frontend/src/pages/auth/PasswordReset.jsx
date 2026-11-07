@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../api/axiosClient';
-import { Eye, EyeOff, X } from 'lucide-react';
+import { Check, Eye, EyeOff, X } from 'lucide-react';
 
 const RESET_API_URL = `${API_BASE_URL}/api/password_reset.php`;
 const RESET_SESSION_KEY = 'entrivo_password_reset';
@@ -118,7 +118,7 @@ export default function PasswordReset({ onClose }) {
   return (
     <div className="password-reset-backdrop" role="presentation" onMouseDown={closeReset}>
       <section
-        className={`password-reset-modal${step === 'password' ? ' is-tall' : ''}`}
+        className={`password-reset-modal${step === 'password' ? ' is-tall' : ''}${step === 'done' ? ' is-done' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="password-reset-title"
@@ -136,6 +136,11 @@ export default function PasswordReset({ onClose }) {
                 <span key={item} className={item <= stepNumber ? 'is-active' : undefined} />
             ))}
           </div>
+          {step === 'done' ? (
+            <span className="password-reset-done-icon" aria-hidden="true">
+              <Check size={26} strokeWidth={2.5} />
+            </span>
+          ) : null}
           <h2 id="password-reset-title">{title}</h2>
           <p>{subtitle}</p>
         </div>
