@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { API_BASE_URL } from '../../api/axiosClient';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import {
@@ -16,7 +17,7 @@ import {
   yearLevelOptions,
 } from '../../utils/schoolProfileOptions';
 
-const AUTH_API_URL = 'http://127.0.0.1:8000/api/auth.php';
+const AUTH_API_URL = `${API_BASE_URL}/api/auth.php`;
 const setupSteps = ['otp', 'password', 'profile', 'security'];
 const CONTACT_EXISTS_MESSAGE = 'Contact number already exists. Use a different contact number.';
 

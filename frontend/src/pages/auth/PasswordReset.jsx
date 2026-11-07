@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { API_BASE_URL } from '../../api/axiosClient';
 import { Eye, EyeOff, X } from 'lucide-react';
 
-const RESET_API_URL = 'http://127.0.0.1:8000/api/password_reset.php';
+const RESET_API_URL = `${API_BASE_URL}/api/password_reset.php`;
 const RESET_SESSION_KEY = 'entrivo_password_reset';
 const resetSteps = ['identifier', 'otp', 'questions', 'password', 'done'];
 

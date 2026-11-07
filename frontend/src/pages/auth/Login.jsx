@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { API_BASE_URL } from '../../api/axiosClient';
 import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
 import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
@@ -24,7 +25,7 @@ const showcasePoints = [
 ];
 
 const LOCK_STORAGE_KEY = 'entrivo_login_lock';
-const AUTH_API_URL = 'http://127.0.0.1:8000/api/auth.php';
+const AUTH_API_URL = `${API_BASE_URL}/api/auth.php`;
 
 const readStoredLock = () => {
   try {

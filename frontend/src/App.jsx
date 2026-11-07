@@ -1,4 +1,5 @@
 import './styles/global/global.css';
+import { API_BASE_URL } from './api/axiosClient';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { clearRegistrationOutsidePage, verifiedRfidKey } from './utils/registrationSession';
 import { saveLoginNotice } from './utils/loginNotice';
@@ -121,7 +122,7 @@ function logout(reasonMessage = '') {
     try {
       const storedUser = JSON.parse(savedUser);
       if (storedUser?.id && storedUser?.username) {
-        fetch('http://127.0.0.1:8000/api/auth.php', {
+        fetch(`${API_BASE_URL}/api/auth.php`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -183,7 +184,7 @@ export default function App() {
 
     async function refreshUser() {
       try {
-        const response = await fetch(`http://127.0.0.1:8000/api/auth.php?user_id=${encodeURIComponent(user.id)}`);
+        const response = await fetch(`${API_BASE_URL}/api/auth.php?user_id=${encodeURIComponent(user.id)}`);
         const data = await response.json();
 
         if (!response.ok) {
@@ -227,7 +228,7 @@ export default function App() {
 
     async function sendHeartbeat() {
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/auth.php', {
+        const response = await fetch(`${API_BASE_URL}/api/auth.php`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
