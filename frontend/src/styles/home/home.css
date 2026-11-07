@@ -880,7 +880,7 @@
     position: absolute;
     right: 22px;
     top: calc(100% + 8px);
-    width: min(280px, calc(100vw - 44px));
+    width: min(210px, calc(100vw - 44px));
   }
 
   .home-header-right.is-open {
@@ -905,16 +905,17 @@
 
   .home-nav a {
     border-radius: 10px;
-    justify-content: center;
+    justify-content: flex-start;
     min-height: 44px;
     padding: 12px 12px;
-    text-align: center;
+    text-align: left;
   }
 
+  /* Active underline sits under the start of the left-aligned label. */
   .home-nav a::after {
     bottom: 6px;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 12px;
+    transform: none;
     width: 22px;
   }
 
@@ -933,6 +934,20 @@
     min-height: 44px;
     text-align: center;
     width: 100%;
+  }
+
+  /* In the mobile menu, Sign in and Sign up are plain links that line up with the menu links. */
+  .home-actions .home-header-link {
+    border-radius: 10px;
+    justify-content: flex-start;
+    padding: 12px;
+    text-align: left;
+  }
+
+  .home-actions a.home-header-link:not(.is-gold) {
+    border: 0;
+    color: rgba(255, 255, 255, 0.88);
+    font-weight: 500;
   }
 
   .home-hero {
@@ -967,10 +982,11 @@
     transform: none;
   }
 
+  /* Keep the CSUCC seal visible on phones: stronger and mostly on-screen, still behind the text. */
   .home-hero-seal {
-    opacity: 0.07;
-    right: -130px;
-    top: 12px;
+    opacity: 0.2;
+    right: -70px;
+    top: 56px;
     width: min(70vw, 460px);
   }
 
@@ -1249,4 +1265,18 @@
 .home-school-id-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* Desktop / large screens: no pattern strip under the header (mobile and tablet keep it). */
+@media (min-width: 901px) {
+  .home-hero-band {
+    display: none;
+  }
+}
+
+/* Phones / tablets: center the CSU logo on the diagonal line design (right 52% of the banner). */
+@media (max-width: 900px) {
+  .home-banner-csu {
+    right: calc(26% - clamp(160px, 18vw, 240px) / 2 - 24px);
+  }
 }
