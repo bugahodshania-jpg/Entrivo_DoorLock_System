@@ -3,12 +3,15 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_system.h>
+#include "BackendClient.h"
 #include "Config.h"
 #include "DoorStatus.h"
 #include "HttpLock.h"
 
 namespace {
-    constexpr unsigned long HEARTBEAT_MS = 3000UL;
+    // The backend shows a report for 15 s. A 4 s heartbeat leaves room for a
+    // slow or failed cloud request without the app showing "Unavailable".
+    constexpr unsigned long HEARTBEAT_MS = 4000UL;
     constexpr unsigned long RETRY_MS = 3000UL;
     char bootId[33] = {};
     uint32_t sequence = 0;
@@ -32,7 +35,7 @@ namespace {
         http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
         http.setTimeout(HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-        if (!http.begin(String(SERVER_URL) + "/api/door_status_device.php")) {
+        if (!beginBackendRequest(http, "/api/door_status_device.php")) {
             Serial.println("[DOOR STATUS] Could not start the status report.");
             return false;
         }
@@ -43,7 +46,7 @@ namespace {
         if (code != HTTP_CODE_OK) {
             Serial.print("[DOOR STATUS] Report failed HTTP ");
             Serial.println(code);
-            if (code < 0) Serial.println("[DOOR STATUS] Connection failed. Check SERVER_URL, WiFi, and that the backend is listening on that IP:8000.");
+            if (code < 0) Serial.println("[DOOR STATUS] Connection failed. Check SERVER_URL in Config.h, that WiFi has internet access, and that the backend is running.");
             return false;
         }
         return true;

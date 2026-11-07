@@ -4,17 +4,22 @@
 // Match these to the backend and the ESP32's network before uploading.
 #define WIFI_SSID "ESP32_HOTSPOT"
 #define WIFI_PASSWORD "onetwoeight"
-#define SERVER_URL "http://192.168.137.1:8000"
+// Deployed backend (HTTPS). The ESP32 reaches it through the hotspot's internet.
+// For a backend on this PC instead, use "http://192.168.137.1:8000".
+#define SERVER_URL "https://entrivo-backend-production.up.railway.app"
 #define ENROLLMENT_DEVICE_ID 1
 // Set the SAME private value in backend/.env as DOOR_DEVICE_TOKEN.
 #define DOOR_DEVICE_TOKEN "1016SjHeAtNhItAaBgUuGrAaHnOD0130"
 
-#define ENROLLMENT_POLL_INTERVAL_MS 1000UL
+// Each cloud request takes ~1-3 s and requests run one at a time, so job checks
+// are spaced out to leave room for door status reports and card/finger checks.
+#define ENROLLMENT_POLL_INTERVAL_MS 5000UL
 #define WIFI_RETRY_INTERVAL_MS 10000UL
 #define SENSOR_RETRY_INTERVAL_MS 5000UL
 #define ACCESS_SCAN_INTERVAL_MS 180UL
-#define HTTP_CONNECT_TIMEOUT_MS 2000
-#define HTTP_READ_TIMEOUT_MS 3000
+// Cloud requests over HTTPS need more time than the local backend did.
+#define HTTP_CONNECT_TIMEOUT_MS 5000
+#define HTTP_READ_TIMEOUT_MS 6000
 
 // Exact wiring from Fully_working_codeproplus.ino.
 #define FP_UART_INDEX 1

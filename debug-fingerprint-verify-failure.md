@@ -1,39 +1,40 @@
-# Debug Session: Fingerprint Verification Failure
-**Session ID**: fingerprint-verify-failure
+# Debug Session: Fingerprint Verification Failure (3rd scan)
 **Project Root**: `c:\system\Entrivo_DoorLock_System`
-**Debug Evidence Dir**: `c:\system\_entrivo_debug\fingerprint-verify-failure`
+**Firmware**: `esp32/Door_Controller_Enrollment`
 
 ## Symptoms
-- 3rd scan verification fails to match the newly enrolled slot (e.g., slot 26).
-- One-to-one `Match (0x03)` returns `status=0x8` (no match) even though the template was just stored.
-- Sometimes matches an older slot (e.g., slot 21) instead of the new one.
+- The 3rd scan (independent verification) fails to match the newly enrolled slot (e.g., slot 26).
+- 1:1 `Match (0x03)` returned `0x08` and `HiSpeedSearch (0x1B)` returns `0x09` against the new slot.
+- Sometimes the 3rd scan matches an older slot (e.g., slot 21, confidence 157) instead of the new one.
 
-## Hypotheses
-1. **[HYP-1] Poor Scan Consistency**: The 3rd scan features differ too much from the combined RegModel template.
-2. **[HYP-2] Matching Level Strictness**: The sensor's security level makes the one-to-one `Match` command too restrictive compared to `Search`.
-3. **[HYP-3] Template Loading Issue**: The `LoadChar` or buffer management before `Match` is failing to present the correct features to the comparator.
-4. **[HYP-4] Latency/Timing**: The sensor needs more time between `Store` and `LoadChar/Match` to stabilize the flash memory.
+## Root causes (from code review; confirm on hardware)
+1. **Scan 1 was re-converted many times before RegModel.** The duplicate check rebuilt
+   CharBuffer1 from the same scan-1 image before every 163-slot search window (about 7 times
+   on a 1000-slot sensor) and once more before scan 2. That last rebuilt feature file became the
+   scan-1 half of the model. If GenChar alters the image buffer, the stored template is weak:
+   RegModel still succeeds, but a good third scan gets 0x09. Two different comparators (Match
+   and HiSpeedSearch) both rejected the new slot, which points at the stored template.
+2. **`0x17` was treated as "not found" in the duplicate check.** An unchecked window counted as
+   clear, so a finger already stored elsewhere (slot 21) could be stored again and the 3rd scan
+   then identified the old slot.
+3. **The 3rd scan used only HiSpeedSearch (0x1B),** which is intended for good-quality prints,
+   with no fallback. The door-access path does have a fallback.
 
-## Evidence Gate
-| Hypothesis | Evidence Source | Status | Conclusion |
-|------------|-----------------|--------|------------|
-| HYP-1      | Serial Logs     | PENDING|            |
-| HYP-2      | Serial Logs     | PENDING|            |
-| HYP-3      | Serial Logs     | PENDING|            |
-| HYP-4      | Serial Logs     | PENDING|            |
+## Fix (2026-11-07)
+- `firstScanIsNotDuplicate`: upload the ORIGINAL scan-1 feature file (UpChar) before the
+  duplicate search and write it back (DownChar, verified byte-for-byte) afterwards. If either
+  step fails, take a fresh first scan. A rebuilt buffer never reaches RegModel.
+  RegModel -> Store stays back-to-back with nothing in between.
+- `searchLibraryFromCurrentImage`: on 0x17 or another sensor status, rebuild and retry that window
+  once; if it still is not 0x09, stop with "could not finish checking". Nothing is saved.
+- `checkFreshScanAgainstSlot`: if HiSpeedSearch misses, rebuild from the same 3rd-scan image and
+  run standard Search (0x04) over the same window. Only the exact expected slot verifies.
+- New `searchFingerprintWindowStandard` in `SensorTransfer.cpp`.
+- Door access search (`searchFingerprintVerified`) is unchanged.
 
-## Progress
-- [x] Initialized debug record.
-- [x] Added instrumentation to `initFingerprint` to log Security Level.
-- [x] Modified `verifyEnrolledFingerprint` to perform **Targeted Verification** (1:1 Match) before general Search.
-- [x] Increased verification attempts to 5.
-
-## Findings
-- In the user's log, `Match occupied slot=26 status=0x8` occurred on the first attempt, meaning the finger didn't match the newly stored slot even in a 1:1 comparison.
-- On the second attempt, a general `HiSpeedSearch` matched slot 21 (confidence 157).
-- The new targeted verification strategy ensures that if the finger matches the new slot, it succeeds immediately, bypassing the duplicate match at slot 21.
-- If it still fails to match the new slot, the general search will identify the duplicate at slot 21 and provide a specific error message.
-
-## Next Steps
-- User needs to flash the new firmware and test enrollment.
-- Observe Serial output for "Verifying specifically against slot X" and the matching result.
+## What to check in Serial Monitor after flashing
+- `Saved the original scan 1 features (N bytes)` and `Restored the original scan 1 features ... (verified byte-for-byte)`.
+  If you see `Taking a fresh first scan` instead, the backup or restore failed; the reason is logged above it.
+- `Verification attempt summary`: each line shows `fast <status>` and, if it ran, `standard <status>`.
+- If enrollment now stops with `could not finish checking for an existing copy`, look for
+  `Duplicate check window start=... returned 0x..` and report that log.

@@ -3,5 +3,7 @@
 
 void connectWiFi();
 void ensureWiFiConnected();
+// True while a connection attempt is still in progress (not yet failed).
+bool isWiFiConnecting();
 
 #endif

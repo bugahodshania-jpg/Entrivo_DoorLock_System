@@ -603,6 +603,25 @@ DoorFingerprintSearch::Result searchFingerprintWindowVerified(uint16_t start, ui
     return result;
 }
 
+// Standard Search (0x04) of CharBuffer1 over ONE page window (kept at 163
+// pages, the size this module handles reliably). Enrollment uses it only as a
+// second opinion when HiSpeedSearch (0x1B) misses a fresh verification scan:
+// HiSpeedSearch is intended for good-quality prints and can return 0x09 for a
+// finger that the normal search still identifies.
+DoorFingerprintSearch::Result searchFingerprintWindowStandard(uint16_t start, uint16_t count, String *errorMessage)
+{
+    if (errorMessage) *errorMessage = "";
+    if (sensorCommandsBlocked() || finger.capacity == 0 || start >= finger.capacity || count == 0) {
+        if (errorMessage) *errorMessage = "The sensor cannot search while unlocked or without a valid page window.";
+        return DoorFingerprintSearch::protocolFailure();
+    }
+    if (static_cast<uint32_t>(start) + count > finger.capacity) count = finger.capacity - start;
+    String error;
+    const DoorFingerprintSearch::Result result = searchLibraryWindow(0x04, start, count, error);
+    if (errorMessage) *errorMessage = error;
+    return result;
+}
+
 namespace {
     const char *transferError(R307TemplateStream::Result result) {
         using R307TemplateStream::Result;

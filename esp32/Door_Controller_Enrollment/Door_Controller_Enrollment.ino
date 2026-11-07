@@ -28,7 +28,8 @@ namespace {
         SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
         SerialLog::kv("Fingerprint sensor", sensorReady ? "ready" : "UNAVAILABLE");
-        SerialLog::kv("WiFi", WiFi.status() == WL_CONNECTED ? String("connected (") + WiFi.localIP().toString() + ")" : String("OFFLINE"));
+        SerialLog::kv("WiFi", WiFi.status() == WL_CONNECTED ? String("connected (") + WiFi.localIP().toString() + ")"
+                              : isWiFiConnecting() ? String("connecting...") : String("OFFLINE"));
         SerialLog::kv("Backend", SERVER_URL);
         SerialLog::kv("Device token", String(DOOR_DEVICE_TOKEN).length() ? "configured" : "MISSING - set Config.h and backend/.env");
         SerialLog::kv("Enrollment device", String(ENROLLMENT_DEVICE_ID));
@@ -36,7 +37,7 @@ namespace {
         SerialLog::step("Registered identities and schedules are verified by the backend.");
         SerialLog::step("Serial commands: M = status, T = RTC time, L = lock.");
         if (!sensorReady) SerialLog::debug("Sensor unavailable: check the R307S wiring/power. It is retried automatically.");
-        if (WiFi.status() != WL_CONNECTED) SerialLog::debug("WiFi offline: check WIFI_SSID / WIFI_PASSWORD in Config.h.");
+        if (WiFi.status() != WL_CONNECTED && !isWiFiConnecting()) SerialLog::debug("WiFi offline: check WIFI_SSID / WIFI_PASSWORD in Config.h.");
         SerialLog::blank();
     }
 
@@ -148,6 +149,7 @@ void setup() {
     sensorReady = initFingerprint();
     lastSensorAttemptAt = millis();
     initRfidReaders();
+    SerialLog::step("RFID readers ready.");
     connectWiFi();
     initDoorStatus(isDoorUnlocked());
     printStatus();

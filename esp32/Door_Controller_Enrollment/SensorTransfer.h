@@ -27,6 +27,7 @@ bool emptyFingerprintLibrary(String &errorMessage);
 DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage = nullptr);
 DoorFingerprintSearch::Result matchStoredFingerprintSlot(uint16_t slot, String *errorMessage = nullptr);
 DoorFingerprintSearch::Result searchFingerprintWindowVerified(uint16_t start, uint16_t count, String *errorMessage = nullptr);
+DoorFingerprintSearch::Result searchFingerprintWindowStandard(uint16_t start, uint16_t count, String *errorMessage = nullptr);
 bool readStoredTemplate(uint16_t slot, uint8_t *output, size_t capacity, size_t &templateBytes, String &errorMessage, bool allowWhileUnlocked = false);
 // Read-only inspection includes slot zero; enrollment/import retain their existing guards.
 bool readSensorMemoryTemplate(uint16_t slot, uint8_t *output, size_t capacity, size_t &templateBytes, String &errorMessage);

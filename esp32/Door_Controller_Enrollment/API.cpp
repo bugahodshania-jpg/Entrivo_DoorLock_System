@@ -5,6 +5,7 @@
 #include <new>
 
 #include "API.h"
+#include "BackendClient.h"
 #include "Config.h"
 #include "DoorHardware.h"
 #include "DirectImport.h"
@@ -63,7 +64,7 @@ namespace
         http.setTimeout(HTTP_READ_TIMEOUT_MS);
         // A redirect or unexpected status must never grant door access.
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-        return http.begin(String(SERVER_URL) + endpoint);
+        return beginBackendRequest(http, endpoint);
     }
 
     bool postJson(const String &endpoint, JsonDocument &payload, JsonDocument &response, int *statusCode = nullptr)
@@ -308,7 +309,26 @@ bool reportEnrollmentProgress(int jobId, int progress, const String &currentStep
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     int statusCode = 0;
     SerialLog::step(currentStep + "  (" + String(progress) + "%)");
-    const bool updated = postJson("/api/fingerprint/update_progress.php", payload, response, &statusCode);
+    // A dropped request (-1 connect failed, -11 read timeout) must not abort a
+    // finger scan the sensor already captured. The backend UPDATE is
+    // idempotent, so the same progress is resent. A real backend answer
+    // (e.g. HTTP 409 when the admin cancelled the job) is never retried.
+    constexpr uint8_t PROGRESS_ATTEMPTS = 3;
+    bool updated = false;
+    for (uint8_t attempt = 1; attempt <= PROGRESS_ATTEMPTS; ++attempt) {
+        response.clear();
+        updated = postJson("/api/fingerprint/update_progress.php", payload, response, &statusCode);
+        if (updated || statusCode > 0 || attempt == PROGRESS_ATTEMPTS) break;
+        Serial.print("  [HTTP] Progress not delivered (transport ");
+        Serial.print(statusCode);
+        Serial.print(", WiFi signal ");
+        Serial.print(WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) + " dBm" : String("offline"));
+        Serial.print("). Retrying ");
+        Serial.print(attempt + 1);
+        Serial.print("/");
+        Serial.println(PROGRESS_ATTEMPTS);
+        delay(400);
+    }
     if (!updated) {
         String detail = String(response["message"] | "");
         if (detail.length() == 0) detail = statusCode <= 0

@@ -1,5 +1,6 @@
 #include "SensorMemory.h"
 #include "API.h"
+#include "BackendClient.h"
 #include "Config.h"
 #include "DoorHardware.h"
 #include "Fingerprint.h"
@@ -15,7 +16,7 @@
 
 namespace {
     constexpr uint16_t MAX_SENSOR_CAPACITY = 4096;
-    constexpr unsigned long POLL_INTERVAL_MS = 2000UL;
+    constexpr unsigned long POLL_INTERVAL_MS = 5000UL;
     // Leave room before the backend's three-minute processing lease expires.
     constexpr unsigned long RESULT_LIFETIME_MS = 150000UL;
     constexpr const char *ENDPOINT = "/api/fingerprint/sensor_memory_device.php";
@@ -63,7 +64,7 @@ namespace {
         http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
         http.setTimeout(HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-        if (!http.begin(String(SERVER_URL) + ENDPOINT)) return false;
+        if (!beginBackendRequest(http, ENDPOINT)) return false;
         http.addHeader("Content-Type", "application/json");
         http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
         statusCode = http.POST(body);
