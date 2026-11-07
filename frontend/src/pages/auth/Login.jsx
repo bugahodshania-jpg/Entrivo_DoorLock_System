@@ -3,7 +3,7 @@ import { API_BASE_URL } from '../../api/axiosClient';
 import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
 import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
-import FirstLoginSetup from './FirstLoginSetup';
+import FirstLoginSetup, { clearFirstLoginSession, readFirstLoginSession } from './FirstLoginSetup';
 import PasswordReset, { readPasswordResetSession } from './PasswordReset';
 import { firstAllowedPortalPath, firstAllowedSuperAdminPath } from '../../utils/privileges';
 import '../../styles/home/home.css';
@@ -64,7 +64,19 @@ export default function Login() {
   const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetOpen, setResetOpen] = useState(() => Boolean(readPasswordResetSession()));
-  const [firstLogin, setFirstLogin] = useState(null);
+  // Reopen first-login setup after a reload, at the step the user was on.
+  const [firstLogin, setFirstLogin] = useState(() => {
+    const saved = readFirstLoginSession();
+    return saved
+      ? {
+          challengeId: saved.challengeId,
+          maskedEmail: saved.maskedEmail || 'your email',
+          expiresIn: Math.max(0, Math.ceil((Number(saved.expiresAt) - Date.now()) / 1000)),
+          initialStep: saved.step,
+          setup: saved.setup || null,
+        }
+      : null;
+  });
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeShowcase, setActiveShowcase] = useState(0);
@@ -356,6 +368,7 @@ export default function Login() {
       clearStoredLock();
 
       if (data.requires_first_login) {
+        clearFirstLoginSession();
         setFirstLogin({
           challengeId: data.challenge_id,
           maskedEmail: data.masked_email || 'your email',
@@ -608,8 +621,14 @@ export default function Login() {
           expiresIn={firstLogin.expiresIn}
           initialStep={firstLogin.initialStep || 'otp'}
           setup={firstLogin.setup || null}
-          onClose={() => setFirstLogin(null)}
-          onComplete={finishLogin}
+          onClose={() => {
+            clearFirstLoginSession();
+            setFirstLogin(null);
+          }}
+          onComplete={(user) => {
+            clearFirstLoginSession();
+            finishLogin(user);
+          }}
         />
       ) : null}
     </main>

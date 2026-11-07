@@ -201,6 +201,31 @@ TEXT;
             throw new RegistrationValidationException(['password' => 'Choose a password that is different from the temporary password.']);
         }
 
+        // Full setup (password, profile, security questions) is all-or-nothing:
+        // the new password is held on the challenge and only saved to the
+        // account when the last step succeeds. Abandoning setup keeps the
+        // temporary password and leaves the account unchanged.
+        if ((string) ($user['onboarding_step'] ?? 'done') === 'password') {
+            $this->ensurePendingColumns();
+            $this->pdo->prepare(
+                'UPDATE first_login_challenges
+                 SET pending_password_hash = :password_hash,
+                     password_replaced_at = NOW(),
+                     otp_expires_at = DATE_ADD(NOW(), INTERVAL 45 MINUTE)
+                 WHERE id = :id'
+            )->execute([
+                'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                'id' => $challenge['id'],
+            ]);
+
+            return [
+                'id' => (int) $user['id'],
+                'username' => (string) $user['username'],
+                'next_step' => 'profile',
+                'setup' => $this->setupSnapshot($user),
+            ];
+        }
+
         $this->pdo->beginTransaction();
 
         try {
@@ -315,12 +340,35 @@ TEXT;
     public function completeProfile(string $challengeId, array $input): array
     {
         $challenge = $this->loadChallenge($challengeId);
-        $this->assertSetupSession($challenge, 'profile');
+        $user = $this->assertSetupSession($challenge, 'profile');
 
         require_once __DIR__ . '/UserRegistrationService.php';
-        (new UserRegistrationService($this->pdo))->completeOnboardingProfile((int) $challenge['user_id'], $input);
-        $this->extendSetupSession((string) $challenge['id']);
-        $this->log((int) $challenge['user_id'], 'Update', 'Completed account details during first login.');
+        $registration = new UserRegistrationService($this->pdo);
+        $profile = $this->profileInput($input);
+
+        // Run the real save to get the same validation and duplicate checks,
+        // then undo it. The details are held on the challenge and saved with
+        // the security questions, so abandoned setup changes nothing.
+        $this->ensurePendingColumns();
+        $this->pdo->beginTransaction();
+        try {
+            $this->advanceToProfileStep($user);
+            $registration->completeOnboardingProfile((int) $user['id'], $profile);
+        } finally {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+        }
+
+        $this->pdo->prepare(
+            'UPDATE first_login_challenges
+             SET pending_profile = :profile,
+                 otp_expires_at = DATE_ADD(NOW(), INTERVAL 45 MINUTE)
+             WHERE id = :id'
+        )->execute([
+            'profile' => json_encode($profile, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            'id' => $challenge['id'],
+        ]);
 
         return ['next_step' => 'security'];
     }
@@ -329,18 +377,107 @@ TEXT;
     {
         $challenge = $this->loadChallenge($challengeId);
         $user = $this->assertSetupSession($challenge, 'security');
+        $pendingPassword = (string) ($challenge['pending_password_hash'] ?? '');
+        $pendingProfile = (string) ($challenge['pending_profile'] ?? '');
 
         require_once __DIR__ . '/UserRegistrationService.php';
-        (new UserRegistrationService($this->pdo))->saveInitialSecurityQuestions((int) $user['id'], $input);
-        $this->pdo->prepare('DELETE FROM first_login_challenges WHERE user_id = :user_id')->execute([
-            'user_id' => $user['id'],
-        ]);
+        $registration = new UserRegistrationService($this->pdo);
+
+        // Save the new password, the details, and the questions together.
+        $this->pdo->beginTransaction();
+        try {
+            if ($pendingPassword !== '') {
+                $update = $this->pdo->prepare(
+                    'UPDATE users
+                     SET password_hash = :password_hash,
+                         password_updated_at = NOW(),
+                         must_change_password = 0
+                     WHERE id = :id
+                       AND must_change_password = 1'
+                );
+                $update->execute(['password_hash' => $pendingPassword, 'id' => $user['id']]);
+
+                if ($update->rowCount() < 1) {
+                    throw new InvalidArgumentException('This temporary password was already replaced. Sign in again.');
+                }
+            }
+
+            if ($pendingProfile !== '') {
+                $this->advanceToProfileStep($user);
+                $registration->completeOnboardingProfile(
+                    (int) $user['id'],
+                    json_decode($pendingProfile, true, 512, JSON_THROW_ON_ERROR)
+                );
+            }
+
+            $registration->saveInitialSecurityQuestions((int) $user['id'], $input);
+            $this->pdo->prepare('DELETE FROM first_login_challenges WHERE user_id = :user_id')->execute([
+                'user_id' => $user['id'],
+            ]);
+            $this->pdo->commit();
+        } catch (Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $error;
+        }
+
+        if ($pendingPassword !== '') {
+            $this->log((int) $user['id'], 'Password', 'Replaced the temporary password during first login.');
+        }
+        if ($pendingProfile !== '') {
+            $this->log((int) $user['id'], 'Update', 'Completed account details during first login.');
+        }
         $this->log((int) $user['id'], 'Update', 'Set security questions during first login.');
 
         return [
             'id' => (int) $user['id'],
             'username' => (string) $user['username'],
         ];
+    }
+
+    /** Only the profile fields; the request also carries action and challenge_id. */
+    private function profileInput(array $input): array
+    {
+        unset($input['action'], $input['challenge_id']);
+
+        return $input;
+    }
+
+    /** A new account is still on "password" until setup commits; the profile save expects "profile". */
+    private function advanceToProfileStep(array $user): void
+    {
+        if ((string) ($user['onboarding_step'] ?? '') === 'password') {
+            $this->pdo->prepare(
+                "UPDATE users SET onboarding_step = 'profile' WHERE id = :id AND onboarding_step = 'password'"
+            )->execute(['id' => $user['id']]);
+        }
+    }
+
+    /** Columns that hold setup answers until the last step commits them. */
+    private function ensurePendingColumns(): void
+    {
+        static $ready = false;
+
+        if ($ready || $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql' || $this->pdo->inTransaction()) {
+            return;
+        }
+
+        $existing = $this->pdo->query("SHOW COLUMNS FROM first_login_challenges LIKE 'pending_%'")
+            ->fetchAll(PDO::FETCH_COLUMN);
+        $add = [];
+        if (!in_array('pending_password_hash', $existing, true)) {
+            $add[] = 'ADD COLUMN pending_password_hash VARCHAR(255) NULL DEFAULT NULL';
+        }
+        if (!in_array('pending_profile', $existing, true)) {
+            $add[] = 'ADD COLUMN pending_profile MEDIUMTEXT NULL DEFAULT NULL';
+        }
+        if ($add !== []) {
+            $this->pdo->exec('ALTER TABLE first_login_challenges ' . implode(', ', $add));
+        }
+
+        $ready = true;
     }
 
     private function sendOtpEmail(string $email, string $username, string $otp): void
@@ -410,8 +547,9 @@ TEXT;
             throw new InvalidArgumentException('This verification session is no longer valid. Sign in again.');
         }
 
+        // SELECT * so databases without the pending_* columns yet still load.
         $statement = $this->pdo->prepare(
-            'SELECT id, user_id, otp_hash, otp_expires_at, otp_verified_at, password_replaced_at, attempt_count
+            'SELECT *
              FROM first_login_challenges
              WHERE id = :id
              LIMIT 1'
@@ -455,21 +593,22 @@ TEXT;
         }
 
         $user = $this->loadUser((int) $challenge['user_id']);
+        $accountStep = (string) ($user['onboarding_step'] ?? '');
+        // New accounts stay on "password" in the database until setup commits,
+        // so the profile step also covers them. Details may be edited again
+        // until the questions are saved.
+        $allowed = match ($expectedStep) {
+            'profile' => in_array($accountStep, ['password', 'profile'], true),
+            'security' => $accountStep === 'security'
+                || (in_array($accountStep, ['password', 'profile'], true) && !empty($challenge['pending_profile'])),
+            default => false,
+        };
 
-        if (!(bool) $user['is_active'] || (string) ($user['onboarding_step'] ?? '') !== $expectedStep) {
+        if (!(bool) $user['is_active'] || !$allowed) {
             throw new InvalidArgumentException('This setup step is no longer available. Sign in again.');
         }
 
         return $user;
-    }
-
-    private function extendSetupSession(string $challengeId): void
-    {
-        $this->pdo->prepare(
-            'UPDATE first_login_challenges
-             SET otp_expires_at = DATE_ADD(NOW(), INTERVAL 45 MINUTE)
-             WHERE id = :id'
-        )->execute(['id' => $challengeId]);
     }
 
     private function setupSnapshot(array $user): array

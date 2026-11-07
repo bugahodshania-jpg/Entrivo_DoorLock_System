@@ -41,6 +41,32 @@ const emptyProfile = {
   rfid_uid: '',
 };
 
+// Setup survives a page reload in this tab. The server keeps the new password
+// and details pending until the last step, so closing setup changes nothing.
+const FIRST_LOGIN_SESSION_KEY = 'entrivo_first_login';
+
+export function readFirstLoginSession() {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(FIRST_LOGIN_SESSION_KEY) || 'null');
+    return parsed && /^[a-f0-9]{32}$/.test(parsed.challengeId || '') && setupSteps.includes(parsed.step) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearFirstLoginSession() {
+  try {
+    window.sessionStorage.removeItem(FIRST_LOGIN_SESSION_KEY);
+  } catch {
+    // Storage can be unavailable (private mode); nothing to clear.
+  }
+}
+
+function savedDraftFor(challengeId) {
+  const saved = readFirstLoginSession();
+  return saved && saved.challengeId === challengeId ? saved : null;
+}
+
 export default function FirstLoginSetup({
   challengeId,
   maskedEmail,
@@ -50,22 +76,31 @@ export default function FirstLoginSetup({
   onClose,
   onComplete,
 }) {
-  const [step, setStep] = useState(setupSteps.includes(initialStep) ? initialStep : 'otp');
+  const draft = useState(() => savedDraftFor(challengeId))[0];
+  const [step, setStep] = useState(() => {
+    if (draft?.step) return draft.step;
+    return setupSteps.includes(initialStep) ? initialStep : 'otp';
+  });
   const [activeChallengeId, setActiveChallengeId] = useState(challengeId);
-  const [accountSetup, setAccountSetup] = useState(setup);
+  const [accountSetup, setAccountSetup] = useState(draft?.setup || setup);
   const [otp, setOtp] = useState('');
-  const [expiresAt, setExpiresAt] = useState(Date.now() + (Number(expiresIn) || 600) * 1000);
-  const [remaining, setRemaining] = useState(Number(expiresIn) || 600);
+  const [expiresAt, setExpiresAt] = useState(() => Number(draft?.expiresAt) || Date.now() + (Number(expiresIn) || 600) * 1000);
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [profile, setProfile] = useState(emptyProfile);
-  const [questions, setQuestions] = useState([
-    { question: '', answer: '' },
-    { question: '', answer: '' },
-    { question: '', answer: '' },
-  ]);
+  const [profile, setProfile] = useState(() => ({ ...emptyProfile, ...(draft?.profile || {}) }));
+  const [questions, setQuestions] = useState(() => {
+    const blank = [
+      { question: '', answer: '' },
+      { question: '', answer: '' },
+      { question: '', answer: '' },
+    ];
+    const saved = Array.isArray(draft?.questions) ? draft.questions : [];
+    // Question choices are restored; answers are not stored in the browser.
+    return blank.map((entry, index) => ({ ...entry, question: String(saved[index] || '') }));
+  });
   const [showAnswers, setShowAnswers] = useState([false, false, false]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -81,6 +116,25 @@ export default function FirstLoginSetup({
     () => programsForCollege(profile.college),
     [profile.college],
   );
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        FIRST_LOGIN_SESSION_KEY,
+        JSON.stringify({
+          challengeId: activeChallengeId,
+          maskedEmail,
+          expiresAt,
+          step,
+          setup: accountSetup,
+          profile,
+          questions: questions.map((entry) => entry.question),
+        }),
+      );
+    } catch {
+      // Without storage, setup still works; it just cannot survive a reload.
+    }
+  }, [activeChallengeId, maskedEmail, expiresAt, step, accountSetup, profile, questions]);
 
   useEffect(() => {
     const existing = String(accountSetup?.middle_name || '').trim();
@@ -176,6 +230,17 @@ export default function FirstLoginSetup({
           }
           setServerErrors(nextErrors);
           markFieldsTouched(Object.keys(data.errors));
+          // Details are re-checked when setup is saved; send the user back to fix them.
+          if (payload.action === 'first_login_security' && Object.keys(data.errors).some((field) => !field.startsWith('security_'))) {
+            if (data.errors.contact_number) {
+              setServerContactError({
+                value: profile.contact_number,
+                challengeId: payload.challenge_id,
+                message: data.errors.contact_number,
+              });
+            }
+            setStep('profile');
+          }
         } else {
           setError(data.message || 'Something went wrong. Try again.');
         }
@@ -349,10 +414,9 @@ export default function FirstLoginSetup({
       <small
         id={`first-login-${field}-error`}
         className="password-reset-field-error"
-        style={{ display: 'block', minHeight: '16px' }}
         aria-live="polite"
       >
-        {message || ' '}
+        {message || ''}
       </small>
     );
   }
@@ -366,7 +430,7 @@ export default function FirstLoginSetup({
   };
   const descriptions = {
     otp: `Enter the 6-digit code sent to ${maskedEmail}. Your dashboard stays closed until this setup is finished.`,
-    password: 'This replaces the temporary password. You will use the new password the next time you sign in.',
+    password: 'This replaces the temporary password once all setup steps are finished. Until then, the temporary password still works.',
     profile: 'These details were not collected when the account was created. Save them before the dashboard opens.',
     security: 'Choose three questions. They are used if you need to reset your password later.',
   };

@@ -211,7 +211,7 @@ try {
 
         if (($completed['next_step'] ?? 'done') !== 'done') {
             echo json_encode([
-                'message' => 'Password saved. Complete your information to continue.',
+                'message' => 'Password accepted. Complete your information to continue.',
                 'next_step' => $completed['next_step'],
                 'setup' => $completed['setup'] ?? null,
             ]);

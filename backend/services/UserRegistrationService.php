@@ -216,11 +216,15 @@ class UserRegistrationService
             'street_address' => $validated['street_address'],
         ];
 
+        // First-login setup may call this inside its own transaction.
+        $ownsTransaction = !$this->pdo->inTransaction();
         $uniqueness = new RegistrationUniquenessService($this->pdo);
         $contactLock = $uniqueness->acquireContactLock($validated['contact_number']);
         try {
             $uniqueness->assertContactAvailable($validated['contact_number'], $userId);
-            $this->pdo->beginTransaction();
+            if ($ownsTransaction) {
+                $this->pdo->beginTransaction();
+            }
 
             if ($role === 'student') {
                 $college = $this->requiredText($input, 'college', 'College');
@@ -298,9 +302,11 @@ class UserRegistrationService
             $this->pdo->prepare(
                 "UPDATE users SET onboarding_step = 'security' WHERE id = :id AND onboarding_step = 'profile'"
             )->execute(['id' => $userId]);
-            $this->pdo->commit();
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
         } catch (PDOException $error) {
-            if ($this->pdo->inTransaction()) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
 
@@ -310,7 +316,7 @@ class UserRegistrationService
 
             throw $error;
         } catch (Throwable $error) {
-            if ($this->pdo->inTransaction()) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
 
@@ -335,8 +341,12 @@ class UserRegistrationService
 
         $questions = $this->normalizeSecurityQuestions($input['security_questions'] ?? null);
 
+        $ownsTransaction = !$this->pdo->inTransaction();
+
         try {
-            $this->pdo->beginTransaction();
+            if ($ownsTransaction) {
+                $this->pdo->beginTransaction();
+            }
             $this->pdo->prepare('DELETE FROM account_security_questions WHERE user_id = :user_id')->execute([
                 'user_id' => $userId,
             ]);
@@ -344,9 +354,11 @@ class UserRegistrationService
             $this->pdo->prepare(
                 "UPDATE users SET onboarding_step = 'done' WHERE id = :id AND onboarding_step = 'security'"
             )->execute(['id' => $userId]);
-            $this->pdo->commit();
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
         } catch (Throwable $error) {
-            if ($this->pdo->inTransaction()) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
 
