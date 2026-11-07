@@ -7,7 +7,23 @@
  */
 class SuperAdminDashboardSession
 {
-    public const HEARTBEAT_TIMEOUT_SECONDS = 90;
+    /**
+     * How long the session survives without a heartbeat (closed tab, sleeping laptop,
+     * dropped Wi-Fi) before it expires. 30 minutes follows the common idle-timeout
+     * standard (NIST SP 800-63B, AAL2). Override with SUPER_ADMIN_SESSION_TIMEOUT_MINUTES.
+     */
+    public const DEFAULT_TIMEOUT_MINUTES = 30;
+
+    public static function timeoutSeconds(): int
+    {
+        $minutes = (int) getenv('SUPER_ADMIN_SESSION_TIMEOUT_MINUTES');
+        if ($minutes <= 0) {
+            $minutes = self::DEFAULT_TIMEOUT_MINUTES;
+        }
+
+        // Keep it between 2 minutes and 12 hours.
+        return max(2, min($minutes, 720)) * 60;
+    }
 
     private PDO $pdo;
 
@@ -355,7 +371,7 @@ class SuperAdminDashboardSession
         );
         $check->execute([
             'heartbeat_at' => $heartbeatAt,
-            'timeout' => self::HEARTBEAT_TIMEOUT_SECONDS,
+            'timeout' => self::timeoutSeconds(),
         ]);
 
         return (int) $check->fetchColumn() === 1;

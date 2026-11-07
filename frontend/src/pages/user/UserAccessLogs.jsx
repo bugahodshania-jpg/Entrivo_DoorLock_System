@@ -17,6 +17,9 @@ const statusFilterOptions = [
 ];
 
 export default function UserAccessLogs({ user }) {
+  // Students have no door schedules, so their table skips the schedule columns.
+  const showSchedule = user?.role !== 'student';
+  const columnCount = showSchedule ? 7 : 5;
   const rowsPerPage = 10;
   const todayDateStamp = getManilaDateStamp();
   const statusFilterMenuRef = useRef(null);
@@ -115,16 +118,12 @@ export default function UserAccessLogs({ user }) {
   function handleExport(format) {
     setIsExportModalOpen(false);
     exportTable(format, {
-      headers: ['Date', 'Time', 'Method', 'Access Type', 'Schedule Type', 'Schedule', 'Status'],
-      rows: visibleLogs.map((log) => [
-        log.date,
-        log.time,
-        log.method,
-        log.accessType,
-        log.scheduleKindLabel || '—',
-        log.scheduleWindow || '—',
-        log.status,
-      ]),
+      headers: showSchedule
+        ? ['Date', 'Time', 'Method', 'Access Type', 'Schedule Type', 'Schedule', 'Status']
+        : ['Date', 'Time', 'Method', 'Access Type', 'Status'],
+      rows: visibleLogs.map((log) => (showSchedule
+        ? [log.date, log.time, log.method, log.accessType, log.scheduleKindLabel || '—', log.scheduleWindow || '—', log.status]
+        : [log.date, log.time, log.method, log.accessType, log.status])),
       fileBaseName: `my_access_logs_${getManilaDateStamp()}`,
       pdf: {
         title: 'My Access Logs',
@@ -305,15 +304,15 @@ export default function UserAccessLogs({ user }) {
                 <th>Time</th>
                 <th>Method</th>
                 <th>Access Type</th>
-                <th>Type</th>
-                <th>Schedule</th>
+                {showSchedule ? <th>Type</th> : null}
+                {showSchedule ? <th>Schedule</th> : null}
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td className="dashboard-recent-empty" colSpan="7">
+                  <td className="dashboard-recent-empty" colSpan={columnCount}>
                     Loading access logs…
                   </td>
                 </tr>
@@ -324,6 +323,7 @@ export default function UserAccessLogs({ user }) {
                     <td>{log.time}</td>
                     <td>{log.method}</td>
                     <td>{log.accessType || '—'}</td>
+                    {showSchedule ? (
                     <td>
                       {log.scheduleKindLabel ? (
                         <span
@@ -335,7 +335,8 @@ export default function UserAccessLogs({ user }) {
                         '—'
                       )}
                     </td>
-                    <td>{log.scheduleWindow || '—'}</td>
+                    ) : null}
+                    {showSchedule ? <td>{log.scheduleWindow || '—'}</td> : null}
                     <td>
                       <span className={`dashboard-log-status dashboard-log-status-${log.status}`}>
                         {log.status}
@@ -345,7 +346,7 @@ export default function UserAccessLogs({ user }) {
                 ))
               ) : (
                 <tr>
-                  <td className="dashboard-recent-empty" colSpan="7">
+                  <td className="dashboard-recent-empty" colSpan={columnCount}>
                     {errorMessage
                       ? 'Unable to load access logs. Retrying automatically.'
                       : 'No access logs match the current filters.'}

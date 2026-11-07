@@ -52,9 +52,32 @@ const navSections = [
   },
 ];
 
-const navLinks = navSections.flatMap((section) => section.links);
+// Students only monitor their own access, so their portal is a small subset.
+const studentNavSections = [
+  {
+    heading: 'Overview',
+    links: [{ label: 'Dashboard', href: '/student/dashboard', icon: LayoutDashboard }],
+  },
+  {
+    heading: 'Logs',
+    links: [
+      { label: 'Access Logs', href: '/student/access-logs', icon: Activity },
+      { label: 'Login Logs', href: '/student/login-logs', icon: LogIn },
+      { label: 'Activity Logs', href: '/student/activity-logs', icon: ScrollText },
+    ],
+  },
+  {
+    heading: 'Account',
+    links: [{ label: 'My Profile', href: '/student/profile', icon: User }],
+  },
+];
 
 const pageTitles = {
+  '/student/dashboard': 'Dashboard',
+  '/student/access-logs': 'Access Logs',
+  '/student/login-logs': 'Login Logs',
+  '/student/activity-logs': 'Activity Logs',
+  '/student/profile': 'My Profile',
   '/user/dashboard': 'Dashboard',
   '/user/my-account': 'My Account',
   '/user/access-logs': 'Access Logs',
@@ -83,7 +106,7 @@ function headerProfilePhoto(user) {
   return '';
 }
 
-function ProfileMenu({ className = '', onLogout }) {
+function ProfileMenu({ className = '', onLogout, accountHref, showSecurity = true }) {
   const confirmAction = useActionConfirm();
 
   async function handleLogout() {
@@ -104,14 +127,16 @@ function ProfileMenu({ className = '', onLogout }) {
 
   return (
     <div className={`super-admin-profile-menu ${className}`.trim()} role="menu">
-      <a className="super-admin-profile-menu-link" href="/user/my-account" role="menuitem">
+      <a className="super-admin-profile-menu-link" href={accountHref} role="menuitem">
         <User size={16} aria-hidden="true" />
         <span>My Account</span>
       </a>
-      <a className="super-admin-profile-menu-link" href="/user/my-account#security" role="menuitem">
-        <KeyRound size={16} aria-hidden="true" />
-        <span>Security</span>
-      </a>
+      {showSecurity ? (
+        <a className="super-admin-profile-menu-link" href={`${accountHref}#security`} role="menuitem">
+          <KeyRound size={16} aria-hidden="true" />
+          <span>Security</span>
+        </a>
+      ) : null}
       <div className="super-admin-profile-menu-divider" />
       <button className="super-admin-profile-menu-logout" type="button" role="menuitem" onClick={handleLogout}>
         <LogOut size={16} aria-hidden="true" />
@@ -131,7 +156,13 @@ export default function UserLayout({ children, user, onLogout }) {
   const [now, setNow] = useState(() => new Date());
   const profileDrawerRef = useRef(null);
   const sidebarProfileRef = useRef(null);
-  const currentPage = navLinks.find((link) => link.href === window.location.pathname);
+  const isStudent = user?.role === 'student';
+  const portalNavSections = isStudent ? studentNavSections : navSections;
+  const homeHref = isStudent ? '/student/dashboard' : '/user/dashboard';
+  const accountHref = isStudent ? '/student/profile' : '/user/my-account';
+  const currentPage = portalNavSections
+    .flatMap((section) => section.links)
+    .find((link) => link.href === window.location.pathname);
   const headerTitle = pageTitles[window.location.pathname] || currentPage?.label || 'Dashboard';
   const headerDate = formatDateInManila(now, {
     month: 'long',
@@ -147,8 +178,7 @@ export default function UserLayout({ children, user, onLogout }) {
   const fullName = [user?.first_name, user?.middle_name, user?.last_name, user?.extension_name]
     .filter(Boolean)
     .join(' ');
-  const displayName = fullName || user?.username || 'Faculty / Staff';
-  const roleLabel = user?.role === 'staff' ? 'Staff' : 'Faculty';
+  const displayName = fullName || user?.username || (isStudent ? 'Student' : 'Faculty / Staff');
   const profilePhoto = headerProfilePhoto(user);
   const profileInitial = (displayName.trim().charAt(0) || 'U').toUpperCase();
 
@@ -192,7 +222,7 @@ export default function UserLayout({ children, user, onLogout }) {
   }, [isProfileDrawerOpen, isSidebarProfileOpen]);
 
   return (
-    <DoorStatusProvider actorId={user?.id}>
+    <DoorStatusProvider actorId={isStudent ? null : user?.id}>
     <ActionConfirmProvider user={user}>
     <div className={portalLayoutClassName({ isCollapsed, isCompact, isMobileNavOpen, extra: 'user-portal-layout' })}>
       {isCompact && isMobileNavOpen ? (
@@ -205,12 +235,12 @@ export default function UserLayout({ children, user, onLogout }) {
       ) : null}
       <aside
         className="super-admin-sidebar"
-        aria-label="Faculty and staff navigation"
+        aria-label={isStudent ? "Student navigation" : "Faculty and staff navigation"}
         aria-hidden={isCompact && !isMobileNavOpen}
         inert={isCompact && !isMobileNavOpen ? true : undefined}
       >
         <div className="super-admin-sidebar-brand">
-          <a className="super-admin-logo" href="/user/dashboard" aria-label="Entrivo dashboard">
+          <a className="super-admin-logo" href={homeHref} aria-label="Entrivo dashboard">
             <UniversityBrand />
           </a>
           <button
@@ -231,7 +261,7 @@ export default function UserLayout({ children, user, onLogout }) {
         </div>
 
         <nav className="super-admin-nav" aria-label="Portal pages">
-          {navSections.map(({ heading, links }) => (
+          {portalNavSections.map(({ heading, links }) => (
             <div className="super-admin-nav-section" key={heading}>
               <p className="super-admin-nav-heading" aria-hidden={!isCompact && isCollapsed}>
                 {heading}
@@ -276,13 +306,13 @@ export default function UserLayout({ children, user, onLogout }) {
               </div>
               <span className="super-admin-profile-name">{displayName}</span>
             </button>
-            <a className="super-admin-profile-settings" href="/user/my-account" aria-label="My Account">
+            <a className="super-admin-profile-settings" href={accountHref} aria-label="My Account">
               <User size={16} strokeWidth={1.75} />
             </a>
           </div>
 
           {isSidebarProfileOpen ? (
-            <ProfileMenu className="super-admin-sidebar-profile-menu" onLogout={onLogout} />
+            <ProfileMenu className="super-admin-sidebar-profile-menu" onLogout={onLogout} accountHref={accountHref} showSecurity={!isStudent} />
           ) : null}
         </div>
       </aside>
@@ -312,17 +342,21 @@ export default function UserLayout({ children, user, onLogout }) {
           </div>
 
           <div className="super-admin-topbar-actions">
-            <NotificationBell
-              requestUrl="/api/user_portal.php"
-              requestParams={{ action: 'activity_logs', user_id: user?.id, limit: 10 }}
-              viewAllHref="/user/activity-logs"
-              dismissOpen={isProfileDrawerOpen || isSidebarProfileOpen}
-              onOpen={() => {
-                setIsProfileDrawerOpen(false);
-                setIsSidebarProfileOpen(false);
-              }}
-            />
-            <DoorStatusCard />
+            {isStudent ? null : (
+              <>
+                <NotificationBell
+                  requestUrl="/api/user_portal.php"
+                  requestParams={{ action: 'activity_logs', user_id: user?.id, limit: 10 }}
+                  viewAllHref="/user/activity-logs"
+                  dismissOpen={isProfileDrawerOpen || isSidebarProfileOpen}
+                  onOpen={() => {
+                    setIsProfileDrawerOpen(false);
+                    setIsSidebarProfileOpen(false);
+                  }}
+                />
+                <DoorStatusCard />
+              </>
+            )}
             <div
               className="super-admin-date-card"
               aria-label={`${headerDate}, ${headerDay} ${headerTime} Asia/Manila`}
@@ -350,7 +384,7 @@ export default function UserLayout({ children, user, onLogout }) {
                 </div>
               </button>
 
-              {isProfileDrawerOpen ? <ProfileMenu onLogout={onLogout} /> : null}
+              {isProfileDrawerOpen ? <ProfileMenu onLogout={onLogout} accountHref={accountHref} showSecurity={!isStudent} /> : null}
             </div>
           </div>
         </header>

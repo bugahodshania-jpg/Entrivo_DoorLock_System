@@ -197,6 +197,11 @@ export default function Login() {
       return;
     }
 
+    if (user.role === 'student') {
+      window.location.assign('/student/dashboard');
+      return;
+    }
+
     window.location.assign('/login');
   };
 

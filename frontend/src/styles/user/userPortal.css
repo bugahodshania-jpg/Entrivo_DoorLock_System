@@ -1346,3 +1346,34 @@ button.user-table-link:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* Student dashboard */
+.user-portal-page .student-dashboard-last-login {
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.user-portal-page .student-rfid-uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+/* Live current-password check in Change Password */
+.user-portal-page .settings-password-live {
+  display: block;
+  margin-top: 4px;
+}
+
+.user-portal-page .settings-password-live-success {
+  color: #0c7a43;
+}
+
+.user-portal-page .settings-password-live-note {
+  color: #64748b;
+}
+
+.user-portal-page .settings-password-input-wrap input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

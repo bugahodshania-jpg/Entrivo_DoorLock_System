@@ -36,6 +36,7 @@ import UserAccessLogs from './pages/user/UserAccessLogs.jsx';
 import UserActivityLogs from './pages/user/UserActivityLogs.jsx';
 import RequestOverride from './pages/user/RequestOverride.jsx';
 import MySchedule from './pages/user/MySchedule.jsx';
+import StudentDashboard from './pages/student/StudentDashboard.jsx';
 import {
   firstAllowedPortalPath,
   firstAllowedSuperAdminPath,
@@ -81,6 +82,15 @@ const userPortalRoutes = {
   '/user/system-logs': UserActivityLogs,
   '/user/request-override': RequestOverride,
   '/user/my-schedule': MySchedule,
+};
+
+// Monitoring-only portal for students; reuses the faculty/staff log and account pages.
+const studentPortalRoutes = {
+  '/student/dashboard': StudentDashboard,
+  '/student/access-logs': UserAccessLogs,
+  '/student/login-logs': UserActivityLogs,
+  '/student/activity-logs': UserActivityLogs,
+  '/student/profile': MyAccount,
 };
 
 function getStoredUser() {
@@ -358,6 +368,21 @@ export default function App() {
         </UserLayout>
         <OverrideNoticeMonitor user={user} />
       </>
+    );
+  }
+
+  if (studentPortalRoutes[path]) {
+    if (user?.role !== 'student') {
+      window.location.replace('/login');
+      return null;
+    }
+
+    const StudentPage = studentPortalRoutes[path];
+
+    return (
+      <UserLayout user={user} onLogout={logout}>
+        <StudentPage user={user} onLogout={logout} />
+      </UserLayout>
     );
   }
 

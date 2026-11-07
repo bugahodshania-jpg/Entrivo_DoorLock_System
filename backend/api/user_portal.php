@@ -97,7 +97,19 @@ function portalActivityLoginDetails(string $status, ?string $reason): array
     return ['Login', $detail, 'Failed'];
 }
 
-function portalRequireFacultyOrStaff(PDO $pdo, int $userId): array
+// Students get a monitoring-only portal: their own dashboard, logs and profile,
+// plus password and security-question changes. Everything else stays faculty/staff only.
+const PORTAL_STUDENT_ACTIONS = [
+    'GET' => ['dashboard', 'profile', 'access_logs', 'activity_logs'],
+    'POST' => ['verify_current_password', 'change_password', 'update_security_questions'],
+];
+
+function portalStudentMayUse(string $method, string $action): bool
+{
+    return in_array($action, PORTAL_STUDENT_ACTIONS[$method] ?? [], true);
+}
+
+function portalRequirePortalUser(PDO $pdo, int $userId): array
 {
     $statement = $pdo->prepare(
         'SELECT id, username, email, role, is_active, created_at, password_hash, password_updated_at
@@ -112,8 +124,8 @@ function portalRequireFacultyOrStaff(PDO $pdo, int $userId): array
         throw new InvalidArgumentException('User account was not found.');
     }
 
-    if (!in_array($user['role'], ['faculty', 'staff'], true)) {
-        throw new InvalidArgumentException('This portal is only available for faculty and staff accounts.');
+    if (!in_array($user['role'], ['faculty', 'staff', 'student'], true)) {
+        throw new InvalidArgumentException('This portal is only available for faculty, staff, and student accounts.');
     }
 
     if (!(bool) $user['is_active']) {
@@ -128,8 +140,61 @@ function portalProfileTable(string $role): string
     return $role === 'staff' ? 'staff_info' : 'faculty_info';
 }
 
+function portalFetchStudentInfo(PDO $pdo, int $userId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT school_id, first_name, middle_name, last_name, extension_name, sex, date_of_birth, age,
+                contact_number, college, program_department, year_level, section,
+                province, city_municipality, barangay, street_address, zip_code, country
+         FROM student_info
+         WHERE user_id = :user_id
+         LIMIT 1'
+    );
+    $statement->execute(['user_id' => $userId]);
+
+    return $statement->fetch(PDO::FETCH_ASSOC) ?: [];
+}
+
+function portalFetchRfidCard(PDO $pdo, int $userId): ?array
+{
+    $statement = $pdo->prepare(
+        "SELECT rfid_uid, status, DATE_FORMAT(issued_at, '%b %e, %Y') AS issued_label
+         FROM rfid_cards
+         WHERE user_id = :user_id
+         LIMIT 1"
+    );
+    $statement->execute(['user_id' => $userId]);
+    $card = $statement->fetch(PDO::FETCH_ASSOC);
+
+    if (!$card) {
+        return null;
+    }
+
+    return [
+        'uid' => (string) $card['rfid_uid'],
+        'status' => (string) ($card['status'] ?? 'active'),
+        'issuedAt' => (string) ($card['issued_label'] ?? ''),
+    ];
+}
+
 function portalFetchProfile(PDO $pdo, array $user): array
 {
+    if ($user['role'] === 'student') {
+        $student = portalFetchStudentInfo($pdo, (int) $user['id']);
+        // Reuse the shared fields below; students have no employee or work details.
+        $profile = $student + ['employee_id' => '', 'office_department' => '', 'work_position' => '', 'users_photo' => ''];
+
+        return portalBuildProfile($pdo, $user, $profile) + [
+            'schoolId' => $student['school_id'] ?? '',
+            'college' => $student['college'] ?? '',
+            'programDepartment' => $student['program_department'] ?? '',
+            'yearLevel' => $student['year_level'] ?? '',
+            'section' => $student['section'] ?? '',
+            'zipCode' => $student['zip_code'] ?? '',
+            'country' => $student['country'] ?? '',
+        ];
+    }
+
     $table = portalProfileTable($user['role']);
     $statement = $pdo->prepare(
         "SELECT
@@ -156,6 +221,11 @@ function portalFetchProfile(PDO $pdo, array $user): array
     $statement->execute(['user_id' => (int) $user['id']]);
     $profile = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    return portalBuildProfile($pdo, $user, $profile);
+}
+
+function portalBuildProfile(PDO $pdo, array $user, array $profile): array
+{
     $questions = $pdo->prepare(
         'SELECT question_slot, question, answer_text
          FROM account_security_questions
@@ -223,8 +293,9 @@ function portalFetchProfile(PDO $pdo, array $user): array
             : date('M j, Y g:i A', strtotime((string) $user['created_at'])),
         'fingerprintCount' => (int) ($counts['fingerprint_count'] ?? 0),
         'rfidCount' => (int) ($counts['rfid_count'] ?? 0),
+        'rfidCard' => portalFetchRfidCard($pdo, (int) $user['id']),
         'securityQuestions' => $securityQuestions,
-        'editableFields' => [
+        'editableFields' => $user['role'] === 'student' ? [] : [
             'contactNumber',
             'streetAddress',
             'barangay',
@@ -451,6 +522,112 @@ function portalDashboard(PDO $pdo, int $userId): array
         'todaySchedules' => $todaySchedules,
         'pendingOverrides' => $pendingOverrides,
         'recentAccessLogs' => $recentAccessLogs,
+    ];
+}
+
+function portalStudentDashboard(PDO $pdo, int $userId): array
+{
+    // Same 7-day / today charts the faculty dashboard uses.
+    $base = portalDashboard($pdo, $userId);
+
+    $hasAccessType = (bool) $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
+    $attendanceFilter = $hasAccessType ? "AND (access_type IS NULL OR access_type IN ('IN','OUT'))" : '';
+    $accessTypeColumn = $hasAccessType ? 'access_type' : "'IN'";
+
+    $totals = $pdo->prepare(
+        "SELECT
+            SUM(access_status = 'granted' {$attendanceFilter}) AS granted_total,
+            SUM(access_status = 'denied' {$attendanceFilter}) AS denied_total,
+            SUM(DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS today_total
+         FROM access_log
+         WHERE user_id = :user_id"
+    );
+    $totals->execute(['user_id' => $userId]);
+    $counts = $totals->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $recentAccess = $pdo->prepare(
+        "SELECT
+            log_id,
+            DATE_FORMAT(access_timestamp, '%b %e, %Y') AS access_date,
+            TIME_FORMAT(access_timestamp, '%h:%i %p') AS access_time,
+            method_access,
+            {$accessTypeColumn} AS access_type,
+            access_status
+         FROM access_log
+         WHERE user_id = :user_id
+         ORDER BY access_timestamp DESC, log_id DESC
+         LIMIT 5"
+    );
+    $recentAccess->execute(['user_id' => $userId]);
+    $recentAccessLogs = array_map(
+        static fn ($log) => [
+            'id' => (int) $log['log_id'],
+            'date' => $log['access_date'],
+            'time' => $log['access_time'],
+            'method' => $log['method_access'],
+            'accessType' => $log['access_type'],
+            'status' => $log['access_status'],
+        ],
+        $recentAccess->fetchAll(PDO::FETCH_ASSOC)
+    );
+
+    $loginCounts = $pdo->prepare(
+        "SELECT
+            DATE_FORMAT(MAX(CASE WHEN attempt_status = 'success' THEN created_at END), '%b %e, %Y %h:%i %p') AS last_login,
+            SUM(attempt_status NOT IN ('success', 'logout') AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS failed_30d
+         FROM login_attempts
+         WHERE user_id = :user_id"
+    );
+    $loginCounts->execute(['user_id' => $userId]);
+    $loginSummary = $loginCounts->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $recentLoginStatement = $pdo->prepare(
+        "SELECT
+            attempt_id,
+            attempt_status,
+            failure_reason,
+            user_agent,
+            DATE_FORMAT(created_at, '%b %e, %Y') AS date_label,
+            DATE_FORMAT(created_at, '%h:%i %p') AS time_label
+         FROM login_attempts
+         WHERE user_id = :user_id
+         ORDER BY created_at DESC, attempt_id DESC
+         LIMIT 5"
+    );
+    $recentLoginStatement->execute(['user_id' => $userId]);
+    $recentLogins = array_map(
+        static function ($row) {
+            [$activity, , $status] = portalActivityLoginDetails(
+                strtolower(trim((string) ($row['attempt_status'] ?? ''))),
+                $row['failure_reason'] ?? null
+            );
+            [, $deviceDetail] = portalActivityDevice($row['user_agent'] ?? null);
+
+            return [
+                'id' => (int) $row['attempt_id'],
+                'activity' => $activity,
+                'status' => $status,
+                'device' => $deviceDetail,
+                'date' => $row['date_label'],
+                'time' => trim((string) $row['time_label']),
+            ];
+        },
+        $recentLoginStatement->fetchAll(PDO::FETCH_ASSOC)
+    );
+
+    return [
+        'summary' => [
+            'grantedTotal' => (int) ($counts['granted_total'] ?? 0),
+            'deniedTotal' => (int) ($counts['denied_total'] ?? 0),
+            'todayTotal' => (int) ($counts['today_total'] ?? 0),
+            'lastLogin' => $loginSummary['last_login'] ?? null,
+            'failedLogins30d' => (int) ($loginSummary['failed_30d'] ?? 0),
+        ],
+        'accessTrend' => $base['accessTrend'],
+        'todayAccessTrend' => $base['todayAccessTrend'],
+        'recentAccessLogs' => $recentAccessLogs,
+        'recentLogins' => $recentLogins,
+        'rfidCard' => portalFetchRfidCard($pdo, $userId),
     ];
 }
 
@@ -1071,9 +1248,24 @@ try {
         exit;
     }
 
-    $user = portalRequireFacultyOrStaff($pdo, $userId);
+    $user = portalRequirePortalUser($pdo, $userId);
+    $isStudent = $user['role'] === 'student';
+
+    if ($isStudent && !portalStudentMayUse($_SERVER['REQUEST_METHOD'], $action)) {
+        http_response_code(403);
+        echo json_encode(['message' => 'This feature is not available for student accounts.']);
+        exit;
+    }
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        if ($action === 'dashboard' && $isStudent) {
+            echo json_encode([
+                'message' => 'Dashboard loaded.',
+                ...portalStudentDashboard($pdo, $userId),
+            ]);
+            exit;
+        }
+
         if ($action === 'dashboard') {
             echo json_encode([
                 'message' => 'Dashboard loaded.',
@@ -1198,6 +1390,17 @@ try {
         echo json_encode([
             'message' => 'Profile updated successfully.',
             'profile' => portalFetchProfile($pdo, $user),
+        ]);
+        exit;
+    }
+
+    // Live check for the Change Password form: only answers whether the current password is right.
+    if ($action === 'verify_current_password') {
+        $currentPassword = (string) ($input['currentPassword'] ?? '');
+
+        echo json_encode([
+            'valid' => $currentPassword !== ''
+                && password_verify($currentPassword, (string) $user['password_hash']),
         ]);
         exit;
     }

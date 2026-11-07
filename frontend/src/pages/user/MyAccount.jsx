@@ -100,6 +100,8 @@ export default function MyAccount({ user }) {
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [visibleAnswers, setVisibleAnswers] = useState([false, false, false]);
   const [editableQuestions, setEditableQuestions] = useState([false, false, false]);
+  // Saved answers stay locked until the user clicks Change; then the field starts blank.
+  const [editableAnswers, setEditableAnswers] = useState([false, false, false]);
   const [profileForm, setProfileForm] = useState({
     contactNumber: '',
     streetAddress: '',
@@ -113,6 +115,9 @@ export default function MyAccount({ user }) {
     confirmPassword: '',
   });
   const [passwordErrors, setPasswordErrors] = useState({});
+  // Live check of the current password: 'idle' | 'checking' | 'valid' | 'invalid' | 'error'.
+  const [currentPasswordStatus, setCurrentPasswordStatus] = useState('idle');
+  const isCurrentPasswordValid = currentPasswordStatus === 'valid';
   const [passwordVisibility, setPasswordVisibility] = useState({
     currentPassword: false,
     newPassword: false,
@@ -129,6 +134,42 @@ export default function MyAccount({ user }) {
     const timeoutId = window.setTimeout(() => setNotice(null), 8000);
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
+
+  useEffect(() => {
+    const currentPassword = passwordForm.currentPassword;
+
+    if (!isEditingPassword || !currentPassword || !user?.id) {
+      setCurrentPasswordStatus('idle');
+      return undefined;
+    }
+
+    let isActive = true;
+    setCurrentPasswordStatus('checking');
+
+    // Wait until the user pauses typing before asking the server.
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await axiosClient.post('/api/user_portal.php', {
+          action: 'verify_current_password',
+          user_id: user.id,
+          currentPassword,
+        });
+
+        if (isActive) {
+          setCurrentPasswordStatus(response.data?.valid ? 'valid' : 'invalid');
+        }
+      } catch {
+        if (isActive) {
+          setCurrentPasswordStatus('error');
+        }
+      }
+    }, 500);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [isEditingPassword, passwordForm.currentPassword, user?.id]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -189,7 +230,29 @@ export default function MyAccount({ user }) {
     [profile],
   );
 
-  const accountInfo = useMemo(
+  const isStudent = (profile?.role || user?.role) === 'student';
+  const canEditProfile = !isStudent && (profile?.editableFields?.length ?? 1) > 0;
+  const rfidCardLabel = profile?.rfidCard
+    ? `${profile.rfidCard.uid} (${formatRole(profile.rfidCard.status)})`
+    : 'No RFID card registered';
+
+  const studentAccountInfo = useMemo(
+    () => [
+      { label: 'Username', value: displayValue(profile?.username || user?.username) },
+      { label: 'School ID', value: displayValue(profile?.schoolId) },
+      { label: 'Email', value: displayValue(profile?.email || user?.email) },
+      { label: 'Role', value: formatRole(profile?.role || user?.role) },
+      { label: 'College', value: displayValue(profile?.college) },
+      { label: 'Program / Department', value: displayValue(profile?.programDepartment) },
+      { label: 'Year level', value: displayValue(profile?.yearLevel) },
+      { label: 'Section', value: displayValue(profile?.section) },
+      { label: 'RFID UID', value: profile?.rfidCard ? profile.rfidCard.uid : 'No RFID card registered' },
+      { label: 'RFID status', value: profile?.rfidCard ? formatRole(profile.rfidCard.status) : 'Not available' },
+    ],
+    [profile, user],
+  );
+
+  const staffAccountInfo = useMemo(
     () => [
       { label: 'Username', value: displayValue(profile?.username || user?.username) },
       { label: 'Employee ID', value: displayValue(profile?.employeeId) },
@@ -201,14 +264,22 @@ export default function MyAccount({ user }) {
     [profile, user],
   );
 
+  const accountInfo = isStudent ? studentAccountInfo : staffAccountInfo;
+
   const addressInfo = useMemo(
     () => [
       { label: 'Street address', value: displayValue(profile?.streetAddress) },
       { label: 'Barangay', value: displayValue(profile?.barangay) },
       { label: 'City / Municipality', value: displayValue(profile?.cityMunicipality) },
       { label: 'Province', value: displayValue(profile?.province) },
+      ...(isStudent
+        ? [
+            { label: 'Zip code', value: displayValue(profile?.zipCode) },
+            { label: 'Country', value: displayValue(profile?.country) },
+          ]
+        : []),
     ],
-    [profile],
+    [profile, isStudent],
   );
 
   const securityOverview = useMemo(
@@ -219,13 +290,15 @@ export default function MyAccount({ user }) {
         value: credentialCountLabel(profile?.fingerprintCount, 'None enrolled'),
         icon: Fingerprint,
       },
-      {
-        label: 'Registered RFID Cards',
-        value: credentialCountLabel(profile?.rfidCount, 'None issued'),
-        icon: IdCard,
-      },
+      isStudent
+        ? { label: 'RFID Card', value: rfidCardLabel, icon: IdCard }
+        : {
+            label: 'Registered RFID Cards',
+            value: credentialCountLabel(profile?.rfidCount, 'None issued'),
+            icon: IdCard,
+          },
     ],
-    [profile],
+    [profile, isStudent, rfidCardLabel],
   );
 
   const readonlyEditFields = useMemo(
@@ -286,6 +359,8 @@ export default function MyAccount({ user }) {
 
     if (!passwordForm.currentPassword) {
       errors.currentPassword = 'Current password is required.';
+    } else if (!isCurrentPasswordValid) {
+      errors.currentPassword = 'Enter your correct current password first.';
     }
 
     if (!passwordForm.newPassword || passwordForm.newPassword.length < 8) {
@@ -302,10 +377,12 @@ export default function MyAccount({ user }) {
       return;
     }
 
+    // The current password was already checked above, so skip the separate security password.
     const confirmed = await confirmAction({
       title: 'Change password',
       message: 'Are you sure you want to change your account password?',
       danger: true,
+      requirePassword: false,
     });
 
     if (!confirmed) {
@@ -379,25 +456,49 @@ export default function MyAccount({ user }) {
     setPasswordErrors({});
   }
 
+  function currentPasswordMessage() {
+    if (currentPasswordStatus === 'checking') {
+      return { tone: 'note', text: 'Checking current password…' };
+    }
+    if (currentPasswordStatus === 'valid') {
+      return { tone: 'success', text: 'Current password is correct. You can now set a new password.' };
+    }
+    if (currentPasswordStatus === 'invalid') {
+      return { tone: 'error', text: 'Current password is incorrect.' };
+    }
+    if (currentPasswordStatus === 'error') {
+      return { tone: 'error', text: 'Unable to check your password right now. Try again.' };
+    }
+    return null;
+  }
+
   function renderPasswordField(field, label, placeholder) {
     const isVisible = passwordVisibility[field];
+    const isCurrentField = field === 'currentPassword';
+    // New / confirm stay locked until the current password is confirmed correct.
+    const isLocked = !isCurrentField && !isCurrentPasswordValid;
+    const liveMessage = isCurrentField && !passwordErrors[field] ? currentPasswordMessage() : null;
+    const hasError = passwordErrors[field] || liveMessage?.tone === 'error';
 
     return (
-      <div className={`settings-admin-edit-field${passwordErrors[field] ? ' settings-admin-edit-field-error' : ''}`}>
+      <div className={`settings-admin-edit-field${hasError ? ' settings-admin-edit-field-error' : ''}`}>
         <dt>{label}</dt>
         <dd>
           <div className="settings-password-input-wrap">
             <input
               type={isVisible ? 'text' : 'password'}
-              placeholder={placeholder}
+              placeholder={isLocked ? 'Enter your current password first' : placeholder}
               value={passwordForm[field]}
-              onChange={(event) =>
+              onChange={(event) => {
+                const { value } = event.target;
                 setPasswordForm((current) => ({
                   ...current,
-                  [field]: event.target.value,
-                }))
-              }
-              disabled={isSavingPassword}
+                  [field]: value,
+                }));
+                setPasswordErrors((current) => ({ ...current, [field]: undefined, general: undefined }));
+              }}
+              disabled={isSavingPassword || isLocked}
+              autoComplete={isCurrentField ? 'current-password' : 'new-password'}
             />
             <button
               type="button"
@@ -408,7 +509,7 @@ export default function MyAccount({ user }) {
                   [field]: !current[field],
                 }))
               }
-              disabled={isSavingPassword}
+              disabled={isSavingPassword || isLocked}
               aria-label={`${isVisible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
               aria-pressed={isVisible}
             >
@@ -417,6 +518,14 @@ export default function MyAccount({ user }) {
           </div>
           {passwordErrors[field] ? (
             <small className="settings-admin-field-error">{passwordErrors[field]}</small>
+          ) : null}
+          {liveMessage ? (
+            <small
+              className={`settings-admin-field-error settings-password-live settings-password-live-${liveMessage.tone}`}
+              aria-live="polite"
+            >
+              {liveMessage.text}
+            </small>
           ) : null}
         </dd>
       </div>
@@ -428,8 +537,25 @@ export default function MyAccount({ user }) {
     setSecurityForm(slots);
     setVisibleAnswers([false, false, false]);
     setEditableQuestions(slots.map((item) => !item.question));
+    setEditableAnswers(slots.map((item) => !item.question));
     setSecurityError('');
     setIsSecurityModalOpen(true);
+  }
+
+  function setSlotFlag(setter, index) {
+    setter((current) => current.map((flag, itemIndex) => (itemIndex === index ? true : flag)));
+  }
+
+  // Start a fresh answer for one slot: unlock it and clear what was there.
+  function startAnswerChange(index) {
+    setSlotFlag(setEditableAnswers, index);
+    updateSecurityQuestion(index, 'answer', '');
+  }
+
+  // A new question needs a new answer, so changing the question also clears its answer.
+  function startQuestionChange(index) {
+    setSlotFlag(setEditableQuestions, index);
+    startAnswerChange(index);
   }
 
   function closeSecurityModal() {
@@ -456,11 +582,12 @@ export default function MyAccount({ user }) {
       return;
     }
 
-    const questions = securityForm.map((item) => ({
+    const questions = securityForm.map((item, index) => ({
       question: item.question.trim(),
-      answer: item.answer.trim(),
+      // A locked answer is kept as saved: send it blank so the server keeps the stored one.
+      answer: editableAnswers[index] ? item.answer.trim() : '',
+      isNewAnswer: editableAnswers[index],
       originalQuestion: item.originalQuestion,
-      originalAnswer: item.originalAnswer,
     }));
 
     if (questions.some((item) => !item.question)) {
@@ -468,22 +595,8 @@ export default function MyAccount({ user }) {
       return;
     }
 
-    const invalidAnswer = questions.some((item) => {
-      const canKeepSavedAnswer =
-        item.answer === '' &&
-        item.question === item.originalQuestion &&
-        item.originalAnswer === '' &&
-        item.originalQuestion !== '';
-
-      if (item.answer.length >= 2) {
-        return false;
-      }
-
-      return item.answer.length > 0 || !canKeepSavedAnswer;
-    });
-
-    if (invalidAnswer) {
-      setSecurityError('Each answer must be at least 2 characters. Leave a blank answer only to keep one already saved.');
+    if (questions.some((item) => item.isNewAnswer && item.answer.length < 2)) {
+      setSecurityError('Each new answer must be at least 2 characters.');
       return;
     }
 
@@ -494,11 +607,11 @@ export default function MyAccount({ user }) {
     }
 
     const hasChanges = questions.some(
-      (item) => item.question !== item.originalQuestion || item.answer !== item.originalAnswer,
+      (item) => item.isNewAnswer || item.question !== item.originalQuestion,
     );
 
     if (!hasChanges) {
-      setSecurityError('Change a question or answer before updating.');
+      setSecurityError('Click Change on a question or answer before updating.');
       return;
     }
 
@@ -552,7 +665,11 @@ export default function MyAccount({ user }) {
           <div className="dashboard-panel-header">
             <div>
               <span>Account information</span>
-              <p>Details for the currently signed-in faculty or staff account.</p>
+              <p>
+                {isStudent
+                  ? 'Details for your student account. Contact an administrator to correct your profile.'
+                  : 'Details for the currently signed-in faculty or staff account.'}
+              </p>
             </div>
           </div>
 
@@ -569,8 +686,10 @@ export default function MyAccount({ user }) {
               </span>
 
               <div className="settings-admin-profile-meta">
-                <span>Employee ID</span>
-                <strong>{isLoading ? 'Loading…' : displayValue(profile?.employeeId)}</strong>
+                <span>{isStudent ? 'School ID' : 'Employee ID'}</span>
+                <strong>
+                  {isLoading ? 'Loading…' : displayValue(isStudent ? profile?.schoolId : profile?.employeeId)}
+                </strong>
               </div>
 
               <button
@@ -587,15 +706,17 @@ export default function MyAccount({ user }) {
             <section className="settings-admin-card settings-admin-personal-card" aria-label="Personal information">
               <header className="settings-admin-card-header">
                 <h4>Profile Details</h4>
-                <button
-                  type="button"
-                  className="settings-secondary-button settings-admin-edit-button"
-                  onClick={handleStartProfileEdit}
-                  disabled={isLoading || isSavingProfile || !profile}
-                >
-                  <Pencil size={16} aria-hidden="true" />
-                  Edit
-                </button>
+                {canEditProfile ? (
+                  <button
+                    type="button"
+                    className="settings-secondary-button settings-admin-edit-button"
+                    onClick={handleStartProfileEdit}
+                    disabled={isLoading || isSavingProfile || !profile}
+                  >
+                    <Pencil size={16} aria-hidden="true" />
+                    Edit
+                  </button>
+                ) : null}
               </header>
 
               <div className="settings-admin-review-stack">
@@ -707,7 +828,7 @@ export default function MyAccount({ user }) {
                     type="button"
                     className="pending-registration-approve"
                     onClick={handleSavePassword}
-                    disabled={isSavingPassword || isLoading}
+                    disabled={isSavingPassword || isLoading || !isCurrentPasswordValid}
                   >
                     <ShieldCheck size={16} aria-hidden="true" />
                     {isSavingPassword ? 'Updating...' : 'Change Password'}
@@ -915,11 +1036,7 @@ export default function MyAccount({ user }) {
                           />
                           <button
                             type="button"
-                            onClick={() =>
-                              setEditableQuestions((current) =>
-                                current.map((editable, itemIndex) => (itemIndex === index ? true : editable)),
-                              )
-                            }
+                            onClick={() => startQuestionChange(index)}
                             disabled={isSavingSecurity}
                           >
                             Change
@@ -947,42 +1064,52 @@ export default function MyAccount({ user }) {
                         />
                       )}
                     </div>
-                    <label className="settings-security-field">
-                      <span>Answer</span>
-                      <span className="settings-security-answer">
-                        <input
-                          type={visibleAnswers[index] ? 'text' : 'password'}
-                          value={item.answer}
-                          maxLength={100}
-                          autoComplete="off"
-                          placeholder={
-                            item.originalAnswer
-                              ? ''
-                              : item.originalQuestion
-                                ? 'Leave blank to keep the saved answer'
-                                : 'Enter your answer'
-                          }
-                          onChange={(event) => updateSecurityQuestion(index, 'answer', event.target.value)}
-                        />
-                        <button
-                          type="button"
-                          aria-label={visibleAnswers[index] ? 'Hide answer' : 'Show answer'}
-                          aria-pressed={visibleAnswers[index]}
-                          onClick={() =>
-                            setVisibleAnswers((current) =>
-                              current.map((visible, itemIndex) => (itemIndex === index ? !visible : visible)),
-                            )
-                          }
-                        >
-                          {visibleAnswers[index] ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </span>
-                      {!item.originalAnswer && item.originalQuestion ? (
-                        <small className="settings-security-hint">
-                          A saved answer is on file. Leave this blank to keep it, or type a new one.
-                        </small>
-                      ) : null}
-                    </label>
+                    <div className="settings-security-field">
+                      <span id={`faculty-security-answer-label-${index}`}>Answer</span>
+                      {!editableAnswers[index] ? (
+                        // Saved answer: shown hidden and locked until Change is clicked.
+                        <span className="settings-security-current">
+                          <input
+                            type="password"
+                            value={item.originalAnswer || 'saved-answer'}
+                            aria-labelledby={`faculty-security-answer-label-${index}`}
+                            readOnly
+                          />
+                          <button
+                            type="button"
+                            onClick={() => startAnswerChange(index)}
+                            disabled={isSavingSecurity}
+                          >
+                            Change
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="settings-security-answer">
+                          <input
+                            type={visibleAnswers[index] ? 'text' : 'password'}
+                            value={item.answer}
+                            maxLength={100}
+                            autoComplete="off"
+                            aria-labelledby={`faculty-security-answer-label-${index}`}
+                            placeholder="Enter your new answer"
+                            onChange={(event) => updateSecurityQuestion(index, 'answer', event.target.value)}
+                            disabled={isSavingSecurity}
+                          />
+                          <button
+                            type="button"
+                            aria-label={visibleAnswers[index] ? 'Hide answer' : 'Show answer'}
+                            aria-pressed={visibleAnswers[index]}
+                            onClick={() =>
+                              setVisibleAnswers((current) =>
+                                current.map((visible, itemIndex) => (itemIndex === index ? !visible : visible)),
+                              )
+                            }
+                          >
+                            {visibleAnswers[index] ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1013,7 +1140,7 @@ export default function MyAccount({ user }) {
                   <span><Lock size={16} aria-hidden="true" /></span>
                   <div>
                     <h3>Only You Can See Them</h3>
-                    <p>Answers are hidden by default. Use the eye icon to reveal an answer.</p>
+                    <p>Saved answers stay hidden. Click Change to type a new answer.</p>
                   </div>
                 </div>
                 <div className="settings-security-note">
