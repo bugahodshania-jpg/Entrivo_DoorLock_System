@@ -19,6 +19,7 @@ import '../../styles/superAdmin/fingerprint.css';
 import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/shared/actionConfirm.css';
+import DateInput from '../../components/DateInput';
 const fingerprintTableColumns = ['User', 'Employee ID', 'Role', 'Finger Name', 'Enrollment', 'Enrolled At', 'Sensor A', 'Action'];
 const fingerprintLargeScreenQuery = '(min-width: 901px)';
 // Enrollment always runs on Sensor A (device 1); its lock state gates Enroll/Update.
@@ -2275,12 +2276,12 @@ export default function DirectFingerprint({
               <div className="activity-logs-dates">
                 <label>
                   <span>From</span>
-                  <input type="date" value={finishedJobDateFrom} onChange={event => setFinishedJobDateFrom(event.target.value)} />
+                  <DateInput value={finishedJobDateFrom} onChange={event => setFinishedJobDateFrom(event.target.value)} />
                 </label>
                 <span className="activity-logs-dates-divider" aria-hidden="true" />
                 <label>
                   <span>To</span>
-                  <input type="date" value={finishedJobDateTo} onChange={event => setFinishedJobDateTo(event.target.value)} />
+                  <DateInput value={finishedJobDateTo} onChange={event => setFinishedJobDateTo(event.target.value)} />
                 </label>
                 {finishedJobDateFrom || finishedJobDateTo ? <button type="button" className="activity-logs-clear" aria-label="Clear dates" onClick={() => {
                 setFinishedJobDateFrom('');

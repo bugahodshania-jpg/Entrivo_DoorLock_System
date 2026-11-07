@@ -10,6 +10,7 @@ import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/reports.css';
+import DateInput from '../../components/DateInput';
 
 const roleOptions = [
   { value: 'all', label: 'All roles' },
@@ -851,12 +852,12 @@ export default function Reports() {
             <div className="activity-logs-dates">
               <label>
                 <span>From</span>
-                <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
+                <DateInput value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
               </label>
               <span className="activity-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
+                <DateInput value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
               </label>
             </div>
             <button type="button" className="reports-reset" aria-label="Clear filters" onClick={clearFilters}>

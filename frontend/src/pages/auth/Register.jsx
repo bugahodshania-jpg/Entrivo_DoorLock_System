@@ -21,6 +21,7 @@ import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/registerUser.css';
+import DateInput from '../../components/DateInput';
 
 const registeredRfidMessage = 'This School ID UID is already registered. Please visit the admin office for assistance with your existing account or School ID.';
 
@@ -1063,9 +1064,8 @@ export default function Register() {
                     </label>
                     <label>
                       <span>Birthdate<i className="public-register-required">*</i></span>
-                      <input
+                      <DateInput
                         required
-                        type="date"
                         max={getManilaDateStamp()}
                         aria-invalid={Boolean(getFieldError('date_of_birth'))}
                         aria-describedby="registration-date_of_birth-error"

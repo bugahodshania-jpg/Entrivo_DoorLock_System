@@ -8,3 +8,41 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Typed date field for touch screens (components/DateInput.jsx). */
+.date-input {
+  display: block;
+  min-width: 0;
+  position: relative;
+  width: 100%;
+}
+
+.date-input > input {
+  padding-right: 40px !important;
+  width: 100%;
+}
+
+.date-input-picker {
+  align-items: center;
+  bottom: 0;
+  color: #4d5f57;
+  display: inline-flex;
+  justify-content: center;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 40px;
+}
+
+/* The native picker sits invisibly over the icon so a tap opens it. */
+.date-input-picker > input {
+  border: 0;
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  width: 100%;
+}

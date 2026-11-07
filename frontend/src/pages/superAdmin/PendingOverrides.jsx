@@ -12,6 +12,7 @@ import '../../styles/superAdmin/rfid.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/pendingOverrides.css';
+import DateInput from '../../components/DateInput';
 
 const statusFilterOptions = [
   { value: 'pending', label: 'Pending' },
@@ -685,8 +686,7 @@ export default function PendingOverrides() {
             <div className="activity-logs-dates" aria-label="Filter by requested window date">
               <label>
                 <span>From</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateFrom}
                   max={dateTo || undefined}
                   onChange={(event) => setDateFrom(event.target.value)}
@@ -695,8 +695,7 @@ export default function PendingOverrides() {
               <span className="activity-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateTo}
                   min={dateFrom || undefined}
                   onChange={(event) => setDateTo(event.target.value)}

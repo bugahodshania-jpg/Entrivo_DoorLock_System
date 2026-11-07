@@ -7,6 +7,7 @@ import OverrideImpactModal from './OverrideImpactModal';
 import ScheduleConflictModal from './ScheduleConflictModal';
 import { getDefaultGracePeriodMinutes } from '../utils/systemSettings';
 import '../styles/superAdmin/schedules.css';
+import DateInput from './DateInput';
 
 const regularScheduleStatusOptions = [
   { value: 'pending', label: 'Pending' },
@@ -592,8 +593,7 @@ export default function ScheduleCreateModal({
               <div className="schedules-form-row schedules-form-row-3">
                 <div className="schedules-field">
                   <label>Schedule Date</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={formState.scheduleDate}
                     onChange={(event) => updateField('scheduleDate', event.target.value)}
                   />

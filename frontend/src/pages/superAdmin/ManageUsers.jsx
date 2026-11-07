@@ -35,6 +35,7 @@ import { normalizeIssuedId, schoolEmailDomain, suffixOptions } from '../../utils
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
+import DateInput from '../../components/DateInput';
 
 function getPasswordRuleChecks(password) {
   return {
@@ -2341,8 +2342,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                         </select>
                       </EditField>
                       <EditField label="Birthdate" error={editFieldErrors.dateOfBirth}>
-                        <input
-                          type="date"
+                        <DateInput
                           value={editForm.dateOfBirth}
                           onChange={(event) => updateEditField('dateOfBirth', event.target.value)}
                           required

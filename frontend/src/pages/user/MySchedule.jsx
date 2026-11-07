@@ -47,6 +47,7 @@ import '../../styles/superAdmin/accessLogs.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/user/userPortal.css';
+import DateInput from '../../components/DateInput';
 
 const monthNames = [
   'January',
@@ -1015,8 +1016,7 @@ export default function MySchedule({ user }) {
             <div className="access-logs-dates user-schedule-dates">
               <label>
                 <span>From</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateFrom}
                   onChange={(event) => setDateFrom(event.target.value)}
                 />
@@ -1024,8 +1024,7 @@ export default function MySchedule({ user }) {
               <span className="access-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateTo}
                   onChange={(event) => setDateTo(event.target.value)}
                 />
@@ -1662,9 +1661,8 @@ export default function MySchedule({ user }) {
                   </div>
                   <div className="schedules-field">
                     <label htmlFor="user-override-date">Schedule Date</label>
-                    <input
+                    <DateInput
                       id="user-override-date"
-                      type="date"
                       value={overrideForm.scheduleDate}
                       onChange={(event) => updateOverrideField('scheduleDate', event.target.value)}
                       required

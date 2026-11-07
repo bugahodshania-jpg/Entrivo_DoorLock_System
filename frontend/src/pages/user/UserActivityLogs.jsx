@@ -13,6 +13,7 @@ import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/user/userPortal.css';
+import DateInput from '../../components/DateInput';
 
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
@@ -380,8 +381,7 @@ export default function UserActivityLogs({ user }) {
             <div className="activity-logs-dates">
               <label>
                 <span>From</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateFrom}
                   max={dateTo || undefined}
                   onChange={(event) => setDateFrom(event.target.value)}
@@ -390,8 +390,7 @@ export default function UserActivityLogs({ user }) {
               <span className="activity-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateTo}
                   min={dateFrom || undefined}
                   onChange={(event) => setDateTo(event.target.value)}

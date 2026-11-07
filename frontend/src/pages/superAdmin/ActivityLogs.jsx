@@ -10,6 +10,7 @@ import { categoryOptionsForGroup, logBelongsToGroup, logGroupConfig } from '../.
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/activityLogs.css';
+import DateInput from '../../components/DateInput';
 
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
@@ -399,12 +400,12 @@ export default function ActivityLogs() {
             <div className="activity-logs-dates">
               <label>
                 <span>From</span>
-                <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+                <DateInput value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
               </label>
               <span className="activity-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+                <DateInput value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
               </label>
               {dateFrom || dateTo ? (
                 <button

@@ -50,6 +50,7 @@ import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/fingerprint.css';
 import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/rfid.css';
+import DateInput from '../../components/DateInput';
 
 // Enrollment always runs on Sensor A (device 1); its lock state gates Enroll/Update.
 const ENROLLMENT_DEVICE_ID = 1;
@@ -4312,8 +4313,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               <div className="activity-logs-dates">
                 <label>
                   <span>From</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={finishedJobDateFrom}
                     onChange={(event) => setFinishedJobDateFrom(event.target.value)}
                   />
@@ -4321,8 +4321,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 <span className="activity-logs-dates-divider" aria-hidden="true" />
                 <label>
                   <span>To</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={finishedJobDateTo}
                     onChange={(event) => setFinishedJobDateTo(event.target.value)}
                   />
@@ -4494,8 +4493,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
               <div className="activity-logs-dates">
                 <label>
                   <span>From</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={syncJobDateFrom}
                     onChange={(event) => setSyncJobDateFrom(event.target.value)}
                   />
@@ -4503,8 +4501,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
                 <span className="activity-logs-dates-divider" aria-hidden="true" />
                 <label>
                   <span>To</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={syncJobDateTo}
                     onChange={(event) => setSyncJobDateTo(event.target.value)}
                   />

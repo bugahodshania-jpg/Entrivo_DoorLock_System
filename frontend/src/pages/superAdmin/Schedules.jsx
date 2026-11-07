@@ -45,6 +45,7 @@ import {
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
+import DateInput from '../../components/DateInput';
 
 /** Statuses used by regular (non-override) schedules. */
 const regularScheduleStatusOptions = [
@@ -2455,8 +2456,7 @@ export default function Schedules({ user }) {
                 {formState.scheduleType === 'single' && !(lockOverrideCreate || formState.scheduleKind === 'override') && (
                   <div className="schedules-field">
                     <label>Schedule Date</label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={formState.scheduleDate}
                       onChange={(e) => updateField('scheduleDate', e.target.value)}
                       disabled={Boolean(lockedScheduleDate)}
@@ -2469,11 +2469,11 @@ export default function Schedules({ user }) {
                     <div className="schedules-form-row">
                       <div className="schedules-field">
                         <label>Start Date</label>
-                        <input type="date" value={formState.startDate} onChange={(e) => updateField('startDate', e.target.value)} />
+                        <DateInput value={formState.startDate} onChange={(e) => updateField('startDate', e.target.value)} />
                       </div>
                       <div className="schedules-field">
                         <label>End Date</label>
-                        <input type="date" value={formState.endDate} onChange={(e) => updateField('endDate', e.target.value)} />
+                        <DateInput value={formState.endDate} onChange={(e) => updateField('endDate', e.target.value)} />
                       </div>
                     </div>
                     <div className="schedules-field">
@@ -2503,8 +2503,7 @@ export default function Schedules({ user }) {
                   <div className="schedules-form-row schedules-form-row-3">
                     <div className="schedules-field">
                       <label>Schedule Date</label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={formState.scheduleDate}
                         onChange={(e) => updateField('scheduleDate', e.target.value)}
                         disabled={Boolean(lockedScheduleDate)}
@@ -2609,8 +2608,7 @@ export default function Schedules({ user }) {
                   <div className="is-wide schedules-edit-field">
                     <dt>Schedule date</dt>
                     <dd>
-                      <input
-                        type="date"
+                      <DateInput
                         value={formState.scheduleDate}
                         onChange={(e) => updateField('scheduleDate', e.target.value)}
                         required

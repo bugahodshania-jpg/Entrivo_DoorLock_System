@@ -9,6 +9,7 @@ import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
 import '../../styles/user/userPortal.css';
+import DateInput from '../../components/DateInput';
 
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
@@ -252,8 +253,7 @@ export default function UserAccessLogs({ user }) {
             <div className="access-logs-dates">
               <label>
                 <span>From</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateFrom}
                   max={dateTo || undefined}
                   onChange={(event) => setDateFrom(event.target.value)}
@@ -262,8 +262,7 @@ export default function UserAccessLogs({ user }) {
               <span className="access-logs-dates-divider" aria-hidden="true" />
               <label>
                 <span>To</span>
-                <input
-                  type="date"
+                <DateInput
                   value={dateTo}
                   min={dateFrom || undefined}
                   onChange={(event) => setDateTo(event.target.value)}

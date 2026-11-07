@@ -28,6 +28,7 @@ import { userHasPrivilege } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
+import DateInput from '../../components/DateInput';
 
 const rfidStatusOptions = [
   { value: 'active', label: 'Active' },
@@ -775,8 +776,7 @@ export default function RFIDCards({ user }) {
               <div className="rfid-scan-dates">
                 <label>
                   <span>From</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={scanDateFrom}
                     max={scanDateTo || undefined}
                     onChange={(event) => setScanDateFrom(event.target.value)}
@@ -785,8 +785,7 @@ export default function RFIDCards({ user }) {
                 <span className="rfid-scan-dates-divider" aria-hidden="true" />
                 <label>
                   <span>To</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={scanDateTo}
                     min={scanDateFrom || undefined}
                     onChange={(event) => setScanDateTo(event.target.value)}

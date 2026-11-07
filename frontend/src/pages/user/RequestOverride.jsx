@@ -22,6 +22,7 @@ import '../../styles/superAdmin/activityLogs.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/user/userPortal.css';
+import DateInput from '../../components/DateInput';
 
 const statusFilterOptions = [
   { value: 'all', label: 'All statuses' },
@@ -868,9 +869,8 @@ export default function RequestOverride({ user }) {
                     </div>
                     <div className="schedules-field">
                       <label htmlFor="override-page-date">Schedule Date</label>
-                      <input
+                      <DateInput
                         id="override-page-date"
-                        type="date"
                         value={form.scheduleDate}
                         onChange={(event) => updateField('scheduleDate', event.target.value)}
                         required
@@ -1064,9 +1064,8 @@ export default function RequestOverride({ user }) {
                   </div>
                   <div className="schedules-field">
                     <label htmlFor="override-edit-date">Schedule Date</label>
-                    <input
+                    <DateInput
                       id="override-edit-date"
-                      type="date"
                       value={editForm.scheduleDate}
                       onChange={(event) => updateEditField('scheduleDate', event.target.value)}
                       required
