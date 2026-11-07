@@ -16,6 +16,7 @@ import {
   suffixOptions,
   yearLevelOptions,
 } from '../../utils/schoolProfileOptions';
+import DateInput from '../../components/DateInput';
 
 const AUTH_API_URL = `${API_BASE_URL}/api/auth.php`;
 const setupSteps = ['otp', 'password', 'profile', 'security'];
@@ -230,6 +231,10 @@ export default function FirstLoginSetup({
           }
           setServerErrors(nextErrors);
           markFieldsTouched(Object.keys(data.errors));
+          if (payload.action === 'first_login_profile') {
+            setError(profileErrorSummary(data.errors));
+            focusFirstInvalid(Object.keys(data.errors));
+          }
           // Details are re-checked when setup is saved; send the user back to fix them.
           if (payload.action === 'first_login_security' && Object.keys(data.errors).some((field) => !field.startsWith('security_'))) {
             if (data.errors.contact_number) {
@@ -356,6 +361,50 @@ export default function FirstLoginSetup({
       if (!profile.work_position.trim()) errors.work_position = 'Position is required.';
     }
     return errors;
+  }
+
+  const profileFieldLabels = {
+    middle_name: 'Middle name',
+    extension_name: 'Suffix',
+    sex: 'Sex',
+    contact_number: 'Contact number',
+    date_of_birth: 'Birthdate',
+    age: 'Age',
+    street_address: 'Street address',
+    barangay: 'Barangay',
+    city_municipality: 'City / Municipality',
+    province: 'Province',
+    college: 'College',
+    program_department: 'Program / Department',
+    year_level: 'Year level',
+    section: 'Section',
+    rfid_uid: 'RFID UID',
+    office_department: 'Department / Office',
+    work_position: 'Position',
+  };
+
+  // One message above the button, listing missing fields first.
+  function profileErrorSummary(errors) {
+    const fields = Object.keys(errors).filter((field) => field !== 'age' || !errors.date_of_birth);
+    const missing = fields.filter((field) => / is required\.$/.test(errors[field]));
+    const invalid = fields.filter((field) => !missing.includes(field));
+    const names = (list) => list.map((field) => profileFieldLabels[field] || field).join(', ');
+    const parts = [];
+    if (missing.length) parts.push(`Complete the required information: ${names(missing)}.`);
+    if (invalid.length) parts.push(`Fix the highlighted ${invalid.length === 1 ? 'field' : 'fields'}: ${names(invalid)}.`);
+    return parts.join(' ');
+  }
+
+  function focusFirstInvalid(fields) {
+    window.requestAnimationFrame(() => {
+      const target = fields
+        .map((field) => document.querySelector(`[aria-describedby="first-login-${field}-error"]`))
+        .filter(Boolean)
+        .sort((first, second) => (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))[0];
+      if (!target) return;
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target.focus({ preventScroll: true });
+    });
   }
 
   function validatePassword() {
@@ -638,7 +687,11 @@ export default function FirstLoginSetup({
               if (!errors.contact_number && contactNumberError) errors.contact_number = contactNumberError;
               markFieldsTouched(Object.keys(errors));
               setError('');
-              if (Object.keys(errors).length) return;
+              if (Object.keys(errors).length) {
+                setError(profileErrorSummary(errors));
+                focusFirstInvalid(Object.keys(errors));
+                return;
+              }
               submit(profilePayload(), (data) => {
                 if (data.next_step === 'security') {
                   setStep('security');
@@ -689,7 +742,7 @@ export default function FirstLoginSetup({
                 <FieldError field="extension_name" />
               </label>
               <label>
-                Sex
+                Sex <span className="password-reset-required" aria-hidden="true">*</span>
                 <select value={profile.sex} onChange={(event) => updateProfile('sex', event.target.value)} {...fieldAttributes('sex')} required>
                   <option value="">Select sex</option>
                   <option value="Male">Male</option>
@@ -698,7 +751,7 @@ export default function FirstLoginSetup({
                 <FieldError field="sex" />
               </label>
               <label>
-                Contact number
+                Contact number <span className="password-reset-required" aria-hidden="true">*</span>
                 <input
                   inputMode="numeric"
                   maxLength={11}
@@ -711,9 +764,8 @@ export default function FirstLoginSetup({
                 <FieldError field="contact_number" />
               </label>
               <label>
-                Birthdate
-                <input
-                  type="date"
+                Birthdate <span className="password-reset-required" aria-hidden="true">*</span>
+                <DateInput
                   max={getManilaDateStamp()}
                   value={profile.date_of_birth}
                   onChange={(event) => updateProfile('date_of_birth', event.target.value)}
@@ -739,7 +791,7 @@ export default function FirstLoginSetup({
                 <FieldError field="street_address" />
               </label>
               <label>
-                Barangay
+                Barangay <span className="password-reset-required" aria-hidden="true">*</span>
                 <input
                   value={profile.barangay}
                   onChange={(event) => updateProfile('barangay', toTitleCase(event.target.value))}
@@ -749,7 +801,7 @@ export default function FirstLoginSetup({
                 <FieldError field="barangay" />
               </label>
               <label>
-                City / Municipality
+                City / Municipality <span className="password-reset-required" aria-hidden="true">*</span>
                 <input
                   value={profile.city_municipality}
                   onChange={(event) => updateProfile('city_municipality', toTitleCase(event.target.value))}
@@ -759,7 +811,7 @@ export default function FirstLoginSetup({
                 <FieldError field="city_municipality" />
               </label>
               <label>
-                Province
+                Province <span className="password-reset-required" aria-hidden="true">*</span>
                 <input
                   value={profile.province}
                   onChange={(event) => updateProfile('province', toTitleCase(event.target.value))}
@@ -772,7 +824,7 @@ export default function FirstLoginSetup({
               {isStudent ? (
                 <>
                   <label className="is-span">
-                    College
+                    College <span className="password-reset-required" aria-hidden="true">*</span>
                     <select
                       value={profile.college}
                       onChange={(event) => {
@@ -797,7 +849,7 @@ export default function FirstLoginSetup({
                     <FieldError field="college" />
                   </label>
                   <label className="is-span">
-                    Program / Department
+                    Program / Department <span className="password-reset-required" aria-hidden="true">*</span>
                     <select
                       value={profile.program_department}
                       disabled={!profile.college}
@@ -813,7 +865,7 @@ export default function FirstLoginSetup({
                     <FieldError field="program_department" />
                   </label>
                   <label>
-                    Year level
+                    Year level <span className="password-reset-required" aria-hidden="true">*</span>
                     <select value={profile.year_level} onChange={(event) => updateProfile('year_level', event.target.value)} {...fieldAttributes('year_level')} required>
                       <option value="">Select year level</option>
                       {yearLevelOptions.map((yearLevel) => (
@@ -847,7 +899,7 @@ export default function FirstLoginSetup({
               ) : (
                 <>
                   <label>
-                    Department / Office
+                    Department / Office <span className="password-reset-required" aria-hidden="true">*</span>
                     <input
                       list="onboarding-department-options"
                       value={profile.office_department}
@@ -863,7 +915,7 @@ export default function FirstLoginSetup({
                     <FieldError field="office_department" />
                   </label>
                   <label>
-                    Position
+                    Position <span className="password-reset-required" aria-hidden="true">*</span>
                     <input
                       value={profile.work_position}
                       onChange={(event) => updateProfile('work_position', event.target.value)}
