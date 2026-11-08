@@ -6,12 +6,13 @@
     - Adafruit GFX Library
     - Adafruit ILI9341
 
-  Before upload, set WIFI_SSID, WIFI_PASS, and SERVER_HOST to the
-  computer running the Entrivo backend. SERVER_HOST is that PC's LAN
-  address, not localhost. The backend must be listening on port 8000
-  (start_backend_lan.bat binds 0.0.0.0:8000).
+  Scans go to the Railway backend over HTTPS, so each UID is saved in the
+  Railway MySQL database and the Vercel sign-up page can verify it. The
+  scanner only needs WiFi with internet access (WIFI_SSID / WIFI_PASS).
+  To test against a local backend instead, set SERVER_URL to
+  "http://<PC LAN address>:8000" (start_backend_lan.bat binds 0.0.0.0:8000).
 
-  DEVICE_TOKEN must match RFID_DEVICE_TOKEN, or the default
+  DEVICE_TOKEN must match RFID_DEVICE_TOKEN on the backend, or the default
   entrivo-rfid-2026 in backend/api/rfid_scan.php.
 
   Each accepted card is saved in rfid_scan_log with the server time.
@@ -25,6 +26,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
@@ -35,11 +37,64 @@
 
 const char *WIFI_SSID = "ESP32_HOTSPOT";
 const char *WIFI_PASS = "onetwoeight";
-const char *SERVER_HOST = "192.168.137.1";
-const uint16_t SERVER_PORT = 8000;
+const char *SERVER_URL = "https://entrivo-backend-production.up.railway.app";
 const char *SERVER_PATH = "/api/rfid_scan.php";
 const char *DEVICE_TOKEN = "entrivo-rfid-2026";
 const char *DEVICE_LABEL = "rfid-scanner";
+
+// Let's Encrypt root certificates (the issuer of *.up.railway.app).
+// ISRG Root X1 is valid until 2035-06-04, ISRG Root X2 until 2040-09-17.
+// Only servers whose certificate chains to one of these are accepted.
+const char BACKEND_ROOT_CA[] PROGMEM = R"PEM(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw
+CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg
+R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00
+MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT
+ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw
+EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW
++1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9
+ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T
+AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI
+zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW
+tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1
+/q4AaOeMSQ+2b1tbFfLn
+-----END CERTIFICATE-----
+)PEM";
+
+// Seconds allowed for the TLS handshake. ESP32 handshakes take about 1-2 s.
+const int TLS_HANDSHAKE_TIMEOUT_S = 8;
 
 #define TFT_CS 5
 #define TFT_DC 2
@@ -275,20 +330,37 @@ void showResult() {
   drawResultBody();
 }
 
-bool requestDevice(const String &method, const String &uid, String &body) {
+WiFiClientSecure secureClient;
+WiFiClient plainClient;
+bool secureReady = false;
+
+// Returns the HTTP status code, or a negative value when the server could
+// not be reached. The response body (JSON) is placed in body.
+int requestDevice(const String &method, const String &uid, String &body) {
+  body = "";
   if (WiFi.status() != WL_CONNECTED) {
     wifiReady = false;
-    return false;
+    return -1;
   }
-  WiFiClient client;
   HTTPClient http;
-  String url = String("http://") + SERVER_HOST + ":" + String(SERVER_PORT) + SERVER_PATH;
-  http.setTimeout(8000);
-  if (!http.begin(client, url)) {
-    return false;
+  String url = String(SERVER_URL) + SERVER_PATH;
+  bool started;
+  if (strncmp(SERVER_URL, "https://", 8) == 0) {
+    if (!secureReady) {
+      secureClient.setCACert(BACKEND_ROOT_CA);
+      secureClient.setHandshakeTimeout(TLS_HANDSHAKE_TIMEOUT_S);
+      secureReady = true;
+    }
+    started = http.begin(secureClient, url);
+  } else {
+    started = http.begin(plainClient, url);
   }
+  if (!started) {
+    return -1;
+  }
+  http.setTimeout(12000);
   http.addHeader("X-Device-Token", DEVICE_TOKEN);
-  int code = -1;
+  int code;
   if (method == "GET") {
     code = http.GET();
   } else {
@@ -296,15 +368,17 @@ bool requestDevice(const String &method, const String &uid, String &body) {
     String form = String("rfid_uid=") + uid + "&device_label=" + DEVICE_LABEL;
     code = http.POST(form);
   }
-  body = http.getString();
+  if (code > 0) {
+    body = http.getString();
+  }
+  Serial.printf("[RFID] %s %s -> %d %s\n", method.c_str(), url.c_str(), code, body.c_str());
   http.end();
-  client.stop();
-  return code == 200 && body.length() > 0;
+  return code;
 }
 
 void syncClock() {
   String body;
-  if (!requestDevice("GET", "", body)) {
+  if (requestDevice("GET", "", body) != 200) {
     return;
   }
   applyServerClock(jsonField(body, "server_time"));
@@ -330,31 +404,25 @@ void submitCard(const String &uid) {
   showBootDetail("UID NUMBER", uid, "Saving this scan...");
 
   String body;
-  if (!requestDevice("POST", uid, body)) {
-    lastScan.ok = false;
-    lastScan.registered = false;
-    lastScan.uid = uid;
-    lastScan.message = "Not saved. Server offline.";
-    lastScan.scannedAt = "";
-    showResult();
-    scanBusy = false;
-    flushRfid();
-    cardPresent = true;
-    lastFrameMs = millis();
-    return;
-  }
-
-  lastScan.ok = jsonField(body, "ok") == "true";
-  lastScan.registered = jsonField(body, "registered") == "true";
-  lastScan.uid = jsonField(body, "uid");
-  if (lastScan.uid.length() == 0) {
-    lastScan.uid = uid;
-  }
+  int code = requestDevice("POST", uid, body);
+  lastScan.ok = code == 200 && jsonField(body, "ok") == "true";
+  lastScan.registered = lastScan.ok && jsonField(body, "registered") == "true";
+  String savedUid = jsonField(body, "uid");
+  lastScan.uid = savedUid.length() ? savedUid : uid;
   lastScan.message = jsonField(body, "message");
   lastScan.scannedAt = jsonField(body, "scanned_at");
   applyServerClock(jsonField(body, "server_time"));
-  if (!lastScan.ok && lastScan.message.length() == 0) {
-    lastScan.message = "Not saved. Tap the card again.";
+
+  if (!lastScan.ok) {
+    if (code <= 0) {
+      lastScan.message = wifiReady ? "Not saved. Server unreachable." : "Not saved. No WiFi.";
+    } else if (code == 401) {
+      lastScan.message = "Not saved. Scanner token rejected.";
+    } else if (code == 422) {
+      lastScan.message = "Not saved. Invalid UID. Tap again.";
+    } else if (lastScan.message.length() == 0) {
+      lastScan.message = String("Not saved. Server error ") + code + ".";
+    }
   }
   showResult();
   scanBusy = false;
