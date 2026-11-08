@@ -77,6 +77,7 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     let isActive = true;
+    let hasLoaded = false;
 
     async function loadDashboardSummary() {
       try {
@@ -95,8 +96,10 @@ export default function SuperAdminDashboard() {
         setTodaySchedules(response.data.todaySchedules || []);
         setRecentAccessLogs((response.data.recentAccessLogs || []).slice(0, 5));
         setOverrideRequests(response.data.overrideRequests || response.data.pendingOverrides || []);
+        hasLoaded = true;
       } catch {
-        if (isActive) {
+        // A failed background refresh keeps the last data on screen.
+        if (isActive && !hasLoaded) {
           setSummary(initialDashboardSummary);
           setAccessTrend([]);
           setTodayAccessTrend([]);
@@ -112,11 +115,16 @@ export default function SuperAdminDashboard() {
     }
 
     loadDashboardSummary();
+    // Refresh each minute so "Active Schedule Today" follows the clock.
+    const refreshTimer = window.setInterval(loadDashboardSummary, 60000);
 
     return () => {
       isActive = false;
+      window.clearInterval(refreshTimer);
     };
   }, []);
+
+  const activeSchedulesNow = todaySchedules.filter((schedule) => schedule.state === 'active');
 
   const summaryCards = useMemo(
     () => [
@@ -422,13 +430,13 @@ export default function SuperAdminDashboard() {
               <div className="dashboard-panel-header">
                 <div>
                   <h2>Active Schedule Today</h2>
-                  <p>Shows all of today's approved schedules, including completed and incoming.</p>
+                  <p>Approved schedules in progress right now. Updates every minute.</p>
                 </div>
               </div>
 
               <div className="dashboard-schedule-list">
-                {todaySchedules.length ? (
-                  todaySchedules.map((schedule) => (
+                {activeSchedulesNow.length ? (
+                  activeSchedulesNow.map((schedule) => (
                     <div
                       className={`dashboard-schedule-item dashboard-schedule-item-${schedule.state || 'upcoming'}`}
                       key={schedule.id}
@@ -445,7 +453,7 @@ export default function SuperAdminDashboard() {
                     </div>
                   ))
                 ) : (
-                  <p>No active schedules today.</p>
+                  <p>No schedule is active right now.</p>
                 )}
               </div>
 

@@ -38,6 +38,7 @@ export default function UserDashboard({ user }) {
 
     let isActive = true;
     let requestVersion = 0;
+    let hasLoaded = false;
 
     async function loadDashboard() {
       const version = ++requestVersion;
@@ -60,8 +61,10 @@ export default function UserDashboard({ user }) {
         setTodaySchedules(response.data.todaySchedules || []);
         setPendingOverrides(response.data.pendingOverrides || []);
         setRecentAccessLogs((response.data.recentAccessLogs || []).slice(0, 5));
+        hasLoaded = true;
       } catch {
-        if (isActive && version === requestVersion) {
+        // A failed background refresh keeps the last data on screen.
+        if (isActive && version === requestVersion && !hasLoaded) {
           setSummary(initialSummary);
           setAccessTrend([]);
           setTodayAccessTrend([]);
@@ -78,12 +81,17 @@ export default function UserDashboard({ user }) {
 
     loadDashboard();
     window.addEventListener('entrivo:override-notifications', loadDashboard);
+    // Refresh each minute so "Active Schedule Today" follows the clock.
+    const refreshTimer = window.setInterval(loadDashboard, 60000);
 
     return () => {
       isActive = false;
+      window.clearInterval(refreshTimer);
       window.removeEventListener('entrivo:override-notifications', loadDashboard);
     };
   }, [user?.id]);
+
+  const activeSchedulesNow = todaySchedules.filter((schedule) => schedule.state === 'active');
 
   const summaryCards = useMemo(
     () => [
@@ -204,13 +212,13 @@ export default function UserDashboard({ user }) {
               <div className="dashboard-panel-header">
                 <div>
                   <h2>Active Schedule Today</h2>
-                  <p>Your approved schedules for today, including completed and upcoming.</p>
+                  <p>Your approved schedule in progress right now. Updates every minute.</p>
                 </div>
               </div>
 
               <div className="dashboard-schedule-list">
-                {todaySchedules.length ? (
-                  todaySchedules.map((schedule) => (
+                {activeSchedulesNow.length ? (
+                  activeSchedulesNow.map((schedule) => (
                     <div
                       className={`dashboard-schedule-item dashboard-schedule-item-${schedule.state || 'upcoming'}`}
                       key={schedule.id}
@@ -227,7 +235,7 @@ export default function UserDashboard({ user }) {
                     </div>
                   ))
                 ) : (
-                  <p>No active schedules today.</p>
+                  <p>No schedule is active right now.</p>
                 )}
               </div>
 
