@@ -9,8 +9,8 @@
 #include "HttpLock.h"
 
 namespace {
-    // The backend shows a report for 15 s. A 4 s heartbeat leaves room for a
-    // slow or failed cloud request without the app showing "Unavailable".
+    // The backend shows a report for 45 s. A 4 s heartbeat leaves room for
+    // several slow or failed Railway requests without the app showing "Unavailable".
     constexpr unsigned long HEARTBEAT_MS = 4000UL;
     constexpr unsigned long RETRY_MS = 3000UL;
     char bootId[33] = {};

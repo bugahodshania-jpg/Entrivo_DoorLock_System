@@ -1,5 +1,6 @@
 export const DOOR_STATUS_POLL_MS = 2000;
-export const DOOR_STATUS_TIMEOUT_MS = 3000;
+// Railway answers in 2-3.5 s. A 3 s timeout dropped many reads and let the status expire.
+export const DOOR_STATUS_TIMEOUT_MS = 10000;
 
 /** Keep one current read, even when focus or reconnect events interrupt polling. */
 export function createDoorStatusPoller({

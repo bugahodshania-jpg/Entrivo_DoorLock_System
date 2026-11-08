@@ -105,8 +105,8 @@ try {
     memoryAssert($pdo->query('SELECT status FROM sensor_memory_jobs WHERE id='.$processingRead['job_id'])->fetchColumn() === 'cancelled', 'Unlocking must also cancel an in-progress read.');
     $reportDoor('locked',5);
     $waitingRead = $queue();
-    $pdo->exec("UPDATE door_controller_status SET received_at=DATE_SUB(NOW(6),INTERVAL 15 SECOND) WHERE device_id=1");
-    memoryAssert($doorStatus->snapshot(1)['state'] === 'unknown' && !$doorStatus->snapshot(1)['can_read_sensor'], 'A report expires at exactly fifteen seconds.');
+    $pdo->exec("UPDATE door_controller_status SET received_at=DATE_SUB(NOW(6),INTERVAL 45 SECOND) WHERE device_id=1");
+    memoryAssert($doorStatus->snapshot(1)['state'] === 'unknown' && !$doorStatus->snapshot(1)['can_read_sensor'], 'A report expires at exactly forty-five seconds.');
     memoryReject(fn() => $queue());
     memoryAssert($claim() === null, 'A stale report must not claim a pending read.');
     $service->adminAction([...$admin,'action'=>'cancel','job_id'=>$waitingRead['job_id']]);
@@ -115,7 +115,7 @@ try {
     memoryAssert(!$doorStatus->snapshot(1)['online'], 'A replay cannot refresh an expired report.');
     $reportDoor('locked',6);
     memoryAssert($doorStatus->snapshot(1)['can_read_sensor'], 'A new locked heartbeat must restore read availability.');
-    $pdo->exec("UPDATE door_controller_status SET received_at=DATE_SUB(NOW(6),INTERVAL 15 SECOND) WHERE device_id=1");
+    $pdo->exec("UPDATE door_controller_status SET received_at=DATE_SUB(NOW(6),INTERVAL 45 SECOND) WHERE device_id=1");
     $doorStatus->refreshLocked(1);
     memoryAssert($doorStatus->snapshot(1)['can_read_sensor'], 'A locked enrollment poll must refresh an expired report.');
     $reportDoor('unlocked',7);

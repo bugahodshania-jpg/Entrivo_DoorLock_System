@@ -14,7 +14,10 @@ final class DoorStatusException extends RuntimeException
 /** Reports describe the controller's lock relay, not a door-position switch. */
 final class DoorStatusService
 {
-    public const FRESH_SECONDS = 15;
+    // Over Railway HTTPS the controller's reports land every 10-14 s, not every 4 s.
+    // Lock/unlock changes are still pushed at once; this window only decides when a
+    // silent controller counts as offline, so it must cover a few slow heartbeats.
+    public const FRESH_SECONDS = 45;
     private PDO $pdo;
 
     public function __construct(?PDO $pdo = null)
