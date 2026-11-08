@@ -6,7 +6,7 @@ require_once __DIR__ . '/ScheduleAccessPolicy.php';
 require_once __DIR__ . '/DirectFingerprintImportSchema.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
 require_once __DIR__ . '/FingerprintEnrollmentVerification.php';
-require_once __DIR__ . '/../tools/agent_debug_log.php';
+require_once __DIR__ . '/../utils/agent_debug_log.php';
 
 /** Online authorization for a sensor that both enrolls and scans its own slots. */
 final class DirectFingerprintAccessService

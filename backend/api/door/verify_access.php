@@ -18,7 +18,7 @@ if ($method !== 'POST') {
 try {
     // Load the existing backend/.env without opening a database connection.
     entrivo_db_config();
-    require_once dirname(__DIR__, 2) . '/tools/agent_debug_log.php';
+    require_once dirname(__DIR__, 2) . '/utils/agent_debug_log.php';
     $configured = getenv('DOOR_DEVICE_TOKEN');
     if (!is_string($configured) || trim($configured) === '') {
         // #region agent log

@@ -54,7 +54,7 @@ try {
     $result = $controller->commitEnrollmentDownload($input);
     $job = is_array($result['body']['job'] ?? null) ? $result['body']['job'] : [];
     // #region agent log
-    require_once dirname(__DIR__, 2) . '/tools/agent_debug_log.php';
+    require_once dirname(__DIR__, 2) . '/utils/agent_debug_log.php';
     $fp = is_array($result['body']['fingerprint'] ?? null) ? $result['body']['fingerprint'] : [];
     $ver = is_array($result['body']['verification'] ?? null) ? $result['body']['verification'] : [];
     agent_debug_log('F', 'commit_enrollment_download.php', 'Download commit result', [
