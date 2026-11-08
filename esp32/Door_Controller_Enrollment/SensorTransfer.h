@@ -24,7 +24,10 @@ uint8_t generateFingerprintModelVerified(String &errorMessage);
 uint8_t storeFingerprintModelVerified(uint16_t slot, uint8_t buffer, String &errorMessage);
 bool deleteStoredFingerprint(uint16_t slot, String &errorMessage);
 bool emptyFingerprintLibrary(String &errorMessage);
-DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage = nullptr);
+// CharBuffer1 must hold the scan. Pass its template bytes when the scan was
+// loaded with DownChar (no live image); otherwise the image is re-converted.
+DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage = nullptr,
+    const uint8_t *scanTemplate = nullptr, size_t scanLength = 0);
 DoorFingerprintSearch::Result matchStoredFingerprintSlot(uint16_t slot, String *errorMessage = nullptr);
 DoorFingerprintSearch::Result searchFingerprintWindowVerified(uint16_t start, uint16_t count, String *errorMessage = nullptr);
 DoorFingerprintSearch::Result searchFingerprintWindowStandard(uint16_t start, uint16_t count, String *errorMessage = nullptr);

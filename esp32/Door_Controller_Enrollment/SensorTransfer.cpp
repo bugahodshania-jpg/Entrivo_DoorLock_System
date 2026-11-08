@@ -485,46 +485,31 @@ namespace {
         return result;
     }
 
-    DoorFingerprintSearch::Result searchOccupiedSlots(String &error)
+    // This R307S consumes CharBuffer1 after one Search or Match: a second
+    // command on the same buffer returns 0x17 or a false 0x09. Before every
+    // further Search/Match, CharBuffer1 gets a fresh copy of the SAME scan:
+    // the saved template bytes when the caller has them (import), otherwise
+    // image2Tz(1) on the image still in the sensor (live finger, no new press).
+    struct ScanRefresher {
+        const uint8_t *scanTemplate;
+        size_t scanLength;
+
+        bool refresh(String &error) const
+        {
+            if (scanTemplate != nullptr) return restoreCurrentTemplate(scanTemplate, scanLength, error);
+            const uint8_t status = convertFingerprintImageVerified(1);
+            if (status == FINGERPRINT_OK) return true;
+            error = "Could not rebuild the scan from the same image for the next search (GenChar " +
+                SerialLog::hex(status) + ").";
+            return false;
+        }
+    };
+
+    bool searchStopsHere(const DoorFingerprintSearch::Result &result)
     {
-        error = "";
-        const uint8_t countStatus = finger.getTemplateCount();
-        if (countStatus != FINGERPRINT_OK || finger.templateCount > finger.capacity) {
-            error = "Could not confirm the sensor template count after Search returned 0x17 (code 0x" +
-                String(countStatus, HEX) + ").";
-            return DoorFingerprintSearch::protocolFailure();
-        }
-
-        const uint16_t expectedCount = finger.templateCount;
-        uint16_t occupiedCount = 0;
-        DoorFingerprintSearch::Result noMatch;
-        noMatch.outcome = DoorFingerprintSearch::Outcome::NoMatch;
-        noMatch.standardStatus = expectedCount == 0 ? DoorFingerprintSearch::NOT_FOUND : 0x08;
-        noMatch.usedMatchFallback = true;
-
-        for (uint16_t page = 0; page < (finger.capacity + 255U) / 256U; ++page) {
-            uint8_t index[32] = {};
-            if (!readSensorSlotIndexPage(static_cast<uint8_t>(page), index, sizeof(index), error))
-                return DoorFingerprintSearch::protocolFailure();
-            for (uint16_t offset = 0; offset < 256; ++offset) {
-                const uint16_t slot = page * 256U + offset;
-                if (slot >= finger.capacity) break;
-                if ((index[offset / 8] & (1U << (offset % 8))) == 0) continue;
-                ++occupiedCount;
-                const DoorFingerprintSearch::Result result = matchOccupiedSlot(slot, error);
-                if (result.outcome == DoorFingerprintSearch::Outcome::Matched) return result;
-                if (result.outcome != DoorFingerprintSearch::Outcome::NoMatch) return result;
-            }
-        }
-        if (occupiedCount != expectedCount) {
-            error = "Sensor template count and occupied-slot index disagree. Fingerprint identification cannot be trusted.";
-            return DoorFingerprintSearch::protocolFailure();
-        }
-        Serial.print("      [FP] One-to-one Match confirmed no match across ");
-        Serial.print(occupiedCount);
-        Serial.println(" stored templates.");
-        DoorFingerprintSearch::applyMatch(finger, noMatch);
-        return noMatch;
+        return result.outcome == DoorFingerprintSearch::Outcome::Matched ||
+            result.outcome == DoorFingerprintSearch::Outcome::CommunicationError ||
+            result.outcome == DoorFingerprintSearch::Outcome::InvalidMatch;
     }
 }
 
@@ -538,7 +523,15 @@ FingerprintExitAccess::~FingerprintExitAccess()
     if (enabled && g_exitAccessDepth > 0) --g_exitAccessDepth;
 }
 
-DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage)
+// Whole-library identification, Adafruit fingerFastSearch() style, one
+// 163-page window at a time (the largest window this module accepts).
+// CharBuffer1 must hold the scan on entry. Every Search after the first runs
+// on a refreshed copy of the same scan, so slots 163 and above are really
+// compared. Windows with no stored templates are skipped. A HiSpeedSearch
+// miss gets a second opinion from standard Search (0x04), the same rule the
+// enrollment third scan uses, so a finger that passed enrollment also opens
+// the door. Only windows that still answer 0x17 are compared one-to-one.
+DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage, const uint8_t *scanTemplate, size_t scanLength)
 {
     if (errorMessage) *errorMessage = "";
     DoorFingerprintSearch::applyMatch(finger, DoorFingerprintSearch::protocolFailure());
@@ -547,29 +540,90 @@ DoorFingerprintSearch::Result searchFingerprintVerified(String *errorMessage)
         return DoorFingerprintSearch::protocolFailure();
     }
 
+    constexpr uint16_t WINDOW = 163;
+    const ScanRefresher scan{scanTemplate, scanLength};
     String error;
-    for (uint16_t start = 0; start < finger.capacity; ) {
-        uint16_t count = 163;
-        if (finger.capacity - start < count) count = finger.capacity - start;
-        const DoorFingerprintSearch::Result result = searchLibraryWindow(0x1B, start, count, error);
-        if (result.outcome == DoorFingerprintSearch::Outcome::Matched ||
-            result.outcome == DoorFingerprintSearch::Outcome::CommunicationError ||
-            result.outcome == DoorFingerprintSearch::Outcome::InvalidMatch) {
-            if (errorMessage) *errorMessage = error;
-            return result;
-        }
-        if (result.standardStatus == DoorFingerprintSearch::NOT_FOUND || result.standardStatus == 0x17) {
-            start += count;
-            continue;
-        }
+    auto fail = [&](const DoorFingerprintSearch::Result &result) {
         if (errorMessage) *errorMessage = error;
         return result;
+    };
+
+    // Occupied-slot table (ReadIndexTable does not touch CharBuffer1).
+    uint8_t index[128] = {};
+    const uint16_t pages = (finger.capacity + 255U) / 256U;
+    bool indexValid = pages * 32U <= sizeof(index);
+    for (uint16_t page = 0; indexValid && page < pages; ++page) {
+        String pageError;
+        if (!readSensorSlotIndexPage(static_cast<uint8_t>(page), index + page * 32U, 32, pageError)) {
+            Serial.print("      [FP] Slot index unavailable ("); Serial.print(pageError);
+            Serial.println("). Searching every window.");
+            indexValid = false;
+        }
     }
-    Serial.println("      [FP] HiSpeedSearch did not identify the finger; comparing Buffer 1 with occupied slots.");
-    DoorFingerprintSearch::Result fallback = searchOccupiedSlots(error);
-    fallback.usedMatchFallback = true;
-    if (errorMessage) *errorMessage = error;
-    return fallback;
+    auto slotOccupied = [&](uint16_t slot) {
+        return !indexValid || (index[slot / 8] & (1U << (slot % 8))) != 0;
+    };
+
+    DoorFingerprintSearch::Result noMatch;
+    noMatch.outcome = DoorFingerprintSearch::Outcome::NoMatch;
+    noMatch.standardStatus = DoorFingerprintSearch::NOT_FOUND;
+
+    uint32_t uncheckedWindows = 0;
+    bool searchedAny = false;
+    uint16_t window = 0;
+    for (uint16_t start = 0; start < finger.capacity; start += WINDOW, ++window) {
+        const uint16_t count = min<uint32_t>(WINDOW, finger.capacity - start);
+        bool hasTemplates = false;
+        for (uint16_t slot = start; !hasTemplates && slot < start + count; ++slot) hasTemplates = slotOccupied(slot);
+        if (!hasTemplates) continue;
+
+        if (searchedAny && !scan.refresh(error)) return fail(DoorFingerprintSearch::protocolFailure());
+        searchedAny = true;
+        DoorFingerprintSearch::Result result = searchLibraryWindow(0x1B, start, count, error);
+        if (searchStopsHere(result)) return fail(result);
+
+        if (result.standardStatus == DoorFingerprintSearch::NOT_FOUND || result.standardStatus == 0x17) {
+            if (!scan.refresh(error)) return fail(DoorFingerprintSearch::protocolFailure());
+            result = searchLibraryWindow(0x04, start, count, error);
+            if (searchStopsHere(result)) return fail(result);
+            if (result.standardStatus == DoorFingerprintSearch::NOT_FOUND) continue;
+        }
+        if (result.standardStatus == 0x17 && window < 32) {
+            uncheckedWindows |= 1UL << window;
+            continue;
+        }
+        return fail(result);
+    }
+
+    if (!searchedAny) {
+        Serial.println("      [FP] Sensor holds no stored fingerprints.");
+        DoorFingerprintSearch::applyMatch(finger, noMatch);
+        return noMatch;
+    }
+    if (uncheckedWindows == 0) {
+        DoorFingerprintSearch::applyMatch(finger, noMatch);
+        return noMatch;
+    }
+    if (!indexValid) {
+        error = "Search returned 0x17 and the slot index could not be read, so the library was not fully checked.";
+        return fail(DoorFingerprintSearch::protocolFailure());
+    }
+
+    Serial.println("      [FP] A search window returned 0x17; comparing its stored slots one-to-one.");
+    noMatch.usedMatchFallback = true;
+    for (uint16_t w = 0; w < 32; ++w) {
+        if ((uncheckedWindows & (1UL << w)) == 0) continue;
+        const uint16_t start = w * WINDOW;
+        const uint16_t end = min<uint32_t>(static_cast<uint32_t>(start) + WINDOW, finger.capacity);
+        for (uint16_t slot = start; slot < end; ++slot) {
+            if (!slotOccupied(slot)) continue;
+            if (!scan.refresh(error)) return fail(DoorFingerprintSearch::protocolFailure());
+            const DoorFingerprintSearch::Result result = matchOccupiedSlot(slot, error);
+            if (result.outcome != DoorFingerprintSearch::Outcome::NoMatch) return fail(result);
+        }
+    }
+    DoorFingerprintSearch::applyMatch(finger, noMatch);
+    return noMatch;
 }
 
 DoorFingerprintSearch::Result matchStoredFingerprintSlot(uint16_t slot, String *errorMessage)
@@ -899,7 +953,7 @@ bool writeImportedTemplate(uint16_t slot, const uint8_t *data, size_t length, St
 
     // Searching the received character buffer protects against duplicate physical templates.
     String searchError;
-    const DoorFingerprintSearch::Result search = searchFingerprintVerified(&searchError);
+    const DoorFingerprintSearch::Result search = searchFingerprintVerified(&searchError, data, length);
     if (search.outcome == DoorFingerprintSearch::Outcome::Matched)
     {
         errorMessage = "This fingerprint already exists in sensor slot " + String(search.matchedSlot) +

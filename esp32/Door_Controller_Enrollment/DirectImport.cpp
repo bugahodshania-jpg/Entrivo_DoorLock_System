@@ -105,7 +105,7 @@ bool runDirectImportJob(const DirectImportJob &job, String &verifiedHash, String
             return false;
         }
         String searchError;
-        const DoorFingerprintSearch::Result match = searchFingerprintVerified(&searchError);
+        const DoorFingerprintSearch::Result match = searchFingerprintVerified(&searchError, readback, readbackLength);
         if (match.outcome != DoorFingerprintSearch::Outcome::Matched || match.matchedSlot != job.targetSlot)
         {
             errorMessage = "The sensor could not uniquely confirm this fingerprint at its reserved slot (standard search code 0x" +
