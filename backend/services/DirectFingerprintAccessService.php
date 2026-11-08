@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/ScheduleStatusService.php';
+require_once __DIR__ . '/ScheduleAccessPolicy.php';
 require_once __DIR__ . '/DirectFingerprintImportSchema.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
 require_once __DIR__ . '/FingerprintEnrollmentVerification.php';
@@ -58,9 +59,15 @@ final class DirectFingerprintAccessService
                 ? $this->decision(false, 'invalid_request', $requireSchedule
                     ? 'A valid enrollment device and matched sensor slot are required.'
                     : 'A valid enrollment device, matched sensor slot, and live template SHA-256 hash are required.', [], false)
-                : $this->authorize((int) $deviceId, (int) $slot, $now, $requireSchedule, $liveTemplateHash, $hasRole));
-            $decision['direction'] = $validDirection ? $direction : 'entry';
-            if (($decision['access_granted'] ?? false) && $decision['direction'] === 'exit') {
+                : $this->authorize((int) $deviceId, (int) $slot, $now, $requireSchedule, $liveTemplateHash, $hasRole,
+                    // Entry unlocks the door, so it needs a current schedule. A
+                    // combined-controller exit only records leaving and arms the
+                    // lock on an already-open door, so it is never schedule-gated.
+                    $requireSchedule || $direction !== 'exit'));
+            // A locked-door scan by someone still inside after the schedule
+            // ended is granted as an exit only (see authorize).
+            $decision['direction'] = !empty($decision['exit_only']) ? 'exit' : ($validDirection ? $direction : 'entry');
+            if (($decision['access_granted'] ?? false) && $decision['direction'] === 'exit' && !array_key_exists('extended', $decision)) {
                 $decision['message'] = 'Registered fingerprint verified. Exit recorded.';
             }
             // #region agent log
@@ -93,7 +100,7 @@ final class DirectFingerprintAccessService
         return filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $maximum]]);
     }
 
-    private function authorize(int $deviceId, int $slot, DateTimeImmutable $now, bool $requireSchedule, ?string $liveTemplateHash, bool $hasRole): array
+    private function authorize(int $deviceId, int $slot, DateTimeImmutable $now, bool $requireSchedule, ?string $liveTemplateHash, bool $hasRole, bool $checkSchedule): array
     {
         $device = $this->pdo->prepare('SELECT device_type, status FROM fingerprint_devices WHERE device_id = ? FOR SHARE');
         $device->execute([$deviceId]);
@@ -173,62 +180,34 @@ final class DirectFingerprintAccessService
             return $this->decision(false, 'enrollment_incomplete', 'This sensor enrollment is pending, failed, or has not been confirmed by the backend.', $identity);
         }
 
-        if (!$requireSchedule) {
-            return $this->decision(true, 'access_granted', 'Registered fingerprint verified.', $identity);
+        $policy = new ScheduleAccessPolicy($this->pdo);
+        if (!$checkSchedule) {
+            // Combined-controller exit: never schedule-gated, linked to the
+            // session, and marked EXTENDED after the schedule end.
+            $exit = $policy->exitContext($identity['user_id'], $now);
+            return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
         }
 
-        $schedules = $this->pdo->prepare('SELECT * FROM schedules WHERE user_id = ? ORDER BY schedule_id ASC FOR SHARE');
-        $schedules->execute([$identity['user_id']]);
-        $date = $now->format('Y-m-d');
-        $time = $now->format('H:i:s');
-        $futureToday = false;
-        $endedToday = false;
-        foreach ($schedules->fetchAll(PDO::FETCH_ASSOC) as $schedule) {
-            if (ScheduleStatusService::normalizeStatus($schedule['status']) !== 'approved' || !$this->occursOn($schedule, $date)) {
-                continue;
+        $schedule = $policy->evaluate($identity['user_id'], $now);
+        if (!$schedule['granted']) {
+            // The fingerprint sensor is inside the room. On the combined
+            // controller, a user who entered and has not exited yet (open
+            // session) may still LEAVE after the schedule ended, for example
+            // when the door was locked with them inside. This is an exit only:
+            // it is logged OUT, and without an open session entry stays denied.
+            if (!$requireSchedule && $policy->openSession($identity['user_id'], $now) !== null) {
+                $exit = $policy->exitContext($identity['user_id'], $now);
+                return $this->decision(true, 'access_granted', 'Exit only: ' . $exit['message'],
+                    [...$identity, ...ScheduleAccessPolicy::exitFields($exit), 'exit_only' => true]);
             }
-            $start = (string) $schedule['time_start'];
-            $end = (string) $schedule['time_end'];
-            if (!preg_match('/^\d{2}:\d{2}:\d{2}$/', $start) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $end) || $end <= $start) {
-                continue;
-            }
-            $futureToday = $futureToday || $time < $start;
-            $endedToday = $endedToday || $time >= $end;
-            if ($time < $start || $time >= $end) {
-                continue;
-            }
-
-            $overrideId = null;
-            $isOverride = $schedule['status'] === 'overridden' || ($schedule['schedule_kind'] ?? 'regular') === 'override';
-            if ($isOverride) {
-                // The schedule and its approved request must both still exist.
-                $approval = $this->pdo->prepare(
-                    'SELECT override_id FROM access_overrides
-                     WHERE user_id = ? AND approved_by IS NOT NULL
-                       AND override_start = ? AND override_end = ?
-                     ORDER BY override_id ASC LIMIT 1 FOR SHARE'
-                );
-                $approval->execute([$identity['user_id'], $date . ' ' . $start, $date . ' ' . $end]);
-                $overrideId = $approval->fetchColumn();
-                if (!$overrideId) {
-                    continue;
-                }
-            }
-
-            return $this->decision(true, 'access_granted', 'Access granted for the current approved schedule.', [
-                ...$identity,
-                'schedule_id' => (int) $schedule['schedule_id'],
-                'override_id' => $overrideId !== null ? (int) $overrideId : null,
-            ]);
+            return $this->decision(false, $schedule['reason'], $schedule['message'], $identity);
         }
-
-        $reason = $futureToday ? 'schedule_not_started' : ($endedToday ? 'expired_schedule' : 'no_schedule');
-        $message = match ($reason) {
-            'schedule_not_started' => 'The approved access schedule has not started yet.',
-            'expired_schedule' => 'The approved access schedule has already ended.',
-            default => 'There is no current approved access schedule for this account.',
-        };
-        return $this->decision(false, $reason, $message, $identity);
+        return $this->decision(true, 'access_granted', $schedule['message'], [
+            ...$identity,
+            'schedule_id' => $schedule['schedule_id'],
+            'override_id' => $schedule['override_id'],
+            'schedule_kind' => $schedule['schedule_kind'],
+        ]);
     }
 
     private function validTemplate(array $fingerprint): bool
@@ -306,37 +285,6 @@ final class DirectFingerprintAccessService
             return $ok;
         }
         return true;
-    }
-
-    private function occursOn(array $schedule, string $date): bool
-    {
-        if ($schedule['schedule_type'] === 'single') {
-            return (string) $schedule['schedule_date'] === $date;
-        }
-        if ($schedule['schedule_type'] !== 'recurring' || empty($schedule['start_date']) || empty($schedule['end_date'])
-            || $date < $schedule['start_date'] || $date > $schedule['end_date']) {
-            return false;
-        }
-        $day = (new DateTimeImmutable($date, new DateTimeZone('Asia/Manila')))->format('l');
-        if ($schedule['repeat_type'] === 'daily') {
-            return true;
-        }
-        if ($schedule['repeat_type'] === 'weekly') {
-            $named = trim((string) ($schedule['repeat_day'] ?? ''));
-            $expected = $named !== '' ? $named : (new DateTimeImmutable($schedule['start_date'], new DateTimeZone('Asia/Manila')))->format('l');
-            return strcasecmp($day, $expected) === 0;
-        }
-        if ($schedule['repeat_type'] === 'weekly_selected') {
-            $days = json_decode((string) ($schedule['repeat_days'] ?? '[]'), true);
-            if (is_array($days)) {
-                foreach ($days as $selected) {
-                    if (is_string($selected) && strcasecmp($day, $selected) === 0) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     private function decision(bool $granted, string $reason, string $message, array $identity = [], bool $success = true): array

@@ -12,7 +12,9 @@ bool stageEnrollmentBackup(const EnrollmentJob &job, const String &templateDataB
 bool reserveEmptyEnrollmentSlot(EnrollmentJob &job, String &errorMessage);
 bool completeEnrollmentJob(const EnrollmentJob &job, const String &templateDataBase64 = "", int *statusCode = nullptr);
 bool failEnrollmentJob(int jobId, const String &errorMessage);
-bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit = false);
+// exitOnly is set when the backend lets a user who is still inside leave a
+// locked door after the schedule ended (exit only, never entry).
+bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit = false, bool *exitOnly = nullptr);
 bool authorizeRfid(const String &uid, bool isExit, String &message);
 bool isFingerprintWorkPending();
 bool checkPendingDirectImport();

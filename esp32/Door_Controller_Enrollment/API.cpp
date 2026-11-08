@@ -526,8 +526,9 @@ bool failEnrollmentJob(int jobId, const String &errorMessage)
     return postJson("/api/fingerprint/fail_enrollment.php", payload, response);
 }
 
-bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit)
+bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit, bool *exitOnly)
 {
+    if (exitOnly) *exitOnly = false;
     message = "Door access unavailable. Check WiFi and the backend.";
     if (matchedSlot == 0 || isFingerprintWorkPending())
     {
@@ -553,13 +554,15 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     }
 
     message = String(response["message"] | "Door access denied.");
-    return isExplicitTrue(response["access_granted"]);
+    const bool granted = isExplicitTrue(response["access_granted"]);
+    if (exitOnly) *exitOnly = granted && !isExit && isExplicitTrue(response["exit_only"]);
+    return granted;
 }
 
 bool authorizeRfid(const String &uid, bool isExit, String &message)
 {
     message = "RFID verification unavailable. Check WiFi, the device token, and the backend.";
-    if (isFingerprintWorkPending() || (isDoorUnlocked() && (!isExit || isExitAuthorized()))) return false;
+    if (isFingerprintWorkPending() || (isDoorUnlocked() && isExitAuthorized())) return false;
     DynamicJsonDocument payload(512);
     payload["method"] = "rfid";
     payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;

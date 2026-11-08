@@ -2,8 +2,13 @@
 
 require_once __DIR__ . '/DirectFingerprintAccessService.php';
 require_once __DIR__ . '/AccessLogSchema.php';
+require_once __DIR__ . '/ScheduleAccessPolicy.php';
 
-/** Phase-one registered-identity checks for the combined door/enrollment sketch. */
+/**
+ * Door decisions for the combined door/enrollment controller. Entry needs a
+ * registered credential, an active account, and a current REGULAR or
+ * OVERRIDE schedule of that same user (ScheduleAccessPolicy).
+ */
 final class CombinedDoorAccessService
 {
     private PDO $pdo;
@@ -36,7 +41,7 @@ final class CombinedDoorAccessService
         AccessLogSchema::ensureRfidUid($this->pdo);
         $this->pdo->beginTransaction();
         try {
-            $decision = $this->authorizeRfid($input, $hasRole);
+            $decision = $this->authorizeRfid($input, $hasRole, $now);
             $this->recordRfidDecision($decision, $now);
             $this->pdo->commit();
             return $decision;
@@ -46,7 +51,7 @@ final class CombinedDoorAccessService
         }
     }
 
-    private function authorizeRfid(array $input, bool $hasRole): array
+    private function authorizeRfid(array $input, bool $hasRole, DateTimeImmutable $now): array
     {
         $rawDeviceId = $input['enrollment_device_id'] ?? null;
         $deviceId = (is_int($rawDeviceId) || is_string($rawDeviceId))
@@ -94,7 +99,24 @@ final class CombinedDoorAccessService
         if ($hasRole && (string) ($card['role'] ?? '') !== 'student') {
             return $this->decision(false, 'unauthorized', 'Faculty, staff, and administrators use a fingerprint to enter and leave. RFID access is for students.', $identity);
         }
-        return $this->decision(true, 'access_granted', 'Registered RFID card verified.', $identity);
+        // The exit reader is inside the room. Exit is never schedule-gated, so
+        // a user who stays past the schedule (or is locked in) can always
+        // leave; it is linked to the user's session and marked EXTENDED when
+        // that schedule has already ended. Entry still needs a valid schedule.
+        if ($direction === 'exit') {
+            $exit = (new ScheduleAccessPolicy($this->pdo))->exitContext($identity['user_id'], $now);
+            return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
+        }
+        $schedule = (new ScheduleAccessPolicy($this->pdo))->evaluate($identity['user_id'], $now);
+        if (!$schedule['granted']) {
+            return $this->decision(false, $schedule['reason'], $schedule['message'], $identity);
+        }
+        return $this->decision(true, 'access_granted', $schedule['message'], [
+            ...$identity,
+            'schedule_id' => $schedule['schedule_id'],
+            'override_id' => $schedule['override_id'],
+            'schedule_kind' => $schedule['schedule_kind'],
+        ]);
     }
 
     private function decision(bool $granted, string $reason, string $message, array $identity = [], bool $success = true): array
@@ -109,17 +131,20 @@ final class CombinedDoorAccessService
             'access_granted' => null,
             'not_registered' => 'not_registered',
             'invalid_request', 'invalid_rfid', 'ambiguous_card' => 'invalid_rfid',
+            'no_schedule', 'expired_schedule', 'schedule_not_started' => $decision['reason'],
             default => 'unauthorized',
         };
         $extraColumn = $this->hasAccessType ? ',access_type' : '';
         $extraValue = $this->hasAccessType ? ',:access_type' : '';
         $query = $this->pdo->prepare("INSERT INTO access_log
             (user_id,card_id,rfid_uid,fingerprint_id,schedule_id,override_id,access_timestamp,access_status,denial_reason,method_access{$extraColumn})
-            VALUES (:user_id,:card_id,:rfid_uid,NULL,NULL,NULL,:access_timestamp,:access_status,:denial_reason,'RFID'{$extraValue})");
+            VALUES (:user_id,:card_id,:rfid_uid,NULL,:schedule_id,:override_id,:access_timestamp,:access_status,:denial_reason,'RFID'{$extraValue})");
         $values = [
             'user_id' => $decision['user_id'] ?? null,
             'card_id' => $decision['card_id'] ?? null,
             'rfid_uid' => $decision['rfid_uid'] ?? null,
+            'schedule_id' => $decision['schedule_id'] ?? null,
+            'override_id' => $decision['override_id'] ?? null,
             'access_timestamp' => $now->format('Y-m-d H:i:s'),
             'access_status' => $decision['access_granted'] ? 'granted' : 'denied',
             'denial_reason' => $denialReason,

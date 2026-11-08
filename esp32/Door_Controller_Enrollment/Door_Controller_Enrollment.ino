@@ -60,19 +60,22 @@ namespace {
         String uid;
         bool isExit = false;
         if (!pollRfidReader(uid, isExit)) return false;
-        if (isExit && !isDoorUnlocked()) {
-            SerialLog::warn("[EXIT] Door is already locked. Use the entrance reader to unlock.");
-            resetRfidReaders();
-            return true;
-        }
         SerialLog::section(String("DOOR ACCESS  RFID ") + (isExit ? "EXIT" : "ENTRY"));
         SerialLog::kv("Card UID", uid);
         String message;
         const bool granted = authorizeRfid(uid, isExit, message);
-        SerialLog::result(granted, granted ? (isExit ? "Exit approved, touch to lock" : "Access granted, door unlocked")
+        const bool lockedIn = isExit && !isDoorUnlocked();
+        SerialLog::result(granted, granted
+            ? (lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
+                : isExit ? "Exit approved, touch to lock" : "Access granted, door unlocked")
             : "Access denied", message);
         if (!granted) playDeniedFeedback();
-        else if (isExit) authorizeExit();
+        else if (isExit) {
+            // The exit reader is inside: a locked door is opened only to let
+            // this user out, then touch outside locks it again.
+            if (lockedIn) openDoorRelay();
+            authorizeExit();
+        }
         else openDoorRelay();
         discardBufferedScans();
         return true;
@@ -125,13 +128,23 @@ namespace {
         }
         SerialLog::kv("Matched slot", String(match.matchedSlot) + " (confidence " + String(match.confidence) + ")");
         String message;
-        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit);
-        SerialLog::result(granted, granted ? (isExit ? "Exit granted, door locked" : "Access granted, door unlocked")
+        bool exitOnly = false;
+        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly);
+        SerialLog::result(granted, granted
+            ? (isExit ? "Exit granted, door locked"
+                : exitOnly ? "Exit only: door unlocked so you can leave. Touch outside to lock"
+                : "Access granted, door unlocked")
             : "Access denied by backend", message);
         if (!granted && message.indexOf("not linked") >= 0)
             SerialLog::debug("Slot " + String(match.matchedSlot) + " has no database fingerprint. Delete it in Sensor Memory or re-enroll.");
         if (granted) {
             if (isExit) lockDoorRelay();
+            else if (exitOnly) {
+                // Schedule over but the user is still inside: open only so
+                // they can leave, with touch-to-lock armed behind them.
+                openDoorRelay();
+                authorizeExit();
+            }
             else openDoorRelay();
             discardBufferedScans();
         } else playDeniedFeedback();
