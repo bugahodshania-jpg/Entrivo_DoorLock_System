@@ -21,6 +21,15 @@
 
   RDM6300 TX is a 5V signal. ESP32 pins are 3.3V. Put a divider on the
   reader TX wire (10k from TX to GPIO 16, 20k from GPIO 16 to GND).
+
+  Buzzer: + to GPIO 13, - to GND. An active 3.3V buzzer (or a buzzer module
+  with its own transistor) works as is. For a passive buzzer set
+  BUZZER_PASSIVE to true. A bare 5V buzzer needs an NPN transistor: GPIO 13
+  -> 1k -> base, emitter to GND, buzzer between 5V and the collector.
+    1 short beep  = card read
+    1 beep        = UID saved
+    2 short beeps = card already registered
+    1 long beep   = not saved (error)
 */
 
 #include <WiFi.h>
@@ -111,6 +120,11 @@ const int TLS_HANDSHAKE_TIMEOUT_S = 8;
 
 #define RFID_RX 16
 #define RFID_TX 17
+
+#define BUZZER_PIN 13
+const bool BUZZER_PASSIVE = false;   // true for a passive buzzer (needs a tone)
+const uint8_t BUZZER_ON_LEVEL = HIGH; // LOW for low-trigger buzzer modules
+const uint16_t BUZZER_TONE_HZ = 2700; // passive buzzer only
 
 #define COLOR_BG 0xFFFF
 #define COLOR_HEADER 0x0A45
@@ -322,6 +336,40 @@ void showReady(bool includeHeader) {
   drawReadyBody();
 }
 
+void buzzerSet(bool on) {
+  if (BUZZER_PASSIVE) {
+    if (on) {
+      tone(BUZZER_PIN, BUZZER_TONE_HZ);
+    } else {
+      noTone(BUZZER_PIN);
+    }
+    return;
+  }
+  digitalWrite(BUZZER_PIN, on ? BUZZER_ON_LEVEL : (BUZZER_ON_LEVEL == HIGH ? LOW : HIGH));
+}
+
+// Short patterns only (at most about 0.6 s), so scanning is not held up.
+void beep(uint16_t onMs, uint8_t count = 1, uint16_t gapMs = 90) {
+  for (uint8_t i = 0; i < count; i++) {
+    buzzerSet(true);
+    delay(onMs);
+    buzzerSet(false);
+    if (i + 1 < count) {
+      delay(gapMs);
+    }
+  }
+}
+
+void beepForResult() {
+  if (!lastScan.ok) {
+    beep(600);
+  } else if (lastScan.registered) {
+    beep(80, 2);
+  } else {
+    beep(180);
+  }
+}
+
 void showResult() {
   screenMode = SCREEN_RESULT;
   resultUntilMs = millis() + 20000;
@@ -402,6 +450,7 @@ void submitCard(const String &uid) {
   lastScan.message = "Saving this UID";
   lastScan.scannedAt = "";
   showBootDetail("UID NUMBER", uid, "Saving this scan...");
+  beep(50);
 
   String body;
   int code = requestDevice("POST", uid, body);
@@ -425,6 +474,7 @@ void submitCard(const String &uid) {
     }
   }
   showResult();
+  beepForResult();
   scanBusy = false;
   flushRfid();
   cardPresent = true;
@@ -609,6 +659,9 @@ void setup() {
   tft.begin();
   tft.setRotation(1);
   tft.fillScreen(COLOR_BG);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  buzzerSet(false);
 
   Serial2.begin(9600, SERIAL_8N1, RFID_RX, RFID_TX);
   showBoot("Connecting WiFi...");
