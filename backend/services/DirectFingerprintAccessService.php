@@ -173,16 +173,22 @@ final class DirectFingerprintAccessService
         if ($fingerprint['status'] !== 'active' || !$this->validTemplate($fingerprint)) {
             return $this->decision(false, 'invalid_fingerprint', 'This fingerprint enrollment is inactive or its stored template is invalid.', $identity);
         }
+        // The R307S may rewrite a stored template after each successful match
+        // (self-learning), so the live slot bytes stop equalling the backup
+        // taken at enrollment even though the right finger matched. A hash
+        // difference is therefore logged, not refused. Identity still rests on
+        // the sensor match to a slot that maps to exactly one active, confirmed
+        // enrollment (checked above and below), and entry still needs a current
+        // approved schedule.
         if (!$requireSchedule && !hash_equals(strtolower(trim((string) $fingerprint['template_hash'])), $liveTemplateHash)) {
             // #region agent log
-            agent_debug_log('D', 'DirectFingerprintAccessService.php:authorize:hash', 'Live template hash mismatch', [
+            agent_debug_log('D', 'DirectFingerprintAccessService.php:authorize:hash', 'Live template hash differs from the enrollment backup (allowed)', [
                 'fingerprint_id' => (int) $fingerprint['fingerprint_id'],
                 'slot' => $slot,
                 'db_hash_prefix' => substr(strtolower(trim((string) $fingerprint['template_hash'])), 0, 16),
                 'live_hash_prefix' => is_string($liveTemplateHash) ? substr($liveTemplateHash, 0, 16) : null,
             ]);
             // #endregion
-            return $this->decision(false, 'fingerprint_mismatch', 'The matched sensor template does not match this registered fingerprint backup.', $identity);
         }
         if (DirectFingerprintImportSchema::hasActiveForUserOrSlot($this->pdo, $identity['user_id'], $deviceId, $slot)) {
             return $this->decision(false, 'import_in_progress', 'A database backup is being restored for this fingerprint. Wait for Sensor A to confirm the import before trying door access.', $identity);

@@ -143,8 +143,11 @@ try {
     foreach ([null, true, 123, '', str_repeat('a', 63), str_repeat('a', 65), str_repeat('A', 64), str_repeat('g', 64), ' ' . $fingerprint['template_hash'], [$fingerprint['template_hash']]] as $hash) {
         $deny([...$fingerprint, 'template_hash' => $hash], 'invalid_request');
     }
-    $deny([...$fingerprint, 'template_hash' => str_repeat('0', 64)], 'fingerprint_mismatch');
-    expectCombined($verify($fingerprint)['access_granted'], 'A valid live sensor template hash must still match the registered database backup.');
+    // The R307S can update a stored template after a match, so a live hash that
+    // differs from the enrollment backup must not lock out the registered owner.
+    expectCombined($verify([...$fingerprint, 'template_hash' => str_repeat('0', 64)])['access_granted'],
+        'A changed live sensor template must not deny a registered, scheduled fingerprint.');
+    expectCombined($verify($fingerprint)['access_granted'], 'A live sensor template equal to the backup must still be granted.');
 
     foreach (["\xFF", "\0", 'A'] as $value) {
         $uniform = str_repeat($value, 768);
@@ -363,7 +366,7 @@ try {
             expectCombined(!$pdo->inTransaction() && (int) $pdo->query('SELECT COUNT(*) FROM access_log')->fetchColumn() === 0, 'A failed log must roll back and prevent returning an unlock decision.');
         }
     }
-    echo "PASS: authenticated device token matching, registered fingerprint/RFID entry gated by the user's current REGULAR or OVERRIDE schedule (REGULAR priority, overrides never block regulars, repeated in/out, EXTENDED exits linked to their session, locked-in exit-only, never-refused exits), live sensor-template binding, device/account/card/template/proof gates, separate scheduled policy, IN/OUT logs, immutable RFID UID snapshots including unknown cards and leading zeros, safe schema bootstrap, legacy log schema, and fail-closed log writes.\n";
+    echo "PASS: authenticated device token matching, registered fingerprint/RFID entry gated by the user's current REGULAR or OVERRIDE schedule (REGULAR priority, overrides never block regulars, repeated in/out, EXTENDED exits linked to their session, locked-in exit-only, never-refused exits), valid live sensor templates (self-learning changes allowed), device/account/card/template/proof gates, separate scheduled policy, IN/OUT logs, immutable RFID UID snapshots including unknown cards and leading zeros, safe schema bootstrap, legacy log schema, and fail-closed log writes.\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $pdo->exec('SET timestamp=0');
