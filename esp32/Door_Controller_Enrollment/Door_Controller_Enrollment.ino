@@ -21,12 +21,16 @@ namespace {
     unsigned long lastJobPollAt = 0;
     unsigned long lastAccessScanAt = 0;
     unsigned long fingerprintExitArmedAt = 0;
+    // Sensor slot of the finger that unlocked the door (0 = not unlocked by a
+    // fingerprint). Touch-then-fingerprint locking accepts only that finger.
+    uint16_t unlockedByFingerSlot = 0;
 
     void printStatus() {
         SerialLog::section("DOOR CONTROLLER STATUS");
         SerialLog::kv("Door", isDoorUnlocked() ? "UNLOCKED" : "LOCKED");
         SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
+        SerialLog::kv("Locking finger", unlockedByFingerSlot ? "sensor slot " + String(unlockedByFingerSlot) : String("any registered finger"));
         SerialLog::kv("Fingerprint sensor", sensorReady ? "ready" : "UNAVAILABLE");
         SerialLog::kv("WiFi", WiFi.status() == WL_CONNECTED ? String("connected (") + WiFi.localIP().toString() + ")"
                               : isWiFiConnecting() ? String("connecting...") : String("OFFLINE"));
@@ -76,7 +80,7 @@ namespace {
             if (lockedIn) openDoorRelay();
             authorizeExit();
         }
-        else openDoorRelay();
+        else { openDoorRelay(); unlockedByFingerSlot = 0; }
         discardBufferedScans();
         return true;
     }
@@ -130,6 +134,15 @@ namespace {
             return;
         }
         SerialLog::kv("Matched slot", String(match.matchedSlot) + " (confidence " + String(match.confidence) + ")");
+        if (isExit && unlockedByFingerSlot != 0 && match.matchedSlot != unlockedByFingerSlot) {
+            // Locking after a fingerprint entry needs the exact finger that unlocked.
+            SerialLog::result(false, "Wrong finger: the door stays unlocked",
+                "Lock with the same finger that unlocked the door (sensor slot " + String(unlockedByFingerSlot)
+                + "). Touch the sensor again, then scan that finger.");
+            playDeniedFeedback();
+            fingerprintExitArmed = false;
+            return;
+        }
         String message;
         bool exitOnly = false;
         const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly);
@@ -147,8 +160,13 @@ namespace {
                 // they can leave, with touch-to-lock armed behind them.
                 openDoorRelay();
                 authorizeExit();
+                unlockedByFingerSlot = 0;
             }
-            else openDoorRelay();
+            else {
+                openDoorRelay();
+                unlockedByFingerSlot = match.matchedSlot;
+                SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
+            }
             discardBufferedScans();
         } else playDeniedFeedback();
     }
@@ -176,6 +194,7 @@ void loop() {
     readSerialCommands();
     if (previousDoorState != isDoorUnlocked()) {
         previousDoorState = isDoorUnlocked();
+        if (!previousDoorState) unlockedByFingerSlot = 0;
         if (previousDoorState) interruptSensorMemoryRead();
         discardBufferedScans();
     }
