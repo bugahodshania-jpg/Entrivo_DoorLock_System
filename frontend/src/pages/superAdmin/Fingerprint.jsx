@@ -1461,7 +1461,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     if (mode === 'add' && countStoredFingerprints(fingerprint.userId) >= MAX_FINGERPRINTS_PER_USER) {
       pushToast(
-        `${fingerprint.name} already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`,
+        `${fingerprint.name} already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Delete one before adding another.`,
         'error',
       );
       return;
@@ -1518,11 +1518,12 @@ export default function Fingerprint({ user: currentUser } = {}) {
 
     autoEnrollHandledRef.current = true;
     window.history.replaceState({}, '', portalHref('/super-admin/fingerprint'));
-    const enrollmentMode = matchedFingerprint.status === 'active' ? 'update' : 'enroll';
-    if (enrollmentMode === 'enroll' && !canEnrollFingerprints) {
+    // Fingerprints are no longer updated in place: an enrollment link only opens
+    // the enroll window for a finger that is not enrolled yet.
+    if (matchedFingerprint.status === 'active' || !canEnrollFingerprints) {
       return;
     }
-    void openEnrollmentModal(matchedFingerprint, enrollmentMode);
+    void openEnrollmentModal(matchedFingerprint, 'enroll');
   }, [fingerprintsByRole, isLoading]);
 
   function closeEnrollmentModal() {
@@ -1652,7 +1653,7 @@ export default function Fingerprint({ user: currentUser } = {}) {
       countStoredFingerprints(enrollmentTarget.userId) >= MAX_FINGERPRINTS_PER_USER
     ) {
       setErrorMessage(
-        `This user already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`,
+        `This user already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Delete one before adding another.`,
       );
       return;
     }
@@ -3271,8 +3272,10 @@ export default function Fingerprint({ user: currentUser } = {}) {
                   enrollmentAction.kind !== 'view-progress' && enrollmentDoorUnlocked
                     ? enrollmentDoorBlockedReason
                     : undefined,
+                // No "Update" action: to change an enrolled finger, delete it and enroll again.
                 hidden:
                   !isLargeFingerprintScreen ||
+                  enrollmentAction.kind === 'update' ||
                   (fingerprint.status !== 'active' && !canEnrollFingerprints) ||
                   (fingerprint.status === 'active' && !canUpdateFingerprints),
                 onClick: () => {

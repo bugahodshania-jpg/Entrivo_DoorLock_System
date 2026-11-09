@@ -869,7 +869,7 @@ export default function DirectFingerprint({
     }
     const availableFingerNames = mode === 'add' ? getAvailableFingerNames(fingerprint.userId) : fingerNameOptions;
     if (mode === 'add' && countStoredFingerprints(fingerprint.userId) >= MAX_FINGERPRINTS_PER_USER) {
-      pushToast(`${fingerprint.name} already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`, 'error');
+      pushToast(`${fingerprint.name} already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Delete one before adding another.`, 'error');
       return;
     }
     if (mode === 'add' && availableFingerNames.length === 0) {
@@ -900,11 +900,12 @@ export default function DirectFingerprint({
     }
     autoEnrollHandledRef.current = true;
     window.history.replaceState({}, '', portalHref('/super-admin/fingerprint-direct'));
-    const enrollmentMode = matchedFingerprint.status === 'active' ? 'update' : 'enroll';
-    if (enrollmentMode === 'enroll' && !canEnrollFingerprints) {
+    // Fingerprints are no longer updated in place: an enrollment link only opens
+    // the enroll window for a finger that is not enrolled yet.
+    if (matchedFingerprint.status === 'active' || !canEnrollFingerprints) {
       return;
     }
-    void openEnrollmentModal(matchedFingerprint, enrollmentMode);
+    void openEnrollmentModal(matchedFingerprint, 'enroll');
   }, [fingerprintsByRole, isLoading]);
   function closeEnrollmentModal() {
     if (activeActionId) {
@@ -992,7 +993,7 @@ export default function DirectFingerprint({
     const requestedFingerName = selectedFingerName.trim() || getRequestedFingerName(enrollmentTarget);
     const isAddAction = selectedEnrollmentMode === 'add';
     if (isAddAction && countStoredFingerprints(enrollmentTarget.userId) >= MAX_FINGERPRINTS_PER_USER) {
-      setErrorMessage(`This user already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Update an existing finger or delete one before adding another.`);
+      setErrorMessage(`This user already has ${MAX_FINGERPRINTS_PER_USER} fingerprints. Delete one before adding another.`);
       return;
     }
     if (isFingerNameTakenByAnotherRecord(enrollmentTarget.userId, requestedFingerName, isAddAction ? null : enrollmentTarget.id)) {
@@ -1692,7 +1693,8 @@ export default function DirectFingerprint({
           icon: enrollmentAction.kind === 'view-progress' ? Activity : FingerprintIcon,
           disabled: activeActionId === fingerprint.id || (enrollmentAction.kind !== 'view-progress' && enrollmentDoorUnlocked),
           title: enrollmentAction.kind !== 'view-progress' && enrollmentDoorUnlocked ? enrollmentDoorBlockedReason : undefined,
-          hidden: !isLargeFingerprintScreen || (fingerprint.status !== 'active' && !canEnrollFingerprints) || (fingerprint.status === 'active' && !canUpdateFingerprints),
+          // No "Update" action: to change an enrolled finger, delete it and enroll again.
+          hidden: !isLargeFingerprintScreen || enrollmentAction.kind === 'update' || (fingerprint.status !== 'active' && !canEnrollFingerprints) || (fingerprint.status === 'active' && !canUpdateFingerprints),
           onClick: () => {
             if (enrollmentAction.kind === 'view-progress') {
               openLiveEnrollmentProgress(enrollmentAction.job);
