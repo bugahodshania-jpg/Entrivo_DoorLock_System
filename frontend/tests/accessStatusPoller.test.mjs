@@ -14,3 +14,10 @@ test('describe', () => {
   assert.equal(v.title,'Exit Denied'); assert.match(v.reason,/no schedule/); assert.equal(v.credential,'Card UID AB12'); assert.equal(v.role,'Student');
   assert.equal(describeAccessEvent({status:'granted',method:'Fingerprint',matchedSlot:3,matchConfidence:120}).credential,'Sensor slot 3 · confidence 120');
 });
+test('describe unregistered attempts', () => {
+  const finger=describeAccessEvent({status:'denied',denialReason:'not_registered',method:'Fingerprint',direction:'entry',userId:null,userName:null});
+  assert.equal(finger.person,'Unregistered person'); assert.equal(finger.credential,'Fingerprint not registered');
+  assert.equal(finger.title,'Access Denied'); assert.match(finger.reason,/not registered/);
+  const card=describeAccessEvent({status:'denied',denialReason:'not_registered',method:'RFID',rfidUid:'4300C46DDF',userId:null,userName:null});
+  assert.equal(card.person,'Unregistered person'); assert.equal(card.credential,'Card UID 4300C46DDF (not registered)');
+});

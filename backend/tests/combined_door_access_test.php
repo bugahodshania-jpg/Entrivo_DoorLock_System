@@ -98,6 +98,19 @@ try {
         expectCombined($result['access_granted'] === false && $result['reason'] === $reason, 'Expected ' . $reason . ', got ' . json_encode($result));
     };
 
+    // A finger the door sensor did not recognize is logged (no user) so the live
+    // Access Status modal can show the unregistered attempt. It never grants.
+    foreach (['entry' => 'IN', 'exit' => 'OUT'] as $direction => $accessType) {
+        $deny(['method' => 'fingerprint', 'enrollment_device_id' => 1, 'unrecognized' => true, 'direction' => $direction], 'not_registered');
+        $log = $pdo->query('SELECT * FROM access_log ORDER BY log_id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+        expectCombined($log['user_id'] === null && $log['fingerprint_id'] === null && $log['denial_reason'] === 'not_registered'
+            && $log['access_type'] === $accessType, 'An unrecognized fingerprint must be logged as a denied, unregistered ' . $direction . ' with no user.');
+    }
+    foreach ([['enrollment_device_id' => 0], ['direction' => 'sideways'], ['unrecognized' => 'true', 'matched_slot' => null]] as $bad) {
+        $result = $service->verify([...['method' => 'fingerprint', 'enrollment_device_id' => 1, 'unrecognized' => true, 'direction' => 'entry'], ...$bad], $now);
+        expectCombined($result['access_granted'] === false, 'A malformed unrecognized-fingerprint report must never grant access.');
+    }
+
     $reset();
     expectCombined($verify($fingerprint)['access_granted'] === true, 'A confirmed registered fingerprint with a current schedule must unlock.');
     $grant = $verify($rfid);

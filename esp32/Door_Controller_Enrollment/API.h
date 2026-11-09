@@ -16,6 +16,9 @@ bool failEnrollmentJob(int jobId, const String &errorMessage);
 // locked door after the schedule ended (exit only, never entry).
 bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit = false, bool *exitOnly = nullptr);
 bool authorizeRfid(const String &uid, bool isExit, String &message);
+// Logs a finger the sensor did not recognize, so the admin's live Access Status
+// shows the unregistered attempt. Never grants access.
+void reportUnrecognizedFingerprint(bool isExit);
 bool isFingerprintWorkPending();
 bool checkPendingDirectImport();
 bool checkPendingEnrollmentVerify();

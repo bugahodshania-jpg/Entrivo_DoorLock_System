@@ -29,16 +29,21 @@ export function describeAccessEvent(event) {
   const granted = event?.status === 'granted';
   const isExit = event?.direction === 'exit';
   const method = event?.method === 'RFID' ? 'RFID card' : event?.method === 'Override' ? 'Override' : 'Fingerprint';
+  // No linked user: a card or finger that is not registered to anyone.
+  const unregistered = !granted && !event?.userId && !String(event?.userName || '').trim();
   let credential = '';
-  if (event?.method === 'RFID' && event?.rfidUid) credential = `Card UID ${event.rfidUid}`;
-  else if (event?.method === 'Fingerprint' && Number.isInteger(event?.matchedSlot)) {
+  if (event?.method === 'RFID' && event?.rfidUid) {
+    credential = `Card UID ${event.rfidUid}` + (unregistered ? ' (not registered)' : '');
+  } else if (event?.method === 'Fingerprint' && Number.isInteger(event?.matchedSlot)) {
     credential = `Sensor slot ${event.matchedSlot}`
       + (Number.isInteger(event?.matchConfidence) ? ` · confidence ${event.matchConfidence}` : '');
+  } else if (event?.method === 'Fingerprint' && unregistered) {
+    credential = 'Fingerprint not registered';
   }
   return {
     tone: granted ? 'granted' : 'denied',
     title: granted ? (isExit ? 'Exit Granted' : 'Access Granted') : (isExit ? 'Exit Denied' : 'Access Denied'),
-    person: String(event?.userName || '').trim() || 'Unknown user',
+    person: String(event?.userName || '').trim() || (unregistered ? 'Unregistered person' : 'Unknown user'),
     role: ROLE_LABELS[event?.userRole] || (event?.userRole ? String(event.userRole) : ''),
     identifier: String(event?.userIdentifier || '').trim(),
     method,

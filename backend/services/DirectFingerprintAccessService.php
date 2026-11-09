@@ -26,7 +26,28 @@ final class DirectFingerprintAccessService
     /** The combined controller must bind the live sensor template to its database backup. */
     public function verifyRegisteredIdentity(array $input, ?DateTimeImmutable $now = null): array
     {
+        if (($input['unrecognized'] ?? null) === true) {
+            return $this->recordUnrecognized($input, $now);
+        }
         return $this->verifyWithPolicy($input, $now, false);
+    }
+
+    /**
+     * The door sensor found no stored slot for a scanned finger. Nothing is
+     * granted; the attempt is only logged (no user) so the live Access Status
+     * modal and the access logs show that an unregistered person tried the door.
+     */
+    private function recordUnrecognized(array $input, ?DateTimeImmutable $now): array
+    {
+        $now = ($now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->setTimezone(new DateTimeZone('Asia/Manila'));
+        $deviceId = $this->positiveInteger($input['enrollment_device_id'] ?? null);
+        $direction = $input['direction'] ?? 'entry';
+        if (!$deviceId || !is_string($direction) || !in_array($direction, ['entry', 'exit'], true)) {
+            return $this->decision(false, 'invalid_request', 'A valid enrollment device and entry or exit direction are required.', [], false);
+        }
+        $decision = $this->decision(false, 'not_registered', 'This fingerprint is not registered.', ['direction' => $direction]);
+        $this->recordDecision($decision, $now);
+        return $decision;
     }
 
     private function verifyWithPolicy(array $input, ?DateTimeImmutable $now, bool $requireSchedule): array

@@ -124,6 +124,9 @@ namespace {
             SerialLog::result(false, "Fingerprint not recognized by Sensor A",
                 "No stored slot matched this finger. Door stays locked.");
             playDeniedFeedback();
+            // Only a completed search with no match is an unregistered finger;
+            // sensor or communication errors are not reported as a person.
+            if (match.outcome == DoorFingerprintSearch::Outcome::NoMatch) reportUnrecognizedFingerprint(isExit);
             return;
         }
         SerialLog::kv("Matched slot", String(match.matchedSlot) + " (confidence " + String(match.confidence) + ")");

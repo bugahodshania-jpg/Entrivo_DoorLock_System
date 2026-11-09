@@ -658,3 +658,16 @@ bool checkPendingDirectImport()
     }
     return true;
 }
+
+void reportUnrecognizedFingerprint(bool isExit)
+{
+    if (isFingerprintWorkPending()) return;
+    DynamicJsonDocument payload(256);
+    payload["method"] = "fingerprint";
+    payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
+    payload["unrecognized"] = true;
+    payload["direction"] = isExit ? "exit" : "entry";
+    DynamicJsonDocument response(JSON_BUFFER_SIZE);
+    // The backend answers access_granted=false; only the log entry matters.
+    postJson("/api/door/verify_access.php", payload, response);
+}
