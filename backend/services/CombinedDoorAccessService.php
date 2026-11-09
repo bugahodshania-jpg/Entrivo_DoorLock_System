@@ -125,6 +125,7 @@ final class CombinedDoorAccessService
                 'schedule_id' => $host['schedule_id'],
                 'override_id' => null,
                 'schedule_kind' => 'with_faculty',
+                'seconds_remaining' => ScheduleAccessPolicy::secondsLeft($host['time_end'], $now),
             ]);
         }
         if (!$schedule['granted']) {
@@ -135,6 +136,7 @@ final class CombinedDoorAccessService
             'schedule_id' => $schedule['schedule_id'],
             'override_id' => $schedule['override_id'],
             'schedule_kind' => $schedule['schedule_kind'],
+            'seconds_remaining' => ScheduleAccessPolicy::secondsLeft($schedule['time_end'] ?? null, $now),
         ]);
     }
 
@@ -144,7 +146,7 @@ final class CombinedDoorAccessService
      * and the schedule they entered on has not ended yet. Null when nobody
      * qualifies, or when the log has no IN/OUT column (fails closed).
      *
-     * @return array{user_id: int, username: string, schedule_id: int}|null
+     * @return array{user_id: int, username: string, schedule_id: int, time_end: string}|null
      */
     private function staffInside(DateTimeImmutable $now): ?array
     {
@@ -152,7 +154,7 @@ final class CombinedDoorAccessService
         if (!$this->hasAccessType) return null;
         // Entries today on a schedule that is still running, newest first.
         $entries = $this->pdo->prepare(
-            "SELECT entry.log_id, entry.user_id, u.username, entry.schedule_id
+            "SELECT entry.log_id, entry.user_id, u.username, entry.schedule_id, s.time_end
              FROM access_log entry
              INNER JOIN users u ON u.id = entry.user_id
              INNER JOIN schedules s ON s.schedule_id = entry.schedule_id AND s.user_id = entry.user_id
@@ -177,7 +179,8 @@ final class CombinedDoorAccessService
         foreach ($entries->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $later->execute([(int) $row['user_id'], (int) $row['log_id'], $now->format('Y-m-d H:i:s')]);
             if ($later->fetchColumn() === false) {
-                return ['user_id' => (int) $row['user_id'], 'username' => (string) $row['username'], 'schedule_id' => (int) $row['schedule_id']];
+                return ['user_id' => (int) $row['user_id'], 'username' => (string) $row['username'],
+                    'schedule_id' => (int) $row['schedule_id'], 'time_end' => (string) $row['time_end']];
             }
         }
         return null;

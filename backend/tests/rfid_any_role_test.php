@@ -56,11 +56,15 @@ expectAnyRole($lastLog()['access_status'] === 'denied' && $lastLog()['denial_rea
 expectAnyRole($service->verify($card($student, 'exit'), $at('08:31:00'))['access_granted'] === true, 'A student can always exit.');
 
 // Faculty enters -> the student may enter, linked to the instructor's schedule.
-expectAnyRole($service->verify($card($faculty, 'entry'), $at('08:40:00'))['access_granted'] === true, 'Faculty entry during schedule.');
+$facultyEntry = $service->verify($card($faculty, 'entry'), $at('08:40:00'));
+expectAnyRole($facultyEntry['access_granted'] === true, 'Faculty entry during schedule.');
+expectAnyRole($facultyEntry['seconds_remaining'] === 80 * 60,
+    'An entry grant reports the seconds left until the 10:00 schedule end (for the 15-minute reminder).');
 $joined = $service->verify($card($student, 'entry'), $at('08:45:00'));
 expectAnyRole($joined['access_granted'] === true && $joined['schedule_id'] === $faculty,
     'A student may enter while a faculty member is inside. Got ' . json_encode($joined));
 expectAnyRole((int) $lastLog()['schedule_id'] === $faculty, 'The student entry is logged against the instructor\'s schedule.');
+expectAnyRole($joined['seconds_remaining'] === 75 * 60, 'A student joining the class gets the instructor\'s remaining schedule time.');
 
 // Faculty exits -> students are refused again.
 expectAnyRole($service->verify($card($faculty, 'exit'), $at('08:50:00'))['access_granted'] === true, 'Faculty exit.');

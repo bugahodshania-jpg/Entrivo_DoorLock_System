@@ -24,6 +24,43 @@ namespace {
     // Sensor slot of the finger that unlocked the door (0 = not unlocked by a
     // fingerprint). Touch-then-fingerprint locking accepts only that finger.
     uint16_t unlockedByFingerSlot = 0;
+    // 15-minute reminder (track 5) for the schedule the room was opened on.
+    bool reminderArmed = false;
+    unsigned long reminderAt = 0;
+
+    // Voice prompt for a refusal, from the backend's reason code.
+    uint16_t deniedTrack(const String &reason) {
+        if (reason == "not_registered") return AUDIO_NOT_REGISTERED;
+        if (reason == "no_schedule" || reason == "schedule_not_started") return AUDIO_OUTSIDE_SCHEDULE;
+        if (reason == "expired_schedule") return AUDIO_SCHEDULE_EXPIRED;
+        return AUDIO_ACCESS_DENIED;
+    }
+
+    // Voice prompt for a granted entry: an approved override has its own track.
+    uint16_t entryTrack(const DoorDecision &decision) {
+        return decision.scheduleKind == "override" ? AUDIO_OVERRIDE_APPROVED : AUDIO_ACCESS_GRANTED;
+    }
+
+    // Plan the reminder 15 minutes before the schedule ends. With several
+    // entries the latest end wins; under 15 minutes left there is no reminder.
+    void armReminder(long secondsRemaining) {
+        constexpr long REMINDER_LEAD_S = 15L * 60L;
+        if (secondsRemaining <= REMINDER_LEAD_S) return;
+        const unsigned long at = millis() + static_cast<unsigned long>(secondsRemaining - REMINDER_LEAD_S) * 1000UL;
+        if (!reminderArmed || static_cast<long>(at - reminderAt) > 0) {
+            reminderAt = at;
+            reminderArmed = true;
+            SerialLog::step("15-minute reminder in " + String((secondsRemaining - REMINDER_LEAD_S) / 60) + " min.");
+        }
+    }
+
+    void serviceReminder() {
+        if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) {
+            reminderArmed = false;
+            SerialLog::step("Reminder: 15 minutes left in the scheduled session.");
+            playTrack(AUDIO_REMINDER);
+        }
+    }
 
     void printStatus() {
         SerialLog::section("DOOR CONTROLLER STATUS");
@@ -67,20 +104,25 @@ namespace {
         SerialLog::section(String("DOOR ACCESS  RFID ") + (isExit ? "EXIT" : "ENTRY"));
         SerialLog::kv("Card UID", uid);
         String message;
-        const bool granted = authorizeRfid(uid, isExit, message);
+        DoorDecision decision;
+        const bool granted = authorizeRfid(uid, isExit, message, &decision);
         const bool lockedIn = isExit && !isDoorUnlocked();
         SerialLog::result(granted, granted
             ? (lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
                 : isExit ? "Exit approved, touch to lock" : "Access granted, door unlocked")
             : "Access denied", message);
-        if (!granted) playDeniedFeedback();
+        if (!granted) playDeniedFeedback(deniedTrack(decision.reason));
         else if (isExit) {
             // The exit reader is inside: a locked door is opened only to let
             // this user out, then touch outside locks it again.
-            if (lockedIn) openDoorRelay();
+            if (lockedIn) openDoorRelay(AUDIO_DOOR_UNLOCK);
             authorizeExit();
         }
-        else { openDoorRelay(); unlockedByFingerSlot = 0; }
+        else {
+            openDoorRelay(entryTrack(decision));
+            unlockedByFingerSlot = 0;
+            armReminder(decision.secondsRemaining);
+        }
         discardBufferedScans();
         return true;
     }
@@ -127,7 +169,7 @@ namespace {
                 match.standardStatus != 0xFE) retryFingerprintConnection();
             SerialLog::result(false, "Fingerprint not recognized by Sensor A",
                 "No stored slot matched this finger. Door stays locked.");
-            playDeniedFeedback();
+            playDeniedFeedback(match.outcome == DoorFingerprintSearch::Outcome::NoMatch ? AUDIO_NOT_REGISTERED : AUDIO_ACCESS_DENIED);
             // Only a completed search with no match is an unregistered finger;
             // sensor or communication errors are not reported as a person.
             if (match.outcome == DoorFingerprintSearch::Outcome::NoMatch) reportUnrecognizedFingerprint(isExit);
@@ -145,7 +187,8 @@ namespace {
         }
         String message;
         bool exitOnly = false;
-        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly);
+        DoorDecision decision;
+        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision);
         SerialLog::result(granted, granted
             ? (isExit ? "Exit granted, door locked"
                 : exitOnly ? "Exit only: door unlocked so you can leave. Touch outside to lock"
@@ -154,21 +197,22 @@ namespace {
         if (!granted && message.indexOf("not linked") >= 0)
             SerialLog::debug("Slot " + String(match.matchedSlot) + " has no database fingerprint. Delete it in Sensor Memory or re-enroll.");
         if (granted) {
-            if (isExit) lockDoorRelay();
+            if (isExit) lockDoorRelay(AUDIO_ROOM_LOCKED);
             else if (exitOnly) {
                 // Schedule over but the user is still inside: open only so
                 // they can leave, with touch-to-lock armed behind them.
-                openDoorRelay();
+                openDoorRelay(AUDIO_DOOR_UNLOCK);
                 authorizeExit();
                 unlockedByFingerSlot = 0;
             }
             else {
-                openDoorRelay();
+                openDoorRelay(entryTrack(decision));
                 unlockedByFingerSlot = match.matchedSlot;
+                armReminder(decision.secondsRemaining);
                 SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
             }
             discardBufferedScans();
-        } else playDeniedFeedback();
+        } else playDeniedFeedback(deniedTrack(decision.reason));
     }
 }
 
@@ -191,10 +235,14 @@ void setup() {
 
 void loop() {
     updateDoorHardware();
+    serviceReminder();
     readSerialCommands();
     if (previousDoorState != isDoorUnlocked()) {
         previousDoorState = isDoorUnlocked();
-        if (!previousDoorState) unlockedByFingerSlot = 0;
+        if (!previousDoorState) {
+            unlockedByFingerSlot = 0;
+            reminderArmed = false; // The room was locked: the session is over.
+        }
         if (previousDoorState) interruptSensorMemoryRead();
         discardBufferedScans();
     }

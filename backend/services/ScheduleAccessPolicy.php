@@ -56,18 +56,18 @@ final class ScheduleAccessPolicy
             $isOverride = strtolower(trim((string) $schedule['status'])) === 'overridden'
                 || strtolower(trim((string) ($schedule['schedule_kind'] ?? 'regular'))) === 'override';
             if (!$isOverride) {
-                return $this->grant('regular', (int) $schedule['schedule_id'], null);
+                return $this->grant('regular', (int) $schedule['schedule_id'], null, $end);
             }
             if ($override === null) {
                 $overrideId = $this->approvedOverrideId($userId, $date . ' ' . $start, $date . ' ' . $end);
                 if ($overrideId !== null) {
-                    $override = ['schedule_id' => (int) $schedule['schedule_id'], 'override_id' => $overrideId];
+                    $override = ['schedule_id' => (int) $schedule['schedule_id'], 'override_id' => $overrideId, 'time_end' => $end];
                 }
             }
         }
 
         if ($override !== null) {
-            return $this->grant('override', $override['schedule_id'], $override['override_id']);
+            return $this->grant('override', $override['schedule_id'], $override['override_id'], $override['time_end']);
         }
 
         $reason = $futureToday ? 'schedule_not_started' : ($endedToday ? 'expired_schedule' : 'no_schedule');
@@ -267,9 +267,20 @@ final class ScheduleAccessPolicy
         return $overrideId ? (int) $overrideId : null;
     }
 
-    private function grant(string $kind, int $scheduleId, ?int $overrideId): array
+    /** Whole seconds from $now until today's $timeEnd (HH:MM:SS); null when unknown or already past. */
+    public static function secondsLeft(?string $timeEnd, DateTimeImmutable $now): ?int
+    {
+        if (!is_string($timeEnd) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $timeEnd)) return null;
+        $now = $now->setTimezone(new DateTimeZone('Asia/Manila'));
+        $end = new DateTimeImmutable($now->format('Y-m-d') . ' ' . $timeEnd, new DateTimeZone('Asia/Manila'));
+        $seconds = $end->getTimestamp() - $now->getTimestamp();
+        return $seconds > 0 ? $seconds : null;
+    }
+
+    private function grant(string $kind, int $scheduleId, ?int $overrideId, string $timeEnd): array
     {
         return [
+            'time_end' => $timeEnd,
             'granted' => true,
             'reason' => 'access_granted',
             'message' => $kind === 'regular'

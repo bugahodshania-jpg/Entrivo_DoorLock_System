@@ -74,7 +74,7 @@ void printDeviceTime() {
     Serial.print(text);
 }
 
-void openDoorRelay() {
+void openDoorRelay(uint16_t track) {
     digitalWrite(DOOR_UNUSED_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
     if (unlocked) return;
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
@@ -83,11 +83,11 @@ void openDoorRelay() {
     queueDoorStatus(true);
     exitAuthorized = false;
     printDeviceTime();
-    Serial.println("[DOOR] UNLOCKED. Students: scan an exit card, then touch outside to lock. Faculty and staff: touch, then scan a finger to record the exit and lock.");
-    playAudio(1);
+    Serial.println("[DOOR] UNLOCKED. To lock: scan an exit card inside, then touch; or touch, then scan the finger that unlocked.");
+    playAudio(track);
 }
 
-void lockDoorRelay() {
+void lockDoorRelay(uint16_t track) {
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
     digitalWrite(DOOR_UNUSED_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
     const bool wasUnlocked = unlocked;
@@ -98,7 +98,7 @@ void lockDoorRelay() {
         queueDoorStatus(false);
         printDeviceTime();
         Serial.println("[DOOR] LOCKED");
-        playAudio(9);
+        playAudio(track);
     }
 }
 
@@ -106,7 +106,6 @@ void authorizeExit() {
     if (!unlocked || exitAuthorized) return;
     exitAuthorized = true;
     Serial.println("[EXIT] Registered card verified. Touch GPIO18 to LOCK.");
-    playAudio(11);
 }
 
 void updateDoorHardware() {
@@ -114,7 +113,7 @@ void updateDoorHardware() {
     const bool pressed = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_LEVEL;
     if (pressed && !previousTouch && millis() - lastTouchAt >= TOUCH_DEBOUNCE_MS) {
         lastTouchAt = millis();
-        if (unlocked && exitAuthorized) lockDoorRelay();
+        if (unlocked && exitAuthorized) lockDoorRelay(AUDIO_ROOM_LOCKED);
         else if (unlocked) {
             fingerprintExitTouchPending = true;
             Serial.println("[TOUCH] Fingerprint exit armed. Scan your finger to record the exit and lock the door.");
@@ -126,7 +125,8 @@ void updateDoorHardware() {
     previousTouch = pressed;
 }
 
-void playDeniedFeedback() { playAudio(3); }
+void playTrack(uint16_t track) { playAudio(track); }
+void playDeniedFeedback(uint16_t track) { playAudio(track); }
 bool isDoorUnlocked() { return unlocked; }
 bool isExitAuthorized() { return exitAuthorized; }
 bool consumeFingerprintExitTouch() {
