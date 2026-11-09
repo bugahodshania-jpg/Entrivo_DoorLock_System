@@ -603,14 +603,15 @@ function validateEditForm(form) {
     if (form.section && !sectionOptions.includes(form.section)) {
       errors.section = 'Section must be Block A, Block B, Block C, or Block D.';
     }
-
-    const rfidUid = String(form.rfidUid || '').trim();
-    if (rfidUid && !/^[A-Z0-9]{1,30}$/.test(rfidUid)) {
-      errors.rfidUid = 'RFID UID must be up to 30 letters or numbers.';
-    }
   } else {
     assign('officeDepartment', editRequiredTextError(form.officeDepartment, 'Department', 150));
     assign('workPosition', editRequiredTextError(form.workPosition, 'Position', 150));
+  }
+
+  // Every role may hold a card: students use it at the door, others as a fingerprint backup.
+  const rfidUid = String(form.rfidUid || '').trim();
+  if (rfidUid && !/^[A-Z0-9]{1,30}$/.test(rfidUid)) {
+    errors.rfidUid = 'RFID UID must be up to 30 letters or numbers.';
   }
 
   return errors;
@@ -1091,7 +1092,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
     if (original && editForm.identifier !== original.identifier) {
       availability[editForm.isStudent ? 'school_id' : 'employee_id'] = editForm.identifier;
     }
-    if (original && editForm.isStudent && editForm.rfidUid !== original.rfidUid) {
+    if (original && editForm.rfidUid && editForm.rfidUid !== original.rfidUid) {
       availability.rfid_uid = editForm.rfidUid;
     }
 
@@ -2501,23 +2502,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   <section className="pending-registration-review-card">
                     <h3>Access</h3>
                     <dl>
-                      {editForm.isStudent ? (
-                        <EditField label="RFID UID" error={editFieldErrors.rfidUid}>
-                          <input
-                            type="text"
-                            value={editForm.rfidUid}
-                            onChange={(event) =>
-                              updateEditField(
-                                'rfidUid',
-                                event.target.value.replace(/\s+/g, '').toUpperCase(),
-                              )
-                            }
-                            placeholder="Enter RFID UID"
-                            maxLength={30}
-                            autoComplete="off"
-                          />
-                        </EditField>
-                      ) : (
+                      {!editForm.isStudent ? (
                         <EditField label="Fingerprints">
                           <input
                             type="text"
@@ -2529,12 +2514,22 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             readOnly
                           />
                         </EditField>
-                      )}
-                      {!editForm.isStudent ? (
-                        <EditField label="RFID UID">
-                          <input type="text" value={editForm.rfidUid || 'Not assigned'} readOnly />
-                        </EditField>
                       ) : null}
+                      <EditField label={editForm.isStudent ? 'RFID UID' : 'Backup RFID UID'} error={editFieldErrors.rfidUid}>
+                          <input
+                            type="text"
+                            value={editForm.rfidUid}
+                            onChange={(event) =>
+                              updateEditField(
+                                'rfidUid',
+                                event.target.value.replace(/\s+/g, '').toUpperCase(),
+                              )
+                            }
+                            placeholder={editForm.isStudent ? 'Enter RFID UID' : 'Optional backup card UID'}
+                            maxLength={30}
+                            autoComplete="off"
+                          />
+                        </EditField>
                       <EditField label="Joined">
                         <input type="text" value={editForm.joinedAt || '—'} readOnly />
                       </EditField>

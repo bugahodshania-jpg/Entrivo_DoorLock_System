@@ -96,9 +96,9 @@ final class CombinedDoorAccessService
         if ((int) $card['must_change_password'] !== 0 || $card['onboarding_step'] !== 'done') {
             return $this->decision(false, 'account_incomplete', 'Complete the account setup before using door access.', $identity);
         }
-        if ($hasRole && (string) ($card['role'] ?? '') !== 'student') {
-            return $this->decision(false, 'unauthorized', 'Faculty, staff, and administrators use a fingerprint to enter and leave. RFID access is for students.', $identity);
-        }
+        // RFID is open to every role: a registered, active card follows the same
+        // rules as a fingerprint (entry needs the user's current approved
+        // schedule; exit is never refused).
         // The exit reader is inside the room. Exit is never schedule-gated, so
         // a user who stays past the schedule (or is locked in) can always
         // leave; it is linked to the user's session and marked EXTENDED when
@@ -108,6 +108,25 @@ final class CombinedDoorAccessService
             return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
         }
         $schedule = (new ScheduleAccessPolicy($this->pdo))->evaluate($identity['user_id'], $now);
+        // A student never opens the room first: entry needs a faculty, staff
+        // member or administrator already inside. The one exception is an
+        // admin-approved temporary access (override) for a vacant room.
+        // Students can always exit (handled above).
+        if ($hasRole && (string) ($card['role'] ?? '') === 'student'
+            && !($schedule['granted'] && $schedule['schedule_kind'] === 'override')) {
+            $host = $this->staffInside($now);
+            if ($host === null) {
+                return $this->decision(false, 'faculty_not_present',
+                    'Students can enter only after a faculty member, staff member, or administrator has entered the room.', $identity);
+            }
+            return $this->decision(true, 'access_granted', 'Entry allowed: ' . $host['username'] . ' is already inside.', [
+                ...$identity,
+                // The class session the student joins (the instructor's schedule).
+                'schedule_id' => $host['schedule_id'],
+                'override_id' => null,
+                'schedule_kind' => 'with_faculty',
+            ]);
+        }
         if (!$schedule['granted']) {
             return $this->decision(false, $schedule['reason'], $schedule['message'], $identity);
         }
@@ -117,6 +136,51 @@ final class CombinedDoorAccessService
             'override_id' => $schedule['override_id'],
             'schedule_kind' => $schedule['schedule_kind'],
         ]);
+    }
+
+    /**
+     * A faculty, staff member or administrator who is inside right now: their
+     * latest granted access today is an entry (IN) with no later exit (OUT),
+     * and the schedule they entered on has not ended yet. Null when nobody
+     * qualifies, or when the log has no IN/OUT column (fails closed).
+     *
+     * @return array{user_id: int, username: string, schedule_id: int}|null
+     */
+    private function staffInside(DateTimeImmutable $now): ?array
+    {
+        $this->hasAccessType ??= (bool) $this->pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
+        if (!$this->hasAccessType) return null;
+        // Entries today on a schedule that is still running, newest first.
+        $entries = $this->pdo->prepare(
+            "SELECT entry.log_id, entry.user_id, u.username, entry.schedule_id
+             FROM access_log entry
+             INNER JOIN users u ON u.id = entry.user_id
+             INNER JOIN schedules s ON s.schedule_id = entry.schedule_id AND s.user_id = entry.user_id
+             WHERE entry.access_status = 'granted' AND entry.access_type = 'IN'
+               AND u.role <> 'student'
+               AND entry.access_timestamp >= :day_start AND entry.access_timestamp <= :now
+               AND s.time_end > :time_now
+             ORDER BY entry.log_id DESC"
+        );
+        $entries->execute([
+            'day_start' => $now->format('Y-m-d 00:00:00'),
+            'now' => $now->format('Y-m-d H:i:s'),
+            'time_now' => $now->format('H:i:s'),
+        ]);
+        // Still inside = no later granted access (an exit, or a newer entry that
+        // is checked on its own) by the same person.
+        $later = $this->pdo->prepare(
+            "SELECT 1 FROM access_log
+             WHERE user_id = ? AND access_status = 'granted' AND log_id > ? AND access_timestamp <= ?
+             LIMIT 1"
+        );
+        foreach ($entries->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $later->execute([(int) $row['user_id'], (int) $row['log_id'], $now->format('Y-m-d H:i:s')]);
+            if ($later->fetchColumn() === false) {
+                return ['user_id' => (int) $row['user_id'], 'username' => (string) $row['username'], 'schedule_id' => (int) $row['schedule_id']];
+            }
+        }
+        return null;
     }
 
     private function decision(bool $granted, string $reason, string $message, array $identity = [], bool $success = true): array

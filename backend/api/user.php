@@ -753,7 +753,9 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
 
     $rfidUid = null;
 
-    if ($isStudent && array_key_exists('rfidUid', $input)) {
+    // Any role can hold an RFID card (students as their door credential,
+    // faculty, staff and admins as a backup to their fingerprint).
+    if (array_key_exists('rfidUid', $input) || array_key_exists('rfid_uid', $input)) {
         $rfidUid = strtoupper(preg_replace('/\s+/', '', (string) ($input['rfidUid'] ?? $input['rfid_uid'] ?? '')));
 
         if ($rfidUid === '') {
@@ -843,48 +845,6 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
                 'section' => $section !== '' ? $section : null,
                 'user_id' => $userId,
             ]);
-
-            if (array_key_exists('rfidUid', $input) || array_key_exists('rfid_uid', $input)) {
-                $existingCard = $pdo->prepare(
-                    'SELECT card_id
-                     FROM rfid_cards
-                     WHERE user_id = :user_id
-                     ORDER BY CASE WHEN status = \'active\' THEN 0 ELSE 1 END,
-                              issued_at DESC
-                     LIMIT 1'
-                );
-                $existingCard->execute(['user_id' => $userId]);
-                $card = $existingCard->fetch();
-
-                if ($rfidUid === null) {
-                    if ($card) {
-                        $deleteCard = $pdo->prepare(
-                            'DELETE FROM rfid_cards WHERE card_id = :card_id'
-                        );
-                        $deleteCard->execute(['card_id' => (int) $card['card_id']]);
-                    }
-                } elseif ($card) {
-                    $updateCard = $pdo->prepare(
-                        "UPDATE rfid_cards
-                         SET rfid_uid = :rfid_uid,
-                             status = 'active'
-                         WHERE card_id = :card_id"
-                    );
-                    $updateCard->execute([
-                        'rfid_uid' => $rfidUid,
-                        'card_id' => (int) $card['card_id'],
-                    ]);
-                } else {
-                    $insertCard = $pdo->prepare(
-                        "INSERT INTO rfid_cards (user_id, rfid_uid, status)
-                         VALUES (:user_id, :rfid_uid, 'active')"
-                    );
-                    $insertCard->execute([
-                        'user_id' => $userId,
-                        'rfid_uid' => $rfidUid,
-                    ]);
-                }
-            }
         } else {
             $profileUpdate = $pdo->prepare(
                 "UPDATE {$profileTable}
@@ -923,6 +883,48 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
                 'work_position' => $workPosition,
                 'user_id' => $userId,
             ]);
+        }
+
+        if (array_key_exists('rfidUid', $input) || array_key_exists('rfid_uid', $input)) {
+            $existingCard = $pdo->prepare(
+                'SELECT card_id
+                 FROM rfid_cards
+                 WHERE user_id = :user_id
+                 ORDER BY CASE WHEN status = \'active\' THEN 0 ELSE 1 END,
+                          issued_at DESC
+                 LIMIT 1'
+            );
+            $existingCard->execute(['user_id' => $userId]);
+            $card = $existingCard->fetch();
+
+            if ($rfidUid === null) {
+                if ($card) {
+                    $deleteCard = $pdo->prepare(
+                        'DELETE FROM rfid_cards WHERE card_id = :card_id'
+                    );
+                    $deleteCard->execute(['card_id' => (int) $card['card_id']]);
+                }
+            } elseif ($card) {
+                $updateCard = $pdo->prepare(
+                    "UPDATE rfid_cards
+                     SET rfid_uid = :rfid_uid,
+                         status = 'active'
+                     WHERE card_id = :card_id"
+                );
+                $updateCard->execute([
+                    'rfid_uid' => $rfidUid,
+                    'card_id' => (int) $card['card_id'],
+                ]);
+            } else {
+                $insertCard = $pdo->prepare(
+                    "INSERT INTO rfid_cards (user_id, rfid_uid, status)
+                     VALUES (:user_id, :rfid_uid, 'active')"
+                );
+                $insertCard->execute([
+                    'user_id' => $userId,
+                    'rfid_uid' => $rfidUid,
+                ]);
+            }
         }
 
         $pdo->commit();
