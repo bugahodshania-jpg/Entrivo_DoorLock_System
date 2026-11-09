@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <RTClib.h>
 #include <driver/gpio.h>
+#include <Preferences.h>
 #include "Config.h"
 #include "DoorHardware.h"
 #include "DoorStatus.h"
@@ -22,6 +23,15 @@ namespace {
     bool fingerprintExitTouchPending = false;
     unsigned long lastTouchAt = 0;
     unsigned long lastLockedTouchMsgAt = 0;
+    bool restoredUnlocked = false;
+
+    // Non-volatile door state ("door" namespace): written only on a change.
+    Preferences doorStore;
+    bool doorStoreReady = false;
+
+    void saveUnlocked(bool value) {
+        if (doorStoreReady && doorStore.getBool("unlocked", false) != value) doorStore.putBool("unlocked", value);
+    }
     constexpr unsigned long LOCKED_TOUCH_MSG_COOLDOWN_MS = 5000UL;
 
     void mp3Command(uint8_t command, uint16_t value) {
@@ -52,7 +62,24 @@ void initDoorHardware() {
     previousTouch = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_LEVEL;
     unlocked = false;
     exitAuthorized = false;
+
+    // A restart must never lock an open door: re-energize the solenoid right
+    // away if the door was unlocked before the restart.
+    doorStoreReady = doorStore.begin("door", false);
+    restoredUnlocked = doorStoreReady && doorStore.getBool("unlocked", false);
+    if (restoredUnlocked) {
+        digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
+        unlocked = true;
+    }
 }
+
+bool doorWasRestoredUnlocked() { return restoredUnlocked; }
+
+void saveUnlockSlot(uint16_t slot) {
+    if (doorStoreReady && doorStore.getUShort("slot", 0) != slot) doorStore.putUShort("slot", slot);
+}
+
+uint16_t restoredUnlockSlot() { return doorStoreReady ? doorStore.getUShort("slot", 0) : 0; }
 
 void initDoorFeedback() {
     Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
@@ -79,6 +106,7 @@ void openDoorRelay(uint16_t track) {
     if (unlocked) return;
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
     unlocked = true;
+    saveUnlocked(true);
     fingerprintExitTouchPending = false;
     queueDoorStatus(true);
     exitAuthorized = false;
@@ -92,6 +120,7 @@ void lockDoorRelay(uint16_t track) {
     digitalWrite(DOOR_UNUSED_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
     const bool wasUnlocked = unlocked;
     unlocked = false;
+    saveUnlocked(false);
     exitAuthorized = false;
     fingerprintExitTouchPending = false;
     if (wasUnlocked) {

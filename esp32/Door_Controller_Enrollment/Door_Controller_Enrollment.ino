@@ -1,7 +1,9 @@
 #include <WiFi.h>
+#include <esp_system.h>
 // Keep hardware dependencies visible to Arduino's incremental library discovery.
 #include <Wire.h>
 #include <RTClib.h>
+#include <Preferences.h>
 #include "Config.h"
 #include "API.h"
 #include "DoorHardware.h"
@@ -107,9 +109,12 @@ namespace {
         DoorDecision decision;
         const bool granted = authorizeRfid(uid, isExit, message, &decision);
         const bool lockedIn = isExit && !isDoorUnlocked();
+        const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
             ? (lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
-                : isExit ? "Exit approved, touch to lock" : "Access granted, door unlocked")
+                : isExit ? "Exit approved, touch to lock"
+                : alreadyOpen ? "Entry recorded, the door is already unlocked"
+                : "Access granted, door unlocked")
             : "Access denied", message);
         if (!granted) playDeniedFeedback(deniedTrack(decision.reason));
         else if (isExit) {
@@ -118,9 +123,16 @@ namespace {
             if (lockedIn) openDoorRelay(AUDIO_DOOR_UNLOCK);
             authorizeExit();
         }
+        else if (alreadyOpen) {
+            // Arrival through an open door (e.g. the instructor is inside): it is
+            // logged by the backend; the lock state and locking finger stay as they are.
+            playTrack(entryTrack(decision));
+            armReminder(decision.secondsRemaining);
+        }
         else {
             openDoorRelay(entryTrack(decision));
             unlockedByFingerSlot = 0;
+            saveUnlockSlot(0);
             armReminder(decision.secondsRemaining);
         }
         discardBufferedScans();
@@ -204,10 +216,12 @@ namespace {
                 openDoorRelay(AUDIO_DOOR_UNLOCK);
                 authorizeExit();
                 unlockedByFingerSlot = 0;
+                saveUnlockSlot(0);
             }
             else {
                 openDoorRelay(entryTrack(decision));
                 unlockedByFingerSlot = match.matchedSlot;
+                saveUnlockSlot(unlockedByFingerSlot);
                 armReminder(decision.secondsRemaining);
                 SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
             }
@@ -223,6 +237,19 @@ void setup() {
     delay(50);
     SerialLog::section("ENTRIVO DOOR CONTROLLER  BOOT");
     SerialLog::step("Combined door controller and fingerprint enrollment starting.");
+    const esp_reset_reason_t resetReason = esp_reset_reason();
+    SerialLog::kv("Last restart", resetReason == ESP_RST_BROWNOUT ? "BROWNOUT (power dip, e.g. WiFi current spike)"
+        : resetReason == ESP_RST_POWERON ? "power on"
+        : resetReason == ESP_RST_SW ? "software restart"
+        : (resetReason == ESP_RST_PANIC || resetReason == ESP_RST_INT_WDT || resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_WDT)
+            ? "crash / watchdog" : "other (" + String(static_cast<int>(resetReason)) + ")");
+    if (doorWasRestoredUnlocked()) {
+        // The relay was re-energized in initDoorHardware(); keep the finger that opened it.
+        unlockedByFingerSlot = restoredUnlockSlot();
+        SerialLog::warn("Door was UNLOCKED before the restart: it stays unlocked (solenoid re-opened)."
+            + String(unlockedByFingerSlot ? " Locking finger: slot " + String(unlockedByFingerSlot) + "." : ""));
+    }
+    previousDoorState = isDoorUnlocked();
     initDoorFeedback();
     sensorReady = initFingerprint();
     lastSensorAttemptAt = millis();
@@ -241,6 +268,7 @@ void loop() {
         previousDoorState = isDoorUnlocked();
         if (!previousDoorState) {
             unlockedByFingerSlot = 0;
+            saveUnlockSlot(0);
             reminderArmed = false; // The room was locked: the session is over.
         }
         if (previousDoorState) interruptSensorMemoryRead();

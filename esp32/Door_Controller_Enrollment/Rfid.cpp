@@ -38,9 +38,9 @@ void resetRfidReaders() {
 
 bool pollRfidReader(String &uid, bool &isExit) {
     // Keep a complete listen window per reader. While open, only EXIT can act.
-    if (isDoorUnlocked()) {
-        if (!listeningExit) selectReader(true);
-    } else if (millis() - switchedAt >= RFID_LISTEN_WINDOW_MS) {
+    // Both readers are polled in turn, locked or unlocked: the outside reader
+    // also records arrivals while the door is already open.
+    if (millis() - switchedAt >= RFID_LISTEN_WINDOW_MS) {
         selectReader(!listeningExit);
     }
     SoftwareSerial &port = listeningExit ? exitReader : entrance;

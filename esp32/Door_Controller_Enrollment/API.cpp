@@ -593,7 +593,9 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     payload["rfid_uid"] = uid;
     payload["direction"] = isExit ? "exit" : "entry";
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
-    const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, isExit);
+    // Card checks run while unlocked too: the inside reader for exits, the
+    // outside reader to record an arrival through an already open door.
+    const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, true);
     readDecision(response, decision);
     if (!answered) return false;
     message = String(response["message"] | "RFID access denied.");

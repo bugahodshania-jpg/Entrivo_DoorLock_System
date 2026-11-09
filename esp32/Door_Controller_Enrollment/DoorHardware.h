@@ -29,5 +29,10 @@ void printDeviceTime();
 bool isDoorUnlocked();
 bool isExitAuthorized();
 bool consumeFingerprintExitTouch();
+// The door state survives a restart (WiFi brownout, crash, power cut): an
+// unlocked door is re-opened at boot instead of locking on its own.
+bool doorWasRestoredUnlocked();
+void saveUnlockSlot(uint16_t slot);
+uint16_t restoredUnlockSlot();
 
 #endif

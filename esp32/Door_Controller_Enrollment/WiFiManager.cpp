@@ -20,13 +20,16 @@ namespace
     bool g_brownoutPaused = false;
     unsigned long g_brownoutPausedAt = 0;
 
+    // Also used while WiFi is down: each reconnect draws a current spike that
+    // can brown out the supply and restart the board. Calling it again keeps
+    // the guard on for another WIFI_BROWNOUT_GUARD_MS.
     void pauseBrownoutDetector()
     {
+        g_brownoutPausedAt = millis();
         if (g_brownoutPaused) return;
         g_savedBrownoutReg = READ_PERI_REG(RTC_CNTL_BROWN_OUT_REG);
         WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
         g_brownoutPaused = true;
-        g_brownoutPausedAt = millis();
     }
 
     void restoreBrownoutDetector(const char *why)
@@ -36,7 +39,7 @@ namespace
         g_brownoutPaused = false;
         // Informational only: the start-up guard is over and normal
         // brownout protection is active again. This is not an error.
-        Serial.print("[WiFi] Start-up power guard finished (");
+        Serial.print("[WiFi] Power guard finished (");
         Serial.print(why);
         Serial.println("); brownout protection is active again.");
     }
@@ -136,7 +139,8 @@ void ensureWiFiConnected()
             Serial.println(" dBm.");
             g_attempts = 0;
         } else {
-            Serial.println("[WiFi] WiFi disconnected. Door access is unavailable.");
+            Serial.println("[WiFi] WiFi disconnected. Scans cannot be verified until it returns; the door stays as it is.");
+            pauseBrownoutDetector();
         }
     }
 
@@ -169,6 +173,7 @@ void ensureWiFiConnected()
         Serial.print("). Retrying, attempt ");
         Serial.print(g_attempts + 1);
         Serial.println(".");
+        pauseBrownoutDetector();
         WiFi.disconnect();
         startConnection();
     }
