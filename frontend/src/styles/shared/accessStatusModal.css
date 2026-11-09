@@ -94,6 +94,15 @@
   overflow-wrap: anywhere;
 }
 
+/* One line per schedule in the "Schedule today" row. */
+.access-status-schedule-line {
+  display: block;
+}
+
+.access-status-schedule-line + .access-status-schedule-line {
+  margin-top: 2px;
+}
+
 .access-status-modal .access-status-reason {
   background: #fbf1f1;
   border: 1px solid #f0d6d6;

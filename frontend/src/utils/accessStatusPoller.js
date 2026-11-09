@@ -25,6 +25,39 @@ const ROLE_LABELS = {
   student: 'Student',
 };
 
+// '08:00:00' -> '8:00 AM'
+function formatClock(value) {
+  const match = /^(\d{2}):(\d{2})/.exec(String(value || ''));
+  if (!match) return '';
+  const hours = Number(match[1]);
+  return `${hours % 12 || 12}:${match[2]} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
+/**
+ * The person's approved schedules on the day of the attempt, one line each,
+ * e.g. "8:00 AM – 10:00 AM · Regular (used)". Empty for unregistered scans.
+ */
+export function describeSchedules(event) {
+  if (!event?.userId) return [];
+  const schedules = Array.isArray(event?.schedules) ? event.schedules : [];
+  if (!schedules.length) return ['No approved schedule this day'];
+  return schedules.map((schedule) => {
+    const window = [formatClock(schedule?.time_start), formatClock(schedule?.time_end)].filter(Boolean).join(' – ');
+    const kind = schedule?.kind === 'override' ? 'Override' : 'Regular';
+    const used = event?.status === 'granted' && Number(schedule?.schedule_id) === Number(event?.scheduleId) ? ' (used)' : '';
+    return `${window} · ${kind}${used}`;
+  });
+}
+
+function denialText(event) {
+  // A refused student card is almost always "no instructor inside yet".
+  if (event?.denialReason === 'unauthorized' && event?.method === 'RFID' && event?.userRole === 'student'
+    && event?.direction !== 'exit') {
+    return 'Students can enter only after a faculty member, staff member, or administrator has entered the room.';
+  }
+  return DENIAL_REASONS[event?.denialReason] || 'Access was denied by the backend.';
+}
+
 export function describeAccessEvent(event) {
   const granted = event?.status === 'granted';
   const isExit = event?.direction === 'exit';
@@ -50,7 +83,8 @@ export function describeAccessEvent(event) {
     direction: isExit ? 'Exit' : 'Entry',
     credential,
     when: [event?.date, event?.time].filter(Boolean).join(' · '),
-    reason: granted ? '' : (DENIAL_REASONS[event?.denialReason] || 'Access was denied by the backend.'),
+    schedules: describeSchedules(event),
+    reason: granted ? '' : denialText(event),
   };
 }
 

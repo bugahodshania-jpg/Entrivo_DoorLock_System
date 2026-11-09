@@ -190,6 +190,38 @@ final class ScheduleAccessPolicy
         return $this->hasAccessType ??= (bool) $this->pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
     }
 
+    /**
+     * The user's approved schedules on one date, the same set evaluate() checks
+     * (approved status, occurs on that date, valid time window), earliest first.
+     * Read-only; used to show "Schedule today" in the live Access Status modal.
+     *
+     * @return list<array{schedule_id: int, time_start: string, time_end: string, kind: string}>
+     */
+    public function schedulesOn(int $userId, string $date): array
+    {
+        $statement = $this->pdo->prepare('SELECT * FROM schedules WHERE user_id = ? ORDER BY time_start ASC, schedule_id ASC');
+        $statement->execute([$userId]);
+        $result = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $schedule) {
+            $start = (string) $schedule['time_start'];
+            $end = (string) $schedule['time_end'];
+            if (ScheduleStatusService::normalizeStatus($schedule['status'] ?? null) !== 'approved'
+                || !self::occursOn($schedule, $date)
+                || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $start) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $end) || $end <= $start) {
+                continue;
+            }
+            $isOverride = strtolower(trim((string) $schedule['status'])) === 'overridden'
+                || strtolower(trim((string) ($schedule['schedule_kind'] ?? 'regular'))) === 'override';
+            $result[] = [
+                'schedule_id' => (int) $schedule['schedule_id'],
+                'time_start' => $start,
+                'time_end' => $end,
+                'kind' => $isOverride ? 'override' : 'regular',
+            ];
+        }
+        return $result;
+    }
+
     public static function occursOn(array $schedule, string $date): bool
     {
         if (($schedule['schedule_type'] ?? null) === 'single') {

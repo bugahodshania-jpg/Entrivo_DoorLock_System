@@ -35,6 +35,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/DoorStatusService.php';
+require_once dirname(__DIR__) . '/services/ScheduleAccessPolicy.php';
 
 $actorId = filter_input(INPUT_GET, 'actor_id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 $afterId = filter_input(INPUT_GET, 'after_id', FILTER_VALIDATE_INT, ['options' => ['default' => 0, 'min_range' => 0]]);
@@ -87,6 +88,8 @@ try {
             DATE_FORMAT(access_log.access_timestamp, '%Y-%m-%dT%H:%i:%s') AS access_iso,
             DATE_FORMAT(access_log.access_timestamp, '%b %e, %Y') AS access_date,
             DATE_FORMAT(access_log.access_timestamp, '%h:%i:%s %p') AS access_time,
+            DATE_FORMAT(access_log.access_timestamp, '%Y-%m-%d') AS access_day,
+            access_log.schedule_id,
             access_log.access_status,
             access_log.denial_reason,
             access_log.method_access,
@@ -117,7 +120,17 @@ try {
     $statement->bindValue(':after_id', (int) $afterId, PDO::PARAM_INT);
     $statement->execute();
 
-    $events = array_map(static function (array $row): array {
+    // The person's approved schedules on the day of the attempt (same rules as
+    // the door decision), so the modal can show what was assigned that day.
+    $policy = new ScheduleAccessPolicy($pdo);
+    $scheduleCache = [];
+    $schedulesFor = static function (?int $userId, string $day) use ($policy, &$scheduleCache): array {
+        if ($userId === null) return [];
+        return $scheduleCache["{$userId}|{$day}"] ??= $policy->schedulesOn($userId, $day);
+    };
+
+    $events = array_map(static function (array $row) use ($schedulesFor): array {
+        $userId = $row['user_id'] !== null ? (int) $row['user_id'] : null;
         return [
             'id' => (int) $row['log_id'],
             'status' => $row['access_status'],
@@ -134,6 +147,8 @@ try {
             'rfidUid' => $row['method_access'] === 'RFID' ? ($row['rfid_uid'] ?: null) : null,
             'matchedSlot' => $row['matched_slot'] !== null ? (int) $row['matched_slot'] : null,
             'matchConfidence' => $row['match_confidence'] !== null ? (int) $row['match_confidence'] : null,
+            'scheduleId' => $row['schedule_id'] !== null ? (int) $row['schedule_id'] : null,
+            'schedules' => $schedulesFor($userId, (string) $row['access_day']),
         ];
     }, $statement->fetchAll(PDO::FETCH_ASSOC));
 

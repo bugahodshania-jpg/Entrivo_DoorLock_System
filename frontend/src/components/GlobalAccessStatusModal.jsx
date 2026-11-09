@@ -110,6 +110,9 @@ export default function GlobalAccessStatusModal({ actorId }) {
     ['Method', `${view.method} · ${view.direction}`],
     view.credential ? ['Credential', view.credential] : null,
     ['Time', view.when || '—'],
+    view.schedules.length
+      ? ['Schedule today', view.schedules.map((line, index) => <span key={`${index}-${line}`} className="access-status-schedule-line">{line}</span>)]
+      : null,
   ].filter(Boolean);
 
   return createPortal(
