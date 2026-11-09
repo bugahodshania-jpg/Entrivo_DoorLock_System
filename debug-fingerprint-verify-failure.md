@@ -38,3 +38,28 @@
 - `Verification attempt summary`: each line shows `fast <status>` and, if it ran, `standard <status>`.
 - If enrollment now stops with `could not finish checking for an existing copy`, look for
   `Duplicate check window start=... returned 0x..` and report that log.
+
+## Follow-up (2026-11-09): ANY search before RegModel breaks the model on this R307S
+- Job #70 (sensor empty, so no search ran): the only extra step was UpChar + DownChar of
+  CharBuffer1. RegModel/Store returned 0x00, yet all 5 verification scans got 0x09.
+- After removing the round trip and searching with CharBuffer2 instead, the first enrollment on an
+  empty sensor passed, but the next one (1 template stored, so the search really ran) failed the
+  same way. Conclusion: on this module any Search between scan 1 and RegModel spoils CharBuffer1,
+  whatever BufferID the command names.
+- Fix: nothing is sent to the sensor between scan 1 and RegModel/Store (plain Adafruit enroll.ino).
+  The duplicate check moved to the verification scan, after Store, where consuming the buffer is
+  harmless: `sweepForMatch` first searches the new slot's window (skipping an update's previous
+  slot), then searches every other occupied slot with the same image, rebuilding CharBuffer1 before
+  each search. A match elsewhere means the finger is already enrolled: the new slot is rolled back.
+- Check in Serial Monitor: `First scan accepted.`, `Verification scan matched slot N`, then
+  `No other copy of this finger on Sensor A.` or `Duplicate: this finger is also stored at slot M`.
+
+## Root cause found (2026-11-09): the R307S flash no longer stores new templates correctly
+- `esp32/Fingerprint_Bench_Test` (stock Adafruit calls only, no door firmware) test `x`:
+  model straight from createModel (sensor RAM) vs a fresh scan: MATCH, score 301 / 283.
+  Same model after storeModel + loadModel (sensor flash) vs a fresh scan: NO MATCH (0x08), twice.
+- Store returns 0x00 but the template written to flash is damaged. Templates stored earlier still
+  match, which is why one older enrollment keeps working while every new one fails.
+- Fix: replace the fingerprint sensor, then re-enroll everyone. Run bench test `x` on the new
+  sensor first: A and B must both MATCH.
+- The firmware changes above are not the cause and work on a healthy sensor.

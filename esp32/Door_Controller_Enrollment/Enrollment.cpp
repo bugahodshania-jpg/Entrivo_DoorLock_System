@@ -205,16 +205,6 @@ namespace
         return status == FINGERPRINT_OK;
     }
 
-    // Whole-library duplicate search for scan 1: fingerFastSearch per 163-page
-    // window, but ONLY windows the sensor's index table marks as holding
-    // templates (an empty sensor needs no search at all). CharBuffer1 is
-    // reloaded with the saved original scan before every window after the
-    // first; firstScanIsNotDuplicate puts the original back before RegModel.
-    //
-    // Only 0x09 means "this window has no copy". On this R307S HiSpeedSearch
-    // returned 0x17 for window 163-325 even with a fresh buffer and an empty
-    // library, so a 0x17 is re-checked with standard Search (0x04); if that
-    // also fails, the check is reported as incomplete, never as clear.
     // Occupied-slot bitmap read from the sensor's own index table (ReadIndexTable
     // 0x1F, 32 bytes per 256 slots). Used so the duplicate check only searches
     // windows that actually hold templates.
@@ -249,72 +239,6 @@ namespace
         for (uint32_t slot = start; slot < static_cast<uint32_t>(start) + count && slot < finger.capacity; ++slot)
             if (index.bits[slot / 8] & (1U << (slot % 8))) return true;
         return false;
-    }
-
-    // Give CharBuffer1 a valid copy of scan 1 for the next search. Prefer the
-    // saved ORIGINAL feature file (DownChar, verified); fall back to a
-    // rebuild from the image. Either copy is only searched, never stored.
-    bool refreshScanForSearch(const uint8_t *original, size_t originalLength, const char *why)
-    {
-        if (original != nullptr) {
-            String restoreError;
-            if (restoreCurrentTemplate(original, originalLength, restoreError)) {
-                Serial.print("  [ENROLL] Original scan 1 reloaded for "); Serial.println(why);
-                return true;
-            }
-            Serial.print("  [ENROLL] Could not reload the original scan 1 ("); Serial.print(restoreError);
-            Serial.println("). Rebuilding from the image instead.");
-        }
-        return regenerateBuffer1FromImage(why);
-    }
-
-    DoorFingerprintSearch::Result searchLibraryFromCurrentImage(String &error, const uint8_t *original, size_t originalLength)
-    {
-        DoorFingerprintSearch::Result result;
-        result.outcome = DoorFingerprintSearch::Outcome::NoMatch;
-        result.standardStatus = DoorFingerprintSearch::NOT_FOUND;
-
-        const OccupiedIndex index = readOccupiedIndex();
-        if (index.valid) {
-            Serial.print("  [ENROLL] Sensor slot index: "); Serial.print(index.count);
-            Serial.println(" stored template(s).");
-            if (index.count == 0) {
-                Serial.println("  [ENROLL] Sensor A has no stored fingerprints. Nothing to compare; no duplicate possible.");
-                return result;
-            }
-        }
-
-        bool bufferUsed = false; // CharBuffer1 must be refreshed after any Search.
-        for (uint16_t start = 0; start < finger.capacity; start += FAST_SEARCH_WINDOW) {
-            const uint16_t end = min<uint32_t>(static_cast<uint32_t>(start) + FAST_SEARCH_WINDOW, finger.capacity) - 1;
-            if (!windowHasTemplates(index, start, FAST_SEARCH_WINDOW)) continue; // Empty window: nothing to match.
-            if (bufferUsed && !refreshScanForSearch(original, originalLength, "next search window")) {
-                error = "Sensor A could not reload the scan for the next search window.";
-                return DoorFingerprintSearch::protocolFailure();
-            }
-            DoorFingerprintSearch::Result window = searchFingerprintWindowVerified(start, FAST_SEARCH_WINDOW, &error);
-            bufferUsed = true;
-            if (window.outcome == DoorFingerprintSearch::Outcome::SensorError) {
-                // 0x17 from HiSpeedSearch: check this window with the standard
-                // Search (0x04) on a freshly reloaded scan before giving up.
-                Serial.print("  [ENROLL] Duplicate check slots "); Serial.print(start); Serial.print("-"); Serial.print(end);
-                Serial.print(" returned "); Serial.print(SerialLog::hex(window.standardStatus));
-                Serial.println(". Checking this window with standard Search (0x04).");
-                if (!refreshScanForSearch(original, originalLength, "standard search retry")) {
-                    error = "Sensor A could not reload the scan to retry the duplicate check.";
-                    return DoorFingerprintSearch::protocolFailure();
-                }
-                window = searchFingerprintWindowStandard(start, FAST_SEARCH_WINDOW, &error);
-                logFingerprintStatus("duplicate check standard search", window.standardStatus);
-            }
-            if (window.outcome == DoorFingerprintSearch::Outcome::NoMatch) continue; // 0x09: window clear.
-            if (window.outcome == DoorFingerprintSearch::Outcome::SensorError && error.length() == 0) {
-                error = "Sensor returned status " + SerialLog::hex(window.standardStatus) + " while checking slots "
-                    + String(start) + "-" + String(end) + ", which hold stored fingerprints.";
-            }
-            return window; // Matched, InvalidMatch, CommunicationError, or an unchecked window.
-        }
-        return result;
     }
 
     // Unsuccessful enrollments must not leave an orphan template in the reserved slot.
@@ -395,92 +319,18 @@ struct EnrollmentOperations {
             return !occupied;
         }
 
-        // Duplicate check on the first scan (Adafruit fingerprint.ino:
-        // image2Tz(1) -> fingerFastSearch). Without this, a finger already
-        // stored in another slot (for example an orphan template left by an
-        // earlier failed enrollment) is stored a second time and the third
-        // verification scan then identifies the old slot instead of the new one.
-        //
-        // The library search needs CharBuffer1 rebuilt from the same image
-        // before every 163-page window (up to 7 times on a 1000-slot sensor).
-        // Those repeated conversions must NOT become the scan-1 half of the
-        // model: on these modules GenChar can alter the image buffer, so each
-        // rebuild is a weaker copy, RegModel still accepts it, and the stored
-        // template then fails the third scan (0x09). So the feature file from
-        // the ONE original image2Tz(1) is uploaded to ESP32 RAM first and
-        // written back (byte-for-byte verified) after the search. If that is
-        // not possible, a fresh first scan is taken instead; a rebuilt buffer
-        // is never used for RegModel.
-        bool firstScanIsNotDuplicate() {
-            if (!updateProgress(job, 30, "First scan captured. Checking Sensor A for an existing copy of this finger", error))
-                return false;
-
-            std::unique_ptr<uint8_t[]> original(new (std::nothrow) uint8_t[DIRECT_TEMPLATE_MAX_BYTES]);
-            size_t originalLength = 0;
-            String backupError;
-            const bool haveOriginal = original
-                && readCurrentTemplateFromBuffer(1, original.get(), DIRECT_TEMPLATE_MAX_BYTES, originalLength, backupError)
-                && DoorEnrollmentProof::validTemplate(original.get(), originalLength);
-            if (haveOriginal) {
-                Serial.print("  [ENROLL] Saved the original scan 1 features ("); Serial.print(originalLength);
-                Serial.println(" bytes) before the duplicate check.");
-            } else {
-                Serial.print("  [ENROLL] Could not save the original scan 1 features");
-                if (backupError.length()) { Serial.print(": "); Serial.print(backupError); }
-                Serial.println(". A fresh first scan will be taken after the duplicate check.");
-            }
-
-            String searchError;
-            const DoorFingerprintSearch::Result match = searchLibraryFromCurrentImage(searchError,
-                haveOriginal ? original.get() : nullptr, originalLength);
-            logFingerprintStatus("enrollment duplicate check", match.standardStatus);
-            if (match.outcome == DoorFingerprintSearch::Outcome::Matched) {
-                if (job.previousSlot > 0 && match.matchedSlot == static_cast<uint16_t>(job.previousSlot)) {
-                    Serial.print("  [ENROLL] First scan matches this fingerprint's previous slot ");
-                    Serial.print(job.previousSlot);
-                    Serial.println(" (update). Continuing.");
-                } else {
-                    Serial.print("  [ENROLL] Duplicate: first scan already matches slot ");
-                    Serial.print(match.matchedSlot); Serial.print(", confidence="); Serial.println(match.confidence);
-                    error = "This finger is already stored on Sensor A at slot " + String(match.matchedSlot)
-                        + " (confidence " + String(match.confidence) + "). Enrollment stopped before anything was saved. "
-                        "Delete slot " + String(match.matchedSlot) + " in Sensor Memory (or update the fingerprint that uses it), then enroll again.";
-                    return false;
-                }
-            } else if (match.outcome != DoorFingerprintSearch::Outcome::NoMatch) {
-                // Communication error, invalid match, or a window that returned
-                // 0x17 twice: the library was not fully checked, so do not
-                // continue as if it were clear.
-                error = "Sensor A could not finish checking for an existing copy of this finger. Nothing was saved. Start enrollment again. " + searchError;
-                return false;
-            }
-
-            // The search consumed CharBuffer1. Put back the original scan-1
-            // conversion so RegModel combines the real first scan with scan 2.
-            if (haveOriginal) {
-                String restoreError;
-                if (restoreCurrentTemplate(original.get(), originalLength, restoreError)) {
-                    Serial.println("  [ENROLL] Restored the original scan 1 features into Buffer 1 (verified byte-for-byte).");
-                    return true;
-                }
-                Serial.print("  [ENROLL] Could not restore the original scan 1 features: ");
-                Serial.println(restoreError);
-            }
-            Serial.println("  [ENROLL] Taking a fresh first scan so the model uses one clean conversion.");
-            return updateProgress(job, 10, "Keep the same finger on the sensor for a fresh first scan", error)
-                && waitForFingerPlacement(1, error, job, 10);
-        }
-
         bool capturePair() {
             // Adafruit enroll.ino two-scan flow: getImage -> image2Tz(1),
             // remove finger, getImage -> image2Tz(2), then createModel ->
-            // storeModel. The only extra step is a read-only duplicate search on
-            // Buffer 1 before the second scan.
+            // storeModel, with nothing else sent to the sensor in between.
             SerialLog::subsection("STEP 1/4  FIRST SCAN");
             if (!updateProgress(job, 10, "Place finger for first scan", error) ||
                 !waitForFingerPlacement(1, error, job, 10)) return false;
-            if (!firstScanIsNotDuplicate()) return false;
-            SerialLog::ok("First scan accepted (no duplicate on Sensor A).");
+            // No sensor command between scan 1 and RegModel: on this R307S any
+            // Search in between (even on CharBuffer2) left a stored model that
+            // no later scan could match. Duplicates are checked after Store,
+            // on the verification scan (verifyEnrolledFingerprint).
+            SerialLog::ok("First scan accepted.");
             if (!updateProgress(job, 35, "First scan captured. Remove finger", error) ||
                 !waitForFingerRemoval(error)) return false;
             SerialLog::subsection("STEP 2/4  SECOND SCAN");
@@ -573,89 +423,137 @@ struct EnrollmentOperations {
         return true;
     }
 
-    // Result of comparing a fresh capture in CharBuffer1 with one stored slot.
-    struct SlotCheck {
-        enum class Kind { Verified, WrongSlot, NoMatch, SensorFault };
-        Kind kind = Kind::NoMatch;
-        DoorFingerprintSearch::Result match;
+    constexpr uint16_t NO_SLOT = 0xFFFF;
+
+    // Result of searching a fresh verification capture against stored slots.
+    struct Sweep {
+        enum class Kind { Clear, Found, Fault };
+        Kind kind = Kind::Clear;
+        uint16_t slot = NO_SLOT;
+        uint16_t confidence = 0;
+        uint8_t lastStatus = DoorFingerprintSearch::NOT_FOUND;
         String error;
-        uint8_t fastStatus = 0xFF;       // HiSpeedSearch (0x1B) status, for the attempt log.
-        bool usedStandardSearch = false; // Standard Search (0x04) fallback ran.
     };
 
-    // Adafruit fingerprint.ino check of a fresh scan: image2Tz(1) was just
-    // done, now run ONE fingerFastSearch over the page window that holds the
-    // expected slot. No 1:1 Match first: it consumes CharBuffer1, which made
-    // every following search fail (0x09/0x17) even for the correct finger.
-    //
-    // If HiSpeedSearch misses (0x09) or reports an unchecked buffer (0x17),
-    // CharBuffer1 is rebuilt from the SAME verification image (no new press,
-    // and this rebuilt file is only compared, never stored) and the standard
-    // Search (0x04) runs over the same window. The rules are unchanged: only
-    // the exact expected slot verifies; any other slot is a wrong finger.
-    // toleratedSlot (an update's previous slot) holds the same finger, so a hit
-    // there means "scan again", never a wrong finger.
-    SlotCheck checkFreshScanAgainstSlot(uint16_t expectedSlot, int toleratedSlot)
+    // Searches the verification image (CharBuffer1) against every occupied slot
+    // in [from, to), skipping skipA and skipB, and reports the first other slot
+    // that matches. Runs only AFTER Store, when consuming CharBuffer1 can no
+    // longer damage the model: the buffer is rebuilt from the same image
+    // before every search after the first. Windows follow the 163-slot
+    // fingerFastSearch layout; a window whose hit is a skipped slot is split
+    // around it and the remaining parts are searched. HiSpeedSearch (0x1B) is
+    // tried first; on a miss or 0x17 the standard Search (0x04) checks the same
+    // range again.
+    Sweep sweepForMatch(const OccupiedIndex &index, uint16_t from, uint16_t to, uint16_t skipA, uint16_t skipB,
+        bool bufferFresh, const char *label)
     {
-        SlotCheck check;
-        const uint16_t windowStart = (expectedSlot / FAST_SEARCH_WINDOW) * FAST_SEARCH_WINDOW;
-        Serial.print("  [ENROLL] fingerFastSearch of the fresh scan, window start="); Serial.print(windowStart);
-        Serial.print(", expected slot "); Serial.println(expectedSlot);
-        String searchError;
-        check.match = searchFingerprintWindowVerified(windowStart, FAST_SEARCH_WINDOW, &searchError);
-        check.error = searchError;
-        check.fastStatus = check.match.standardStatus;
-        logFingerprintStatus("verification fast search", check.match.standardStatus);
-        if (check.match.outcome == DoorFingerprintSearch::Outcome::NoMatch ||
-            check.match.outcome == DoorFingerprintSearch::Outcome::SensorError) {
-            Serial.println("  [ENROLL] HiSpeedSearch did not identify the scan. Rebuilding the same verification image "
-                "and running standard Search (0x04) over the same window.");
-            if (regenerateBuffer1FromImage("verification standard search")) {
-                String standardError;
-                const DoorFingerprintSearch::Result standard =
-                    searchFingerprintWindowStandard(windowStart, FAST_SEARCH_WINDOW, &standardError);
-                logFingerprintStatus("verification standard search", standard.standardStatus);
-                check.usedStandardSearch = true;
-                check.match = standard;
-                check.error = standardError;
-            } else {
-                Serial.println("  [ENROLL] Could not rebuild the verification image; keeping the HiSpeedSearch result.");
+        Sweep sweep;
+        struct Range { uint16_t start; uint16_t end; };
+        constexpr uint8_t MAX_RANGES = 24;
+        Range pending[MAX_RANGES];
+        uint8_t pendingCount = 0;
+        if (from >= to) return sweep;
+
+        // Push aligned windows from the highest down, so they are searched from low to high slots.
+        const int32_t firstWindow = (from / FAST_SEARCH_WINDOW) * FAST_SEARCH_WINDOW;
+        for (int32_t w = ((to - 1) / FAST_SEARCH_WINDOW) * FAST_SEARCH_WINDOW;
+             w >= firstWindow && pendingCount < MAX_RANGES; w -= FAST_SEARCH_WINDOW) {
+            const uint16_t start = max<int32_t>(w, from);
+            const uint16_t end = min<int32_t>(w + FAST_SEARCH_WINDOW, to);
+            if (start < end) pending[pendingCount++] = {start, end};
+        }
+
+        bool fresh = bufferFresh;
+        while (pendingCount > 0) {
+            const Range range = pending[--pendingCount];
+            if (range.start >= range.end || !windowHasTemplates(index, range.start, range.end - range.start)) continue;
+            const uint16_t count = range.end - range.start;
+
+            if (fresh) fresh = false;
+            else if (!regenerateBuffer1FromImage(label)) {
+                sweep.kind = Sweep::Kind::Fault;
+                sweep.error = "Sensor A could not rebuild the verification scan for the next search.";
+                return sweep;
             }
+            String error;
+            DoorFingerprintSearch::Result result = searchFingerprintWindowVerified(range.start, count, &error);
+            if (result.outcome == DoorFingerprintSearch::Outcome::NoMatch ||
+                result.outcome == DoorFingerprintSearch::Outcome::SensorError) {
+                if (!regenerateBuffer1FromImage(label)) {
+                    sweep.kind = Sweep::Kind::Fault;
+                    sweep.error = "Sensor A could not rebuild the verification scan for the standard search.";
+                    return sweep;
+                }
+                result = searchFingerprintWindowStandard(range.start, count, &error);
+            }
+            sweep.lastStatus = result.standardStatus;
+
+            if (result.outcome == DoorFingerprintSearch::Outcome::NoMatch) continue;
+            if (result.outcome == DoorFingerprintSearch::Outcome::Matched) {
+                const uint16_t hit = result.matchedSlot;
+                if (hit == skipA || hit == skipB) {
+                    // Search reports one slot per range: look on both sides of the skipped one.
+                    if (pendingCount + 2 > MAX_RANGES) {
+                        sweep.kind = Sweep::Kind::Fault;
+                        sweep.error = "Too many ranges to search.";
+                        return sweep;
+                    }
+                    pending[pendingCount++] = {static_cast<uint16_t>(hit + 1), range.end};
+                    pending[pendingCount++] = {range.start, hit};
+                    continue;
+                }
+                sweep.kind = Sweep::Kind::Found;
+                sweep.slot = hit;
+                sweep.confidence = result.confidence;
+                return sweep;
+            }
+            sweep.kind = Sweep::Kind::Fault;
+            sweep.error = error.length() ? error
+                : "Sensor returned status " + SerialLog::hex(result.standardStatus) + " while searching slots "
+                    + String(range.start) + "-" + String(range.end - 1) + ".";
+            return sweep;
         }
-        if (check.match.outcome == DoorFingerprintSearch::Outcome::Matched) {
-            if (check.match.matchedSlot == expectedSlot) check.kind = SlotCheck::Kind::Verified;
-            else if (toleratedSlot > 0 && check.match.matchedSlot == static_cast<uint16_t>(toleratedSlot)) {
-                Serial.print("  [ENROLL] Search found the previous slot "); Serial.print(toleratedSlot);
-                Serial.println(" of this same fingerprint. Asking for another verification scan.");
-                check.kind = SlotCheck::Kind::NoMatch;
-            } else check.kind = SlotCheck::Kind::WrongSlot;
-            return check;
-        }
-        check.kind = check.match.outcome == DoorFingerprintSearch::Outcome::CommunicationError
-            ? SlotCheck::Kind::SensorFault : SlotCheck::Kind::NoMatch;
-        return check;
+        return sweep;
     }
 
-    // Third scan: independent verification after Store. The user lifts the
-    // finger, places the SAME finger again, and the fresh capture must identify
-    // exactly the slot that was just stored. A different finger (match on any
-    // other slot) rolls back only the new slot. A miss is retried up to
-    // VERIFY_SCAN_ATTEMPTS times before the new slot is rolled back.
+    String alreadyStoredMessage(uint16_t existingSlot, uint16_t confidence, uint16_t newSlot)
+    {
+        return "This finger is already stored on Sensor A at slot " + String(existingSlot)
+            + " (confidence " + String(confidence) + "). The new slot " + String(newSlot)
+            + " was cleared. Delete slot " + String(existingSlot)
+            + " in Sensor Memory (or update the fingerprint that uses it), or enroll a different finger.";
+    }
+
+    // Third scan: independent verification after Store, which is also the
+    // duplicate check. The user lifts the finger and places the SAME finger
+    // again. (1) The fresh capture must identify exactly the slot just stored;
+    // an update's previous slot holds the same finger and is skipped. A miss is
+    // retried up to VERIFY_SCAN_ATTEMPTS times. (2) Once verified, the same
+    // image is searched against every other stored slot: a hit means this
+    // finger was already enrolled there, so only the new slot is rolled back.
     bool verifyEnrolledFingerprint(EnrollmentJob &job, String &errorMessage)
     {
         errorMessage = "";
         const uint16_t slot = static_cast<uint16_t>(job.assignedSlot);
-        const int toleratedSlot = (job.previousSlot > 0 && job.previousSlot != job.assignedSlot) ? job.previousSlot : 0;
-        SerialLog::subsection("STEP 4/4  VERIFICATION SCAN (3rd scan)");
+        const uint16_t toleratedSlot = (job.previousSlot > 0 && job.previousSlot != job.assignedSlot)
+            ? static_cast<uint16_t>(job.previousSlot) : NO_SLOT;
+        SerialLog::subsection("STEP 4/4  VERIFICATION SCAN (3rd scan) + DUPLICATE CHECK");
         SerialLog::kv("Expected slot", String(slot));
-        if (toleratedSlot > 0) SerialLog::kv("Previous slot", String(toleratedSlot) + " (same finger, update)");
+        if (toleratedSlot != NO_SLOT) SerialLog::kv("Previous slot", String(toleratedSlot) + " (same finger, update)");
         String attemptLog[VERIFY_SCAN_ATTEMPTS];
 
         // Give the module a moment to finish the flash write from Store
-        // before the first LoadChar of that page.
+        // before the first search of that page.
         delay(200);
+        const OccupiedIndex index = readOccupiedIndex();
+        if (index.valid) {
+            Serial.print("  [ENROLL] Sensor slot index: "); Serial.print(index.count);
+            Serial.println(" stored template(s), including the new one.");
+        }
 
-        SlotCheck last;
+        const uint16_t windowStart = (slot / FAST_SEARCH_WINDOW) * FAST_SEARCH_WINDOW;
+        const uint16_t windowEnd = min<uint32_t>(static_cast<uint32_t>(windowStart) + FAST_SEARCH_WINDOW, finger.capacity);
+
         for (uint8_t attempt = 1; attempt <= VERIFY_SCAN_ATTEMPTS; ++attempt)
         {
             const String attemptText = " (attempt " + String(attempt) + "/" + String(VERIFY_SCAN_ATTEMPTS) + ")";
@@ -684,56 +582,101 @@ struct EnrollmentOperations {
             }
 
             noteProgress(job, PROGRESS_VERIFY_MATCHING, "Verifying against the enrolled sensor slot " + String(slot));
-            last = checkFreshScanAgainstSlot(slot, toleratedSlot);
-            {
-                String summary = "fast " + SerialLog::hex(last.fastStatus) + " " + SerialLog::statusName(last.fastStatus);
-                if (last.usedStandardSearch)
-                    summary += " | standard " + SerialLog::hex(last.match.standardStatus) + " "
-                        + SerialLog::statusName(last.match.standardStatus);
-                if (last.match.outcome == DoorFingerprintSearch::Outcome::Matched)
-                    summary += ", matched slot " + String(last.match.matchedSlot) + " conf " + String(last.match.confidence);
-                attemptLog[attempt - 1] = summary;
+            Serial.print("  [ENROLL] Searching slots "); Serial.print(windowStart); Serial.print("-");
+            Serial.print(windowEnd - 1); Serial.print(" for expected slot "); Serial.println(slot);
+            Sweep check = sweepForMatch(index, windowStart, windowEnd, toleratedSlot, NO_SLOT, true, "verification");
+            String directLog;
+            if (check.kind == Sweep::Kind::Clear) {
+                // The window search missed. Compare the same image with ONLY the
+                // new slot: Search over a one-slot range, then a 1:1 Match
+                // (LoadChar slot -> Buffer 2, Match Buffer 1 vs 2). Both look at
+                // exactly the stored slot, so a hit is a real verification. The
+                // log shows whether Search or the stored model is at fault.
+                Serial.println("  [ENROLL] Window search missed. Checking slot " + String(slot) + " directly.");
+                String directError;
+                if (regenerateBuffer1FromImage("direct one-slot search")) {
+                    const DoorFingerprintSearch::Result one = searchFingerprintWindowStandard(slot, 1, &directError);
+                    directLog += " | one-slot Search " + SerialLog::hex(one.standardStatus);
+                    if (one.outcome == DoorFingerprintSearch::Outcome::Matched && one.matchedSlot == slot) {
+                        check.kind = Sweep::Kind::Found;
+                        check.slot = slot;
+                        check.confidence = one.confidence;
+                    }
+                }
+                if (check.kind != Sweep::Kind::Found && regenerateBuffer1FromImage("direct 1:1 match")) {
+                    const DoorFingerprintSearch::Result one = matchStoredFingerprintSlot(slot, &directError);
+                    directLog += " | 1:1 Match " + SerialLog::hex(one.standardStatus);
+                    if (one.outcome == DoorFingerprintSearch::Outcome::Matched) {
+                        directLog += " score " + String(one.confidence);
+                        check.kind = Sweep::Kind::Found;
+                        check.slot = slot;
+                        check.confidence = one.confidence;
+                    }
+                }
+                if (directError.length()) Serial.println("  [ENROLL] Direct check: " + directError);
+                if (check.kind == Sweep::Kind::Found)
+                    Serial.println("  [ENROLL] Slot " + String(slot) + " matched directly; the window Search missed it.");
             }
+            attemptLog[attempt - 1] = (check.kind == Sweep::Kind::Found
+                ? "matched slot " + String(check.slot) + " conf " + String(check.confidence)
+                : check.kind == Sweep::Kind::Clear
+                    ? "no match (" + SerialLog::hex(check.lastStatus) + " " + SerialLog::statusName(check.lastStatus) + ")"
+                    : "sensor fault: " + check.error) + directLog;
 
-            if (last.kind == SlotCheck::Kind::Verified) {
-                job.verification.freshScanVerified = true;
-                job.verification.storageConfirmed = true;
-                job.verification.storedSlot = job.assignedSlot;
-                job.verification.matchedSlot = job.assignedSlot;
-                job.verification.confidence = last.match.confidence > 0 && last.match.confidence != DoorFingerprintSearch::UNSET_MATCH
-                    ? static_cast<int>(last.match.confidence) : 1;
-                SerialLog::ok("Verification scan matched slot " + String(slot) + " (confidence "
-                    + String(job.verification.confidence) + ", attempt " + String(attempt) + ").");
-                noteProgress(job, PROGRESS_VERIFY_PASSED, "Verification successful at slot " + String(slot)
-                    + " (confidence " + String(job.verification.confidence) + ")");
-                return true;
-            }
-
-            if (last.kind == SlotCheck::Kind::WrongSlot) {
-                Serial.print("  [ENROLL] Third scan matched slot "); Serial.print(last.match.matchedSlot);
+            if (check.kind == Sweep::Kind::Found && check.slot != slot) {
+                Serial.print("  [ENROLL] Third scan matched slot "); Serial.print(check.slot);
                 Serial.print(" instead of "); Serial.print(slot);
-                Serial.println(". Rolling back the new slot.");
-                errorMessage = "The verification scan matched a different fingerprint at slot " + String(last.match.matchedSlot)
-                    + " (confidence " + String(last.match.confidence) + "), not the newly enrolled slot " + String(slot)
-                    + ". Use the same finger for all three scans. The new slot was cleared; start enrollment again.";
-                rollbackEnrollmentSlot(slot, "third scan matched wrong slot");
+                Serial.println(". This finger is already stored there. Rolling back the new slot.");
+                errorMessage = alreadyStoredMessage(check.slot, check.confidence, slot);
+                rollbackEnrollmentSlot(slot, "verification scan matched an existing slot");
                 return false;
             }
+            if (check.kind != Sweep::Kind::Found) {
+                Serial.print("  [ENROLL] Third scan attempt "); Serial.print(attempt);
+                Serial.print(": "); Serial.println(attemptLog[attempt - 1]);
+                continue;
+            }
 
-            Serial.print("  [ENROLL] Third scan attempt "); Serial.print(attempt);
-            Serial.print(last.kind == SlotCheck::Kind::SensorFault ? " sensor fault: " : " no match: ");
-            Serial.println(last.error);
+            SerialLog::ok("Verification scan matched slot " + String(slot) + " (confidence "
+                + String(check.confidence) + ", attempt " + String(attempt) + ").");
+
+            // Duplicate check: the same image against every other stored slot.
+            noteProgress(job, PROGRESS_VERIFY_MATCHING, "Checking Sensor A for another copy of this finger");
+            const Sweep duplicate = sweepForMatch(index, 0, finger.capacity, slot, toleratedSlot, false, "duplicate check");
+            if (duplicate.kind == Sweep::Kind::Found) {
+                Serial.print("  [ENROLL] Duplicate: this finger is also stored at slot "); Serial.print(duplicate.slot);
+                Serial.print(", confidence="); Serial.println(duplicate.confidence);
+                errorMessage = alreadyStoredMessage(duplicate.slot, duplicate.confidence, slot);
+                rollbackEnrollmentSlot(slot, "duplicate of an existing slot");
+                return false;
+            }
+            if (duplicate.kind == Sweep::Kind::Fault) {
+                Serial.print("  [ENROLL] Duplicate check could not finish: "); Serial.println(duplicate.error);
+                errorMessage = "Sensor A could not finish checking for another copy of this finger. The new slot "
+                    + String(slot) + " was cleared. Start enrollment again. " + duplicate.error;
+                rollbackEnrollmentSlot(slot, "duplicate check incomplete");
+                return false;
+            }
+            SerialLog::ok("No other copy of this finger on Sensor A.");
+
+            job.verification.freshScanVerified = true;
+            job.verification.storageConfirmed = true;
+            job.verification.storedSlot = job.assignedSlot;
+            job.verification.matchedSlot = job.assignedSlot;
+            job.verification.confidence = check.confidence > 0 && check.confidence != DoorFingerprintSearch::UNSET_MATCH
+                ? static_cast<int>(check.confidence) : 1;
+            noteProgress(job, PROGRESS_VERIFY_PASSED, "Verification successful at slot " + String(slot)
+                + " (confidence " + String(job.verification.confidence) + ")");
+            return true;
         }
 
         SerialLog::blank();
         SerialLog::debug("Verification attempt summary (expected slot " + String(slot) + "):");
         for (uint8_t i = 0; i < VERIFY_SCAN_ATTEMPTS; ++i)
             SerialLog::kv((String("  Attempt ") + (i + 1)).c_str(), attemptLog[i].length() ? attemptLog[i] : String("not reached"));
-        SerialLog::debug("fast and standard both 0x09 = the stored model does not match this finger. Re-enroll pressing");
-        SerialLog::debug("the same spot of the finger each time. 0x17 = consumed buffer (firmware issue, report this log).");
+        SerialLog::debug("0x09 on every attempt = the stored model does not match this finger.");
         errorMessage = "The verification scan did not match the newly enrolled fingerprint after "
             + String(VERIFY_SCAN_ATTEMPTS) + " attempts. The new slot was cleared. Enroll again and press the finger flat and centered the same way for all three scans.";
-        if (last.error.length()) errorMessage += " " + last.error;
         rollbackEnrollmentSlot(slot, "third scan no match after retries");
         return false;
     }
@@ -913,13 +856,17 @@ bool runEnrollmentVerifyJob(const EnrollmentVerifyJob &job, DoorFingerprintSearc
         !waitForFingerPlacement(1, errorMessage, capture, 0)) {
         return false;
     }
-    // Same Adafruit fingerFastSearch check as the enrollment third scan.
-    const SlotCheck check = checkFreshScanAgainstSlot(static_cast<uint16_t>(job.targetSlot), 0);
-    match = check.match;
+    // Same search as the enrollment third scan, over the target slot's window.
+    const uint16_t target = static_cast<uint16_t>(job.targetSlot);
+    const uint16_t windowStart = (target / FAST_SEARCH_WINDOW) * FAST_SEARCH_WINDOW;
+    const uint16_t windowEnd = min<uint32_t>(static_cast<uint32_t>(windowStart) + FAST_SEARCH_WINDOW, finger.capacity);
+    const Sweep check = sweepForMatch(readOccupiedIndex(), windowStart, windowEnd, NO_SLOT, NO_SLOT, true,
+        "post-download verify");
+    match.standardStatus = check.lastStatus;
     logFingerprintStatus("enrollment post-download verify", match.standardStatus);
-    if (check.kind != SlotCheck::Kind::Verified) {
-        if (check.kind == SlotCheck::Kind::WrongSlot)
-            errorMessage = "Sensor A identified slot " + String(match.matchedSlot) + " instead of the enrolled slot "
+    if (check.kind != Sweep::Kind::Found || check.slot != target) {
+        if (check.kind == Sweep::Kind::Found)
+            errorMessage = "Sensor A identified slot " + String(check.slot) + " instead of the enrolled slot "
                 + String(job.targetSlot) + ". Use the same finger that was enrolled.";
         else
             errorMessage = check.error.length() ? check.error :
@@ -927,7 +874,9 @@ bool runEnrollmentVerifyJob(const EnrollmentVerifyJob &job, DoorFingerprintSearc
         return false;
     }
     match.outcome = DoorFingerprintSearch::Outcome::Matched;
-    match.matchedSlot = static_cast<uint16_t>(job.targetSlot);
+    match.standardStatus = 0x00;
+    match.matchedSlot = target;
+    match.confidence = check.confidence;
     if (!readStoredTemplateHash(job.targetSlot, templateHash, errorMessage)) return false;
     return templateHash.length() == 64;
 }
