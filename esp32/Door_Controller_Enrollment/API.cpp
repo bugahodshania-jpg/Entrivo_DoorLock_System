@@ -74,7 +74,7 @@ namespace
             *statusCode = 0;
         }
         EntrivoHttpLock httpLock;
-        HTTPClient http;
+        HTTPClient &http = backendHttp();
         if (!beginRequest(http, endpoint))
         {
             SerialLog::httpFailure(endpoint, WiFi.status() == WL_CONNECTED ? 0 : -4,
@@ -92,7 +92,7 @@ namespace
             *statusCode = responseCode;
         }
         const String responseBody = http.getString();
-        http.end();
+        endBackendRequest(http, responseCode);
         if (deserializeJson(response, responseBody) || !response.is<JsonObject>()) {
             SerialLog::httpFailure(endpoint, responseCode, responseCode > 0
                 ? "Response was not valid JSON (PHP warning or HTML error page?). First bytes: " + responseBody.substring(0, 80)
@@ -114,7 +114,7 @@ namespace
     bool fetchPendingJob(EnrollmentJob &job)
     {
         EntrivoHttpLock httpLock;
-        HTTPClient http;
+        HTTPClient &http = backendHttp();
         if (!beginRequest(http, "/api/fingerprint/get_pending_job.php?enrollment_device_id=" +
                           String(ENROLLMENT_DEVICE_ID)))
         {
@@ -122,14 +122,16 @@ namespace
         }
         http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
 
-        if (http.GET() != HTTP_CODE_OK)
+        const int responseCode = http.GET();
+        if (responseCode != HTTP_CODE_OK)
         {
-            http.end();
+            if (responseCode > 0) http.getString(); // drain so the connection can be reused
+            endBackendRequest(http, responseCode);
             return false;
         }
 
         const String responseBody = http.getString();
-        http.end();
+        endBackendRequest(http, responseCode);
         DynamicJsonDocument response(JSON_BUFFER_SIZE);
         if (deserializeJson(response, responseBody) || !isExplicitTrue(response["success"]) ||
             !response["job"].is<JsonObject>())
@@ -153,19 +155,21 @@ namespace
     bool fetchPendingImport(DirectImportJob &job)
     {
         EntrivoHttpLock httpLock;
-        HTTPClient http;
+        HTTPClient &http = backendHttp();
         if (!beginRequest(http, "/api/fingerprint/direct_import_device.php?enrollment_device_id=" +
                           String(ENROLLMENT_DEVICE_ID)))
         {
             return false;
         }
-        if (http.GET() != HTTP_CODE_OK)
+        const int responseCode = http.GET();
+        if (responseCode != HTTP_CODE_OK)
         {
-            http.end();
+            if (responseCode > 0) http.getString(); // drain so the connection can be reused
+            endBackendRequest(http, responseCode);
             return false;
         }
         const String body = http.getString();
-        http.end();
+        endBackendRequest(http, responseCode);
         DynamicJsonDocument response(JSON_BUFFER_SIZE);
         if (deserializeJson(response, body) || !isExplicitTrue(response["success"]) ||
             !response["job"].is<JsonObject>())

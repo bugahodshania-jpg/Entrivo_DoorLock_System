@@ -11,9 +11,9 @@
 // Set the SAME private value in backend/.env as DOOR_DEVICE_TOKEN.
 #define DOOR_DEVICE_TOKEN "1016SjHeAtNhItAaBgUuGrAaHnOD0130"
 
-// Each cloud request takes ~1-3 s and requests run one at a time, so job checks
-// are spaced out to leave room for door status reports and card/finger checks.
-#define ENROLLMENT_POLL_INTERVAL_MS 5000UL
+// Requests reuse one open TLS connection (BackendClient.cpp), so a job check
+// costs a few hundred ms instead of a 1-3 s handshake and can run every 2 s.
+#define ENROLLMENT_POLL_INTERVAL_MS 2000UL
 #define WIFI_RETRY_INTERVAL_MS 10000UL
 #define SENSOR_RETRY_INTERVAL_MS 5000UL
 #define ACCESS_SCAN_INTERVAL_MS 180UL

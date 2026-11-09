@@ -59,8 +59,7 @@ namespace {
             String(DOOR_DEVICE_TOKEN).length() == 0) return false;
 
         EntrivoHttpLock httpLock;
-        HTTPClient http;
-        http.setReuse(false);
+        HTTPClient &http = backendHttp();
         http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
         http.setTimeout(HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
@@ -68,9 +67,9 @@ namespace {
         http.addHeader("Content-Type", "application/json");
         http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
         statusCode = http.POST(body);
-        if (statusCode <= 0) { http.end(); return false; }
+        if (statusCode <= 0) { endBackendRequest(http, statusCode); return false; }
         const String responseBody = http.getString();
-        http.end();
+        endBackendRequest(http, statusCode);
         return statusCode == HTTP_CODE_OK && responseBody.length() <= 4096 &&
             !deserializeJson(response, responseBody) && response.is<JsonObject>() &&
             explicitTrue(response["success"]);

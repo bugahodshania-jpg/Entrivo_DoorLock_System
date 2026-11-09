@@ -61,9 +61,23 @@ tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1
     // Seconds allowed for the TLS handshake. ESP32 handshakes take ~1-2 s.
     constexpr int TLS_HANDSHAKE_TIMEOUT_S = 8;
 
+    // An idle connection may already be closed by Railway's edge without the
+    // ESP32 noticing; past this idle time a fresh connection is opened instead.
+    constexpr unsigned long MAX_IDLE_REUSE_MS = 20000UL;
+
     WiFiClientSecure secureClient;
     WiFiClient plainClient;
+    HTTPClient sharedHttp;
     bool secureReady = false;
+    bool reuseAllowed = false;
+    unsigned long lastRequestEndedAt = 0;
+
+    void closeConnection()
+    {
+        secureClient.stop();
+        plainClient.stop();
+        reuseAllowed = false;
+    }
 
     bool backendUsesHttps()
     {
@@ -74,6 +88,8 @@ tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1
 bool beginBackendRequest(HTTPClient &http, const String &path)
 {
     const String url = String(SERVER_URL) + path;
+    if (!reuseAllowed || millis() - lastRequestEndedAt > MAX_IDLE_REUSE_MS) closeConnection();
+    http.setReuse(true);
     if (!backendUsesHttps()) return http.begin(plainClient, url);
 
     if (!secureReady) {
@@ -82,4 +98,18 @@ bool beginBackendRequest(HTTPClient &http, const String &path)
         secureReady = true;
     }
     return http.begin(secureClient, url);
+}
+
+HTTPClient &backendHttp()
+{
+    return sharedHttp;
+}
+
+void endBackendRequest(HTTPClient &http, int responseCode)
+{
+    // end() keeps the socket open when the server allowed keep-alive.
+    http.end();
+    lastRequestEndedAt = millis();
+    reuseAllowed = responseCode > 0;
+    if (!reuseAllowed) closeConnection();
 }

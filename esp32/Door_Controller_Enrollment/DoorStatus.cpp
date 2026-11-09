@@ -30,8 +30,7 @@ namespace {
         String body;
         serializeJson(payload, body);
         EntrivoHttpLock httpLock;
-        HTTPClient http;
-        http.setReuse(false);
+        HTTPClient &http = backendHttp();
         http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
         http.setTimeout(HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
@@ -42,7 +41,8 @@ namespace {
         http.addHeader("Content-Type", "application/json");
         http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
         const int code = http.POST(body);
-        http.end();
+        if (code > 0) http.getString(); // drain so the connection can be reused
+        endBackendRequest(http, code);
         if (code != HTTP_CODE_OK) {
             Serial.print("[DOOR STATUS] Report failed HTTP ");
             Serial.println(code);
