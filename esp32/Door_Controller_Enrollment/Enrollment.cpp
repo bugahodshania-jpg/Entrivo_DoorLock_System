@@ -376,12 +376,48 @@ struct EnrollmentOperations {
             const uint8_t status = storeFingerprintModelVerified(job.assignedSlot, 1, error);
             if (status == FINGERPRINT_OK) {
                 SerialLog::ok("Model stored on Sensor A slot " + String(job.assignedSlot) + ".");
-                return true;
+                return savedCopyMatchesModel();
             }
             SerialLog::sensorStatus("Store", status);
             error = "Sensor A did not store the fingerprint in slot " + String(job.assignedSlot)
                 + ". Enrollment must be started again. " + error;
             rollbackEnrollmentSlot(static_cast<uint16_t>(job.assignedSlot), "failed Store");
+            return false;
+        }
+
+        // Store can return 0x00 while the sensor's flash keeps the OLD page
+        // contents (seen on a failing R307S: a bench test matched the model in
+        // RAM but not the stored copy). The slot then still holds whatever
+        // finger was there before, and the third scan can "verify" with that
+        // other finger. So compare the model still in Buffer 1 (after Store)
+        // with the copy read back from the slot, byte for byte.
+        bool savedCopyMatchesModel() {
+            const uint16_t slot = static_cast<uint16_t>(job.assignedSlot);
+            std::unique_ptr<uint8_t[]> model(new (std::nothrow) uint8_t[DIRECT_TEMPLATE_MAX_BYTES]);
+            std::unique_ptr<uint8_t[]> saved(new (std::nothrow) uint8_t[DIRECT_TEMPLATE_MAX_BYTES]);
+            size_t modelLength = 0;
+            size_t savedLength = 0;
+            String readError;
+            if (!model || !saved
+                || !readCurrentTemplate(model.get(), DIRECT_TEMPLATE_MAX_BYTES, modelLength, readError)
+                || !readStoredTemplate(slot, saved.get(), DIRECT_TEMPLATE_MAX_BYTES, savedLength, readError)) {
+                // Could not compare (memory or transfer problem). The third scan still checks the slot.
+                SerialLog::warn("Could not compare the saved copy with the model: " + readError);
+                return true;
+            }
+            if (DoorEnrollmentProof::sameTemplate(model.get(), modelLength, saved.get(), savedLength)) {
+                SerialLog::ok("Saved copy in slot " + String(slot) + " matches the model byte for byte ("
+                    + String(savedLength) + " bytes).");
+                return true;
+            }
+            size_t differing = 0;
+            for (size_t i = 0; i < min(modelLength, savedLength); ++i) if (model[i] != saved[i]) ++differing;
+            SerialLog::fail("Saved copy in slot " + String(slot) + " differs from the model: " + String(differing)
+                + " of " + String(min(modelLength, savedLength)) + " bytes differ (model " + String(modelLength)
+                + " bytes, saved " + String(savedLength) + " bytes).");
+            error = "Sensor A reported the fingerprint as saved, but the copy in its memory is not the new fingerprint. "
+                "The sensor's storage is failing; replace the fingerprint sensor. Nothing was enrolled.";
+            rollbackEnrollmentSlot(slot, "saved copy differs from the model");
             return false;
         }
 
