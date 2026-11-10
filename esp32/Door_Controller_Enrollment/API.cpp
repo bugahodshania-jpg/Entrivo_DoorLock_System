@@ -544,12 +544,20 @@ namespace
         decision->secondsRemaining = response["seconds_remaining"].is<long>() ? response["seconds_remaining"].as<long>() : -1;
         decision->userId = response["user_id"].is<uint32_t>() ? response["user_id"].as<uint32_t>() : 0;
     }
+
+    // No usable decision came back. A request the backend called malformed is
+    // an answer, not an outage, so it never opens the offline paths.
+    bool noDecision(JsonDocument &response)
+    {
+        return String(response["reason"] | "") != "invalid_request";
+    }
 }
 
 bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit, bool *exitOnly, DoorDecision *decision,
-    uint32_t unlockedByUserId)
+    uint32_t unlockedByUserId, bool *backendUnreachable)
 {
     if (decision) *decision = DoorDecision{};
+    if (backendUnreachable) *backendUnreachable = false;
     if (exitOnly) *exitOnly = false;
     message = "Door access unavailable. Check WiFi and the backend.";
     if (matchedSlot == 0 || isFingerprintWorkPending())
@@ -576,6 +584,7 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     readDecision(response, decision);
     if (!answered)
     {
+        if (backendUnreachable) *backendUnreachable = noDecision(response);
         return false;
     }
 
@@ -602,7 +611,7 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, true);
     readDecision(response, decision);
     if (!answered) {
-        if (backendUnreachable) *backendUnreachable = true;
+        if (backendUnreachable) *backendUnreachable = noDecision(response);
         return false;
     }
     message = String(response["message"] | "RFID access denied.");

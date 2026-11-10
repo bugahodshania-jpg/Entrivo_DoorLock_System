@@ -174,6 +174,15 @@ namespace {
             message = "Backend unreachable: emergency access card accepted locally (not logged).";
             SerialLog::warn("[OFFLINE] Emergency access card " + uid + " used without the backend.");
         }
+        else if (!granted && backendUnreachable && isExit) {
+            // Nobody may be trapped by an outage. The exit reader is inside the
+            // room and registered cards cannot be checked offline, so any card
+            // here opens the door to leave and arms touch-to-lock. Never entry.
+            granted = true;
+            decision = DoorDecision{};
+            message = "Backend unreachable: exit allowed locally (not logged).";
+            SerialLog::warn("[OFFLINE] Exit reader used without the backend. Card " + uid + ".");
+        }
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
@@ -269,7 +278,15 @@ namespace {
         String message;
         bool exitOnly = false;
         DoorDecision decision;
-        const bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId);
+        bool backendUnreachable = false;
+        bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId, &backendUnreachable);
+        if (!granted && backendUnreachable && isExit && unlockedByFingerSlot != 0) {
+            // Connection lost: the slot check above already proved this is the
+            // finger that unlocked the door, so it may lock without the backend.
+            granted = true;
+            message = "Backend unreachable: same finger confirmed locally (not logged).";
+            SerialLog::warn("[OFFLINE] Door locked by the finger that unlocked it, without the backend.");
+        }
         SerialLog::result(granted, granted
             ? (isExit ? "Exit granted, door locked"
                 : exitOnly ? "Exit only: door unlocked so you can leave. Touch outside to lock"

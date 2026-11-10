@@ -104,6 +104,13 @@ card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cann
 reached (no answer at all, not a refusal), it is accepted locally with the same
 in/out process as any card (entrance reader unlocks; exit reader, then touch,
 locks). Offline uses are printed on Serial but not logged in the backend.
+
+Nobody is trapped by an outage. With no backend answer, any card on the inside
+**exit** reader unlocks a locked door and arms touch-to-lock, because registered
+cards cannot be checked offline; it never allows entry. Touch-to-lock itself
+needs no network. After a fingerprint entry, touch then the same finger also
+locks offline. The entrance reader and the fingerprint scan for entry stay
+closed offline, except for the emergency card.
 A failed request cannot unlock the door or arm exit. A connection loss after
 unlock leaves the existing latched state intact; serial `L` can lock locally.
 
