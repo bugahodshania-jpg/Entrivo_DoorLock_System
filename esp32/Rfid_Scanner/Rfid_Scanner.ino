@@ -311,7 +311,10 @@ void drawResultBody() {
   drawFooter();
 }
 
+// Every boot/status screen is also printed on Serial (115200), so the Serial
+// Monitor shows the same progress as the TFT.
 void showBoot(const String &line) {
+  Serial.println("[SCREEN] " + line);
   screenMode = SCREEN_BOOT;
   tft.fillScreen(COLOR_BG);
   drawHeader();
@@ -324,6 +327,7 @@ void showBoot(const String &line) {
 
 void showBootDetail(const String &line, const String &detail, const String &extra) {
   showBoot(line);
+  Serial.println("         " + detail + (extra.length() ? " | " + extra : String("")));
   tft.setTextSize(1);
   tft.setTextColor(COLOR_MUTED);
   tft.setCursor(16, 110);
@@ -335,6 +339,12 @@ void showBootDetail(const String &line, const String &detail, const String &extr
 void showReady(bool includeHeader) {
   screenMode = SCREEN_READY;
   if (includeHeader) {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[SCREEN] Ready to scan. WiFi connected, IP %s, signal %d dBm.\n",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    } else {
+      Serial.println("[SCREEN] Ready to scan (WiFi offline).");
+    }
     tft.fillScreen(COLOR_BG);
     drawHeader();
   }
@@ -649,6 +659,8 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.begin(115200);
   delay(400);
+  Serial.println();
+  Serial.println("[BOOT] Entrivo RFID Scanner Station starting.");
   setenv("TZ", "PHT-8", 1);
   tzset();
 
@@ -683,6 +695,7 @@ void setup() {
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     if (wifiReady) {
+      Serial.println("[WiFi] Disconnected from the hotspot. Retrying every 12 s.");
       wifiReady = false;
       if (screenMode == SCREEN_READY) {
         drawHeader();
