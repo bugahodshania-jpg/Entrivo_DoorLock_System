@@ -39,5 +39,11 @@ uint16_t restoredUnlockSlot();
 // The user who unlocked the door (0 = unknown); only they can lock it by fingerprint.
 void saveUnlockUser(uint32_t userId);
 uint32_t restoredUnlockUser();
+// DS3231 seconds counter (0 = RTC unavailable). Only needs to keep ticking,
+// not to be set to the right time: it measures time across a restart.
+uint32_t rtcSeconds();
+// 15-minute reminder moment in rtcSeconds() (0 = none); survives a restart.
+void saveReminderAt(uint32_t rtcAt);
+uint32_t restoredReminderAt();
 
 #endif

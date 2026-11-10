@@ -58,23 +58,55 @@ namespace {
 
     // Plan the reminder 15 minutes before the schedule ends. With several
     // entries the latest end wins; under 15 minutes left there is no reminder.
+    constexpr long REMINDER_LEAD_S = 15L * 60L;
+
     void armReminder(long secondsRemaining) {
-        constexpr long REMINDER_LEAD_S = 15L * 60L;
         if (secondsRemaining <= REMINDER_LEAD_S) return;
-        const unsigned long at = millis() + static_cast<unsigned long>(secondsRemaining - REMINDER_LEAD_S) * 1000UL;
+        const long untilReminder = secondsRemaining - REMINDER_LEAD_S;
+        const unsigned long at = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
         if (!reminderArmed || static_cast<long>(at - reminderAt) > 0) {
             reminderAt = at;
             reminderArmed = true;
-            SerialLog::step("15-minute reminder in " + String((secondsRemaining - REMINDER_LEAD_S) / 60) + " min.");
+            // Also kept in NVS as an RTC moment, so a restart keeps the reminder.
+            const uint32_t now = rtcSeconds();
+            saveReminderAt(now ? now + static_cast<uint32_t>(untilReminder) : 0);
+            SerialLog::step("15-minute reminder in " + String(untilReminder / 60) + " min.");
         }
     }
 
+    void cancelReminder() {
+        reminderArmed = false;
+        saveReminderAt(0);
+    }
+
+    void playReminder() {
+        cancelReminder();
+        SerialLog::step("Reminder: 15 minutes left in the scheduled session.");
+        playTrack(AUDIO_REMINDER);
+    }
+
     void serviceReminder() {
-        if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) {
-            reminderArmed = false;
-            SerialLog::step("Reminder: 15 minutes left in the scheduled session.");
-            playTrack(AUDIO_REMINDER);
+        if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) playReminder();
+    }
+
+    // After a restart with the door still unlocked: re-arm the saved reminder
+    // from the RTC. If its moment passed while the board was restarting but the
+    // schedule has not ended yet (less than 15 min late), play it right away.
+    void restoreReminder() {
+        const uint32_t savedAt = restoredReminderAt();
+        const uint32_t now = rtcSeconds();
+        if (savedAt == 0) return;
+        if (now == 0) {
+            SerialLog::warn("RTC unavailable: the 15-minute reminder could not be restored after the restart.");
+            cancelReminder();
+            return;
         }
+        const long untilReminder = static_cast<long>(savedAt - now);
+        if (untilReminder > 24L * 3600L || untilReminder <= -REMINDER_LEAD_S) { cancelReminder(); return; }
+        if (untilReminder <= 0) { playReminder(); return; }
+        reminderAt = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
+        reminderArmed = true;
+        SerialLog::step("15-minute reminder restored: in " + String(untilReminder / 60) + " min.");
     }
 
     void printStatus() {
@@ -289,6 +321,9 @@ void setup() {
     }
     previousDoorState = isDoorUnlocked();
     initDoorFeedback();
+    // Needs the RTC (started in initDoorFeedback) to measure the restart gap.
+    if (doorWasRestoredUnlocked()) restoreReminder();
+    else saveReminderAt(0);
     sensorReady = initFingerprint();
     lastSensorAttemptAt = millis();
     initRfidReaders();
@@ -306,7 +341,7 @@ void loop() {
         previousDoorState = isDoorUnlocked();
         if (!previousDoorState) {
             rememberUnlocker(0, 0); // Locked: clear the current occupant.
-            reminderArmed = false; // The room was locked: the session is over.
+            cancelReminder(); // The room was locked: the session is over.
         }
         if (previousDoorState) interruptSensorMemoryRead();
         discardBufferedScans();

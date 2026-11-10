@@ -102,6 +102,14 @@ void saveUnlockUser(uint32_t userId) {
 
 uint32_t restoredUnlockUser() { return doorStoreReady ? doorStore.getULong("user", 0) : 0; }
 
+uint32_t rtcSeconds() { return rtcReady ? rtc.now().unixtime() : 0; }
+
+void saveReminderAt(uint32_t rtcAt) {
+    if (doorStoreReady && doorStore.getULong("remind", 0) != rtcAt) doorStore.putULong("remind", rtcAt);
+}
+
+uint32_t restoredReminderAt() { return doorStoreReady ? doorStore.getULong("remind", 0) : 0; }
+
 void initDoorFeedback() {
     Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
     rtcReady = rtc.begin();
