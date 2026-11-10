@@ -112,6 +112,13 @@ final class CombinedDoorAccessService
         // Entry by role: faculty/staff need a regular or override schedule,
         // students an approved override only, admins have a permanent override.
         $schedule = $policy->evaluateEntry($identity['user_id'], $hasRole ? (string) ($card['role'] ?? '') : null, $now);
+        // An emergency access card (DOOR_EMERGENCY_RFID_UIDS) has a permanent
+        // override for entry, like an admin, whatever its owner's role. The
+        // card and its account must still be registered and active (above).
+        if (!$schedule['granted'] && in_array($uid, self::emergencyCardUids(), true)) {
+            $schedule = ['granted' => true, 'message' => 'Access granted: emergency access card (permanent override).',
+                'schedule_id' => null, 'override_id' => null, 'schedule_kind' => 'permanent_override', 'time_end' => null];
+        }
         if (!$schedule['granted']) {
             return $this->decision(false, $schedule['reason'], $schedule['message'], $identity);
         }
@@ -122,6 +129,20 @@ final class CombinedDoorAccessService
             'schedule_kind' => $schedule['schedule_kind'],
             'seconds_remaining' => ScheduleAccessPolicy::secondsLeft($schedule['time_end'] ?? null, $now),
         ]);
+    }
+
+    /**
+     * Emergency access cards from DOOR_EMERGENCY_RFID_UIDS (comma-separated
+     * 10-digit hex UIDs, e.g. "0A1B2C3D4E"). Unset or empty = none.
+     *
+     * @return list<string>
+     */
+    public static function emergencyCardUids(): array
+    {
+        $configured = getenv('DOOR_EMERGENCY_RFID_UIDS');
+        if (!is_string($configured)) return [];
+        $uids = array_map(static fn (string $uid): string => strtoupper(trim($uid)), explode(',', $configured));
+        return array_values(array_filter($uids, static fn (string $uid): bool => preg_match('/^[A-F0-9]{10}$/D', $uid) === 1));
     }
 
     private function decision(bool $granted, string $reason, string $message, array $identity = [], bool $success = true): array

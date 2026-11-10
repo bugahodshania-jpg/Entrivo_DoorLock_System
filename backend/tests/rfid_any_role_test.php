@@ -117,5 +117,25 @@ foreach ($roles as $role => $id) {
     $pdo->prepare('UPDATE users SET is_active=1 WHERE id=?')->execute([$id]);
 }
 
-echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), inactive accounts refused, exit always allowed.
+// Emergency access card (DOOR_EMERGENCY_RFID_UIDS): permanent override for entry, whatever the role.
+$previousEmergency = getenv('DOOR_EMERGENCY_RFID_UIDS');
+try {
+    putenv('DOOR_EMERGENCY_RFID_UIDS= bogus, aa00000001 ');
+    expectAnyRole(CombinedDoorAccessService::emergencyCardUids() === ['AA00000001'], 'Emergency card UIDs are normalized and invalid entries dropped.');
+    $emergency = $service->verify($card($student, 'entry'), $at('21:00:00'));
+    expectAnyRole($emergency['access_granted'] === true && $emergency['schedule_kind'] === 'permanent_override',
+        'An emergency card must open the door without a schedule or override. Got ' . json_encode($emergency));
+    expectAnyRole($lastLog()['access_status'] === 'granted' && $lastLog()['access_type'] === 'IN', 'The emergency card entry must be logged IN.');
+    expectAnyRole($service->verify($card($student, 'exit'), $at('21:05:00'))['access_granted'] === true, 'An emergency card can exit.');
+    expectAnyRole($service->verify($card($faculty, 'entry'), $at('21:00:00'))['access_granted'] === false, 'Other cards are not affected.');
+    $pdo->prepare('UPDATE users SET is_active=0 WHERE id=?')->execute([$student]);
+    expectAnyRole($service->verify($card($student, 'entry'), $at('21:10:00'))['reason'] === 'account_inactive', 'An emergency card on an inactive account is refused.');
+    $pdo->prepare('UPDATE users SET is_active=1 WHERE id=?')->execute([$student]);
+    putenv('DOOR_EMERGENCY_RFID_UIDS');
+    expectAnyRole($service->verify($card($student, 'entry'), $at('21:15:00'))['access_granted'] === false, 'Without the setting the card follows the student rule again.');
+} finally {
+    putenv($previousEmergency === false ? 'DOOR_EMERGENCY_RFID_UIDS' : 'DOOR_EMERGENCY_RFID_UIDS=' . $previousEmergency);
+}
+
+echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), emergency access cards (permanent override on entry), inactive accounts refused, exit always allowed.
 ";
