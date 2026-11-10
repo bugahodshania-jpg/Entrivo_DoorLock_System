@@ -2,9 +2,9 @@
 #define ENTRIVO_DOOR_STATUS_H
 
 // Reports run on the main loop with the same HTTP path as enrollment.
-// Skip serviceDoorStatus() only on the touch-to-lock path.
+// Pass touchArmed while touch-to-lock is armed: reports are rarer and quicker.
 void initDoorStatus(bool unlocked);
 void queueDoorStatus(bool unlocked);
-void serviceDoorStatus();
+void serviceDoorStatus(bool touchArmed = false);
 
 #endif

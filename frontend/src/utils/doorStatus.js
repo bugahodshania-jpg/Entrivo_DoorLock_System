@@ -1,3 +1,11 @@
+// received_at is Manila time from the backend; show it as sent, not re-zoned.
+function reportTime(receivedAt) {
+  const match = /(\d{2}):(\d{2}):(\d{2})/.exec(String(receivedAt ?? ''));
+  if (!match) return '';
+  const hour = Number(match[1]);
+  return `${hour % 12 || 12}:${match[2]}:${match[3]} ${hour < 12 ? 'AM' : 'PM'}`;
+}
+
 export function doorStatusView(report, elapsedMs = 0) {
   const fresh = report?.online === true && Number.isFinite(report.expires_in_ms)
     && report.expires_in_ms > Math.max(0, elapsedMs);
@@ -7,6 +15,8 @@ export function doorStatusView(report, elapsedMs = 0) {
     deviceName: report?.device_name || 'Door controller',
     state,
     label: state === 'locked' ? 'Locked' : state === 'unlocked' ? 'Unlocked' : 'Unavailable',
+    // When the controller last confirmed this state.
+    updatedAt: reportTime(report?.received_at),
     canReadSensor: state === 'locked' && report.can_read_sensor === true,
     readBlockedReason: state === 'unlocked'
       ? 'The door is unlocked. Lock the door before reading sensor memory.'

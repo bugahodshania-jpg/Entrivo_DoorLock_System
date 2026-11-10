@@ -30,3 +30,12 @@ test('elapsed time includes time spent fetching a snapshot', () => {
   assert.equal(result.canReadSensor, false);
   assert.equal(result.state, 'unknown');
 });
+
+test('the time of the last controller report is shown as Manila time, without re-zoning', () => {
+  const at = (received_at) => doorStatusView({ ...report(), received_at }).updatedAt;
+  assert.equal(at('2026-11-11 22:08:29.343000'), '10:08:29 PM');
+  assert.equal(at('2026-11-11 00:05:01'), '12:05:01 AM');
+  assert.equal(at('2026-11-11 12:00:00'), '12:00:00 PM');
+  assert.equal(at(null), '');
+  assert.equal(doorStatusView(null).updatedAt, '');
+});

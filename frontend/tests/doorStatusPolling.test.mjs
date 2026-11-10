@@ -29,7 +29,7 @@ test('successive reads update lock, unlock, and relock without replacing the pol
   const calls = [];
   let next = response();
   const { poller, states } = setup({ get: async (...args) => { calls.push(args); return next; } });
-  assert.ok(DOOR_STATUS_POLL_MS >= 2000);
+  assert.ok(DOOR_STATUS_POLL_MS > 0 && DOOR_STATUS_POLL_MS <= 1000);
   for (const state of ['locked', 'unlocked', 'locked']) {
     next = response(state);
     await poller.poll();

@@ -347,8 +347,9 @@ void loop() {
         discardBufferedScans();
     }
 
-    // Once EXIT is approved, no network or sensor operation can delay touch-to-lock.
-    if (isDoorUnlocked() && isExitAuthorized()) { delay(2); return; }
+    // Once EXIT is approved, only door status reports (short, so the portal keeps
+    // showing the real state) may use the network. A tap during one is latched.
+    if (isDoorUnlocked() && isExitAuthorized()) { serviceDoorStatus(true); delay(2); return; }
     ensureWiFiConnected();
     serviceDoorStatus();
     if (isDoorUnlocked()) {

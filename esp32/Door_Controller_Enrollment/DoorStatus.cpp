@@ -13,14 +13,19 @@ namespace {
     // several slow or failed Railway requests without the app showing "Unavailable".
     constexpr unsigned long HEARTBEAT_MS = 4000UL;
     constexpr unsigned long RETRY_MS = 3000UL;
+    // While touch-to-lock is armed, reports are rarer (still inside the backend's
+    // 45 s window) and give up quickly, so a slow network cannot hold up the lock.
+    constexpr unsigned long ARMED_REPORT_MS = 15000UL;
+    constexpr uint16_t ARMED_TIMEOUT_MS = 1500;
     char bootId[33] = {};
     uint32_t sequence = 0;
     bool started = false;
     bool pendingUnlocked = false;
     bool sendNow = false;
+    bool lastAttemptFailed = false;
     unsigned long lastAttemptAt = 0;
 
-    bool postState(bool unlocked) {
+    bool postState(bool unlocked, bool touchArmed) {
         if (WiFi.status() != WL_CONNECTED || String(DOOR_DEVICE_TOKEN).length() == 0) return false;
         DynamicJsonDocument payload(512);
         payload["device_id"] = ENROLLMENT_DEVICE_ID;
@@ -31,8 +36,8 @@ namespace {
         serializeJson(payload, body);
         EntrivoHttpLock httpLock;
         HTTPClient &http = backendHttp();
-        http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
-        http.setTimeout(HTTP_READ_TIMEOUT_MS);
+        http.setConnectTimeout(touchArmed ? ARMED_TIMEOUT_MS : HTTP_CONNECT_TIMEOUT_MS);
+        http.setTimeout(touchArmed ? ARMED_TIMEOUT_MS : HTTP_READ_TIMEOUT_MS);
         http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
         if (!beginBackendRequest(http, "/api/door_status_device.php")) {
             Serial.println("[DOOR STATUS] Could not start the status report.");
@@ -67,13 +72,17 @@ void initDoorStatus(bool unlocked) {
 void queueDoorStatus(bool unlocked) {
     pendingUnlocked = unlocked;
     sendNow = true;
+    lastAttemptFailed = false;
 }
 
-void serviceDoorStatus() {
+void serviceDoorStatus(bool touchArmed) {
     if (!started) return;
     const unsigned long now = millis();
-    const unsigned long wait = sendNow ? RETRY_MS : HEARTBEAT_MS;
+    // A new lock/unlock goes out at once; only a failed send waits to retry.
+    unsigned long wait = touchArmed ? ARMED_REPORT_MS : sendNow ? RETRY_MS : HEARTBEAT_MS;
+    if (sendNow && !lastAttemptFailed) wait = 0;
     if (lastAttemptAt != 0 && now - lastAttemptAt < wait) return;
     lastAttemptAt = now;
-    if (postState(pendingUnlocked)) sendNow = false;
+    lastAttemptFailed = !postState(pendingUnlocked, touchArmed);
+    if (!lastAttemptFailed) sendNow = false;
 }

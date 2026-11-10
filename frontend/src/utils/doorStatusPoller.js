@@ -1,4 +1,5 @@
-export const DOOR_STATUS_POLL_MS = 2000;
+// A read is skipped while the previous one is still running, so this cannot pile up.
+export const DOOR_STATUS_POLL_MS = 750;
 // Railway answers in 2-3.5 s. A 3 s timeout dropped many reads and let the status expire.
 export const DOOR_STATUS_TIMEOUT_MS = 10000;
 

@@ -29,6 +29,11 @@ namespace {
     Preferences doorStore;
     bool doorStoreReady = false;
 
+    // Catches a tap on the touch sensor while the main loop is busy with a
+    // door status report, so armed touch-to-lock never misses it.
+    volatile bool touchEdgeLatched = false;
+    void IRAM_ATTR onTouchEdge() { touchEdgeLatched = true; }
+
     // Relay diagnostics: the level actually read back from the GPIO after a write.
     void logRelay(const char *action) {
         Serial.print("[RELAY] ");
@@ -73,6 +78,7 @@ void initDoorHardware() {
     }
     pinMode(TOUCH_PIN, INPUT);
     previousTouch = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_LEVEL;
+    attachInterrupt(digitalPinToInterrupt(TOUCH_PIN), onTouchEdge, TOUCH_ACTIVE_LEVEL == HIGH ? RISING : FALLING);
     unlocked = false;
     exitAuthorized = false;
 
@@ -165,13 +171,16 @@ void lockDoorRelay(uint16_t track) {
 void authorizeExit() {
     if (!unlocked || exitAuthorized) return;
     exitAuthorized = true;
+    touchEdgeLatched = false; // Only a touch AFTER the valid exit card may lock.
     Serial.println("[EXIT] Registered card verified. Touch GPIO18 to LOCK.");
 }
 
 void updateDoorHardware() {
     digitalWrite(DOOR_UNUSED_RELAY_PIN, DOOR_RELAY_IDLE_LEVEL);
     const bool pressed = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_LEVEL;
-    if (pressed && !previousTouch && millis() - lastTouchAt >= TOUCH_DEBOUNCE_MS) {
+    const bool latchedTap = touchEdgeLatched && unlocked && exitAuthorized;
+    touchEdgeLatched = false;
+    if (((pressed && !previousTouch) || latchedTap) && millis() - lastTouchAt >= TOUCH_DEBOUNCE_MS) {
         lastTouchAt = millis();
         if (unlocked && exitAuthorized) lockDoorRelay(AUDIO_ROOM_LOCKED);
         else if (unlocked) {

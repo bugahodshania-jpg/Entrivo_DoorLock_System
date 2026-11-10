@@ -297,8 +297,9 @@ not upload firmware or change sensor memory.
 ## Live door status and Sensor Memory
 
 The portal header displays this controller's reported lock state beside the
-date and time. `DoorStatus.cpp` sends authenticated state changes and a heartbeat
-every three seconds from the main loop; HTTP waits do not delay touch-to-lock.
+date and time. `DoorStatus.cpp` sends each lock/unlock at once and a heartbeat
+every four seconds from the main loop. While touch-to-lock is armed it reports
+every 15 s with short timeouts, and a tap during a report is latched.
 The page and backend block Sensor Memory reads unless the controller has
 confirmed a locked door within fifteen seconds. Unlocking cancels queued or
 running reads for this controller. Install the additive door-status migration
