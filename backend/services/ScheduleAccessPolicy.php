@@ -16,15 +16,54 @@ require_once __DIR__ . '/ScheduleStatusService.php';
  */
 final class ScheduleAccessPolicy
 {
+    /** Roles whose active account and registered credential are a permanent override. */
+    public const PERMANENT_OVERRIDE_ROLES = ['admin', 'super_admin'];
+
     public function __construct(private PDO $pdo)
     {
     }
 
     /**
+     * Door ENTRY rule by role (the credential and active account are checked
+     * by the caller first):
+     *  - faculty / staff: a current approved REGULAR or OVERRIDE schedule.
+     *  - student: a current approved OVERRIDE schedule only; a regular
+     *    schedule or a registered credential alone never opens the room.
+     *  - admin / super_admin: permanent override, no schedule needed. A
+     *    schedule that is valid right now is still linked for the logs.
+     * A missing role (legacy schema) follows the faculty/staff rule.
+     *
      * @return array{granted: bool, reason: string, message: string,
      *     schedule_id: ?int, override_id: ?int, schedule_kind: ?string}
      */
-    public function evaluate(int $userId, DateTimeImmutable $now): array
+    public function evaluateEntry(int $userId, ?string $role, DateTimeImmutable $now): array
+    {
+        $role = strtolower(trim((string) $role));
+        if ($role === 'student') {
+            return $this->evaluate($userId, $now, true);
+        }
+        $schedule = $this->evaluate($userId, $now);
+        if ($schedule['granted'] || !in_array($role, self::PERMANENT_OVERRIDE_ROLES, true)) {
+            return $schedule;
+        }
+        return [
+            'time_end' => null,
+            'granted' => true,
+            'reason' => 'access_granted',
+            'message' => 'Access granted: ' . ($role === 'super_admin' ? 'super admin' : 'admin') . ' permanent override.',
+            'schedule_id' => null,
+            'override_id' => null,
+            'schedule_kind' => 'permanent_override',
+        ];
+    }
+
+    /**
+     * With $overrideOnly, regular schedules are ignored (students).
+     *
+     * @return array{granted: bool, reason: string, message: string,
+     *     schedule_id: ?int, override_id: ?int, schedule_kind: ?string}
+     */
+    public function evaluate(int $userId, DateTimeImmutable $now, bool $overrideOnly = false): array
     {
         $now = $now->setTimezone(new DateTimeZone('Asia/Manila'));
         $date = $now->format('Y-m-d');
@@ -47,14 +86,17 @@ final class ScheduleAccessPolicy
             if (!preg_match('/^\d{2}:\d{2}:\d{2}$/', $start) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $end) || $end <= $start) {
                 continue;
             }
+            $isOverride = strtolower(trim((string) $schedule['status'])) === 'overridden'
+                || strtolower(trim((string) ($schedule['schedule_kind'] ?? 'regular'))) === 'override';
+            if ($overrideOnly && !$isOverride) {
+                continue;
+            }
             $futureToday = $futureToday || $time < $start;
             $endedToday = $endedToday || $time >= $end;
             if ($time < $start || $time >= $end) {
                 continue;
             }
 
-            $isOverride = strtolower(trim((string) $schedule['status'])) === 'overridden'
-                || strtolower(trim((string) ($schedule['schedule_kind'] ?? 'regular'))) === 'override';
             if (!$isOverride) {
                 return $this->grant('regular', (int) $schedule['schedule_id'], null, $end);
             }
@@ -74,11 +116,17 @@ final class ScheduleAccessPolicy
         return [
             'granted' => false,
             'reason' => $reason,
-            'message' => match ($reason) {
-                'schedule_not_started' => 'The approved access schedule has not started yet.',
-                'expired_schedule' => 'The approved access schedule has already ended.',
-                default => 'There is no current approved access schedule for this account.',
-            },
+            'message' => $overrideOnly
+                ? match ($reason) {
+                    'schedule_not_started' => 'The approved override schedule has not started yet.',
+                    'expired_schedule' => 'The approved override schedule has already ended.',
+                    default => 'Students can enter only during an approved override schedule for this room.',
+                }
+                : match ($reason) {
+                    'schedule_not_started' => 'The approved access schedule has not started yet.',
+                    'expired_schedule' => 'The approved access schedule has already ended.',
+                    default => 'There is no current approved access schedule for this account.',
+                },
             'schedule_id' => null,
             'override_id' => null,
             'schedule_kind' => null,

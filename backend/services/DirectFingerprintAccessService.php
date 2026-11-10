@@ -60,6 +60,9 @@ final class DirectFingerprintAccessService
         $now = ($now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->setTimezone(new DateTimeZone('Asia/Manila'));
         $direction = $input['direction'] ?? 'entry';
         $validDirection = is_string($direction) && in_array($direction, ['entry', 'exit'], true);
+        // Exit only: the user the controller recorded as unlocking the door.
+        $unlockedBy = $direction === 'exit' ? $this->positiveInteger($input['unlocked_by_user_id'] ?? null) : false;
+        $unlockedByUserId = $unlockedBy === false ? null : (int) $unlockedBy;
         $hasRole = (bool) $this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
         // #region agent log
         agent_debug_log('A', 'DirectFingerprintAccessService.php:verifyWithPolicy', 'Fingerprint verify request received', [
@@ -84,7 +87,7 @@ final class DirectFingerprintAccessService
                     // Entry unlocks the door, so it needs a current schedule. A
                     // combined-controller exit only records leaving and arms the
                     // lock on an already-open door, so it is never schedule-gated.
-                    $requireSchedule || $direction !== 'exit'));
+                    $requireSchedule || $direction !== 'exit', $unlockedByUserId));
             // A locked-door scan by someone still inside after the schedule
             // ended is granted as an exit only (see authorize).
             $decision['direction'] = !empty($decision['exit_only']) ? 'exit' : ($validDirection ? $direction : 'entry');
@@ -121,7 +124,7 @@ final class DirectFingerprintAccessService
         return filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => $maximum]]);
     }
 
-    private function authorize(int $deviceId, int $slot, DateTimeImmutable $now, bool $requireSchedule, ?string $liveTemplateHash, bool $hasRole, bool $checkSchedule): array
+    private function authorize(int $deviceId, int $slot, DateTimeImmutable $now, bool $requireSchedule, ?string $liveTemplateHash, bool $hasRole, bool $checkSchedule, ?int $unlockedByUserId = null): array
     {
         $device = $this->pdo->prepare('SELECT device_type, status FROM fingerprint_devices WHERE device_id = ? FOR SHARE');
         $device->execute([$deviceId]);
@@ -167,8 +170,9 @@ final class DirectFingerprintAccessService
         if ((int) $fingerprint['must_change_password'] !== 0 || $fingerprint['onboarding_step'] !== 'done') {
             return $this->decision(false, 'account_incomplete', 'Complete the account setup before using door access.', $identity);
         }
-        if ($hasRole && !in_array((string) ($fingerprint['role'] ?? ''), ['faculty', 'staff', 'admin', 'super_admin'], true)) {
-            return $this->decision(false, 'unauthorized', 'Students use an RFID card to enter and leave. Fingerprint access is for faculty, staff, and administrators.', $identity);
+        $role = $hasRole ? (string) ($fingerprint['role'] ?? '') : null;
+        if ($hasRole && !in_array($role, ['faculty', 'staff', 'admin', 'super_admin', 'student'], true)) {
+            return $this->decision(false, 'unauthorized', 'This account role has no door access.', $identity);
         }
         if ($fingerprint['status'] !== 'active' || !$this->validTemplate($fingerprint)) {
             return $this->decision(false, 'invalid_fingerprint', 'This fingerprint enrollment is inactive or its stored template is invalid.', $identity);
@@ -209,13 +213,23 @@ final class DirectFingerprintAccessService
 
         $policy = new ScheduleAccessPolicy($this->pdo);
         if (!$checkSchedule) {
-            // Combined-controller exit: never schedule-gated, linked to the
-            // session, and marked EXTENDED after the schedule end.
+            // Combined-controller exit (touch, then fingerprint): this scan is
+            // what locks the door, so it must be the person who unlocked it.
+            // The controller sends that user when it knows them; another
+            // registered finger is refused and the door stays unlocked.
+            if ($unlockedByUserId !== null && $unlockedByUserId !== $identity['user_id']) {
+                return $this->decision(false, 'wrong_user',
+                    'Only the person who unlocked the door can lock it with a fingerprint. The door stays unlocked.', $identity);
+            }
+            // Never schedule-gated, linked to the session, and marked
+            // EXTENDED after the schedule end.
             $exit = $policy->exitContext($identity['user_id'], $now);
             return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
         }
 
-        $schedule = $policy->evaluate($identity['user_id'], $now);
+        // Entry by role: faculty/staff need a regular or override schedule,
+        // students an approved override only, admins have a permanent override.
+        $schedule = $policy->evaluateEntry($identity['user_id'], $role, $now);
         if (!$schedule['granted']) {
             // The fingerprint sensor is inside the room. On the combined
             // controller, a user who entered and has not exited yet (open

@@ -47,56 +47,75 @@ $student = $roles['student'];
 $faculty = $roles['faculty'];
 $lastLog = static fn () => $pdo->query('SELECT * FROM access_log ORDER BY log_id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
 
-// A student never opens the room first, even during the student's own schedule.
-$first = $service->verify($card($student, 'entry'), $at('08:30:00'));
-expectAnyRole($first['access_granted'] === false && $first['reason'] === 'faculty_not_present',
-    'A student card must not open the door before a faculty member is inside. Got ' . json_encode($first));
-expectAnyRole($lastLog()['access_status'] === 'denied' && $lastLog()['denial_reason'] === 'unauthorized', 'The refused student entry must be logged.');
-// Students can always exit.
+// Students: a registered card and a REGULAR schedule never open the room.
+$regular = $service->verify($card($student, 'entry'), $at('08:30:00'));
+expectAnyRole($regular['access_granted'] === false && $regular['reason'] === 'no_schedule',
+    'A student card must not open the door on a regular schedule. Got ' . json_encode($regular));
+expectAnyRole($lastLog()['access_status'] === 'denied' && $lastLog()['denial_reason'] === 'no_schedule', 'The refused student entry must be logged.');
+// A faculty member inside does not let a student in either (no "joining" without an override).
+expectAnyRole($service->verify($card($faculty, 'entry'), $at('08:40:00'))['access_granted'] === true, 'Faculty entry during schedule.');
+expectAnyRole($service->verify($card($student, 'entry'), $at('08:45:00'))['access_granted'] === false,
+    'A student without an approved override must be refused even while a faculty member is inside.');
+// Students can always exit, schedule or not.
 expectAnyRole($service->verify($card($student, 'exit'), $at('08:31:00'))['access_granted'] === true, 'A student can always exit.');
+expectAnyRole($service->verify($card($student, 'exit'), $at('23:00:00'))['access_granted'] === true, 'A student can exit after every schedule ended.');
 
-// Faculty enters -> the student may enter, linked to the instructor's schedule.
-$facultyEntry = $service->verify($card($faculty, 'entry'), $at('08:40:00'));
-expectAnyRole($facultyEntry['access_granted'] === true, 'Faculty entry during schedule.');
-expectAnyRole($facultyEntry['seconds_remaining'] === 80 * 60,
-    'An entry grant reports the seconds left until the 10:00 schedule end (for the 15-minute reminder).');
-$joined = $service->verify($card($student, 'entry'), $at('08:45:00'));
-expectAnyRole($joined['access_granted'] === true && $joined['schedule_id'] === $faculty,
-    'A student may enter while a faculty member is inside. Got ' . json_encode($joined));
-expectAnyRole((int) $lastLog()['schedule_id'] === $faculty, 'The student entry is logged against the instructor\'s schedule.');
-expectAnyRole($joined['seconds_remaining'] === 75 * 60, 'A student joining the class gets the instructor\'s remaining schedule time.');
-
-// Faculty exits -> students are refused again.
-expectAnyRole($service->verify($card($faculty, 'exit'), $at('08:50:00'))['access_granted'] === true, 'Faculty exit.');
-expectAnyRole($service->verify($card($student, 'entry'), $at('08:55:00'))['reason'] === 'faculty_not_present',
-    'After the faculty member leaves, a student card must be refused.');
-
-// Faculty re-enters but never scans out: allowed until that schedule ends (10:00).
-expectAnyRole($service->verify($card($faculty, 'entry'), $at('09:00:00'))['access_granted'] === true, 'Faculty re-entry.');
-expectAnyRole($service->verify($card($student, 'entry'), $at('09:59:00'))['access_granted'] === true, 'Student entry before the instructor\'s schedule ends.');
-expectAnyRole($service->verify($card($student, 'entry'), $at('10:00:00'))['reason'] === 'faculty_not_present',
-    'Once the instructor\'s schedule ends, a forgotten exit must not keep letting students in.');
-
-// Admin-approved temporary access (override) lets a student into a vacant room alone.
+// An approved override lets the student in, only inside its window.
 $pdo->exec("INSERT INTO schedules (schedule_id,user_id,schedule_type,schedule_kind,schedule_date,time_start,time_end,repeat_type,status)
     VALUES (50,$student,'single','override','2026-11-09','13:00:00','14:00:00','none','approved')");
 $pdo->exec("INSERT INTO access_overrides VALUES (50,$student,99,'2026-11-09 13:00:00','2026-11-09 14:00:00')");
+$early = $service->verify($card($student, 'entry'), $at('12:30:00'));
+expectAnyRole($early['access_granted'] === false && $early['reason'] === 'schedule_not_started', 'Before the override window a student is refused. Got ' . json_encode($early));
 $alone = $service->verify($card($student, 'entry'), $at('13:30:00'));
-expectAnyRole($alone['access_granted'] === true && $alone['schedule_kind'] === 'override',
-    'An approved temporary access must let a student enter without a faculty member inside. Got ' . json_encode($alone));
-expectAnyRole($service->verify($card($student, 'entry'), $at('14:30:00'))['reason'] === 'faculty_not_present',
-    'Outside the temporary access window a student still needs a faculty member inside.');
+expectAnyRole($alone['access_granted'] === true && $alone['schedule_kind'] === 'override' && (int) $alone['override_id'] === 50,
+    'An approved override must let a student enter. Got ' . json_encode($alone));
+$after = $service->verify($card($student, 'entry'), $at('14:30:00'));
+expectAnyRole($after['access_granted'] === false && $after['reason'] === 'expired_schedule', 'After the override window a student is refused. Got ' . json_encode($after));
+// An override schedule whose request was never approved does not count.
+$pdo->exec("INSERT INTO schedules (schedule_id,user_id,schedule_type,schedule_kind,schedule_date,time_start,time_end,repeat_type,status)
+    VALUES (51,$student,'single','override','2026-11-09','15:00:00','16:00:00','none','approved')");
+$pdo->exec("INSERT INTO access_overrides VALUES (51,$student,NULL,'2026-11-09 15:00:00','2026-11-09 16:00:00')");
+expectAnyRole($service->verify($card($student, 'entry'), $at('15:30:00'))['access_granted'] === false,
+    'An override without an approval must not let a student in.');
 
+// Faculty and staff: regular schedule (or approved override) only.
 $pdo->exec('DELETE FROM access_log');
-foreach (array_diff_key($roles, ['student' => true]) as $role => $id) {
+foreach (['faculty', 'staff'] as $role) {
+    $id = $roles[$role];
     $entry = $service->verify($card($id, 'entry'), $inSchedule);
-    expectAnyRole($entry['access_granted'] === true, "A $role card must open the door during the user's approved schedule. Got " . json_encode($entry));
+    expectAnyRole($entry['access_granted'] === true && $entry['schedule_kind'] === 'regular', "A $role card must open the door during the user's approved schedule. Got " . json_encode($entry));
     $late = $service->verify($card($id, 'entry'), $afterSchedule);
     expectAnyRole($late['access_granted'] === false && $late['reason'] === 'expired_schedule',
         "A $role card must be refused entry after the schedule ends. Got " . json_encode($late));
     $exit = $service->verify($card($id, 'exit'), $afterSchedule);
     expectAnyRole($exit['access_granted'] === true, "A $role card must always be able to exit. Got " . json_encode($exit));
 }
+$pdo->exec("INSERT INTO schedules (schedule_id,user_id,schedule_type,schedule_kind,schedule_date,time_start,time_end,repeat_type,status)
+    VALUES (60,$faculty,'single','override','2026-11-09','18:00:00','19:00:00','none','approved')");
+$pdo->exec("INSERT INTO access_overrides VALUES (60,$faculty,99,'2026-11-09 18:00:00','2026-11-09 19:00:00')");
+expectAnyRole($service->verify($card($faculty, 'entry'), $at('18:30:00'))['schedule_kind'] === 'override', 'An approved override must let faculty in outside the regular schedule.');
 
-echo "PASS: RFID for every role (entry during the approved schedule, refused after it, exit always allowed); students enter only while a faculty/staff/admin is inside on a running schedule, except with approved temporary access; students can always exit.
+// Admin and super admin: permanent override, no schedule needed.
+foreach (['admin', 'super_admin'] as $role) {
+    $id = $roles[$role];
+    $scheduled = $service->verify($card($id, 'entry'), $inSchedule);
+    expectAnyRole($scheduled['access_granted'] === true && $scheduled['schedule_kind'] === 'regular' && (int) $scheduled['schedule_id'] === $id,
+        "A $role entry during a schedule is linked to it. Got " . json_encode($scheduled));
+    $anytime = $service->verify($card($id, 'entry'), $afterSchedule);
+    expectAnyRole($anytime['access_granted'] === true && $anytime['schedule_kind'] === 'permanent_override' && $anytime['schedule_id'] === null,
+        "A $role card must open the door without a schedule (permanent override). Got " . json_encode($anytime));
+    expectAnyRole($lastLog()['access_status'] === 'granted' && $lastLog()['access_type'] === 'IN', "The $role permanent override entry must be logged.");
+    $exit = $service->verify($card($id, 'exit'), $afterSchedule);
+    expectAnyRole($exit['access_granted'] === true, "A $role card must always be able to exit. Got " . json_encode($exit));
+}
+
+// Inactive accounts never get in, whatever the role.
+foreach ($roles as $role => $id) {
+    $pdo->prepare('UPDATE users SET is_active=0 WHERE id=?')->execute([$id]);
+    $inactive = $service->verify($card($id, 'entry'), $at('13:30:00'));
+    expectAnyRole($inactive['access_granted'] === false && $inactive['reason'] === 'account_inactive', "An inactive $role must be refused. Got " . json_encode($inactive));
+    $pdo->prepare('UPDATE users SET is_active=1 WHERE id=?')->execute([$id]);
+}
+
+echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), inactive accounts refused, exit always allowed.
 ";

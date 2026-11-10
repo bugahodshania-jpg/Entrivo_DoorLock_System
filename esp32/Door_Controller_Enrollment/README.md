@@ -67,8 +67,10 @@ function's output. This sketch drives GPIO17 and keeps GPIO4 idle.
 
 1. A recognized fingerprint or registered entrance RFID requests an access
    decision from `POST /api/door/verify_access.php`, using `X-Device-Token`.
-   **Entry** needs an active account and a current REGULAR or OVERRIDE schedule
-   of that user. Users can go in and out repeatedly while the schedule lasts;
+   **Entry** needs a registered credential, an active account, and the role's
+   schedule rule: faculty/staff a current REGULAR or approved OVERRIDE schedule,
+   students an approved OVERRIDE only, admin/super admin none (permanent
+   override). Users can go in and out repeatedly while the schedule lasts;
    entrance scans on an already-open door are checked and logged too.
 2. An explicit boolean grant energizes relay IN2 and leaves the door **unlocked**.
    There is no automatic relock timer, matching the working hardware test.
@@ -76,6 +78,10 @@ function's output. This sketch drives GPIO17 and keeps GPIO4 idle.
    records the exit and arms touch-to-lock. Touch GPIO18 to lock. Touch alone
    does not lock. **Exit is never refused for a schedule reason.** An exit after
    the schedule end is logged as EXTENDED access.
+   Or touch first, then scan a fingerprint within 15 s: after a fingerprint
+   entry only that same finger locks; after a card entry only a finger of the
+   user who unlocked (the backend refuses anyone else, `wrong_user`). The
+   unlocking user is kept in NVS across restarts and cleared when the door locks.
 4. **Locked in:** if the door was locked with a user inside, the inside exit
    reader (or, for a user who entered and has not exited, the inside
    fingerprint sensor) unlocks the door only to let them out and arms

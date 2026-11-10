@@ -542,10 +542,12 @@ namespace
         decision->reason = String(response["reason"] | "");
         decision->scheduleKind = String(response["schedule_kind"] | "");
         decision->secondsRemaining = response["seconds_remaining"].is<long>() ? response["seconds_remaining"].as<long>() : -1;
+        decision->userId = response["user_id"].is<uint32_t>() ? response["user_id"].as<uint32_t>() : 0;
     }
 }
 
-bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit, bool *exitOnly, DoorDecision *decision)
+bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit, bool *exitOnly, DoorDecision *decision,
+    uint32_t unlockedByUserId)
 {
     if (decision) *decision = DoorDecision{};
     if (exitOnly) *exitOnly = false;
@@ -567,6 +569,7 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     payload["matched_slot"] = matchedSlot;
     payload["template_hash"] = liveTemplateHash;
     payload["direction"] = isExit ? "exit" : "entry";
+    if (isExit && unlockedByUserId != 0) payload["unlocked_by_user_id"] = unlockedByUserId;
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, isExit);
     // A refusal is an HTTP 200 with access_granted=false, so read the reason either way.

@@ -59,9 +59,10 @@ const faqs = [
     question: 'How do students use their school ID for room access?',
     answer: [
       'Your student registration must be approved before your registered CSUCC school ID can be used for permitted room actions. During regular classes, faculty are responsible for opening the room using their enrolled fingerprints.',
-      'A student card cannot open the room first. It opens the door for entry only after a faculty member, staff member, or administrator has entered the room and is still inside during their schedule. If no one has entered yet, or they have already left or their schedule has ended, the door stays locked for student cards. Leaving the room with your card is always allowed.',
+      'A registered card alone does not open the room. Your card (or a registered fingerprint) opens the door for entry only during an override schedule approved by an administrator for that room and time, and your account must be active. Without an approved override the door stays locked for students, even during a class or while an instructor is inside.',
+      'Leaving is always allowed, even after your override has ended or when the door is locked: tap your registered card on the exit reader inside the room to unlock the door, leave, then touch the touch sensor to lock it. Touching the sensor alone never locks the door; it must follow your exit card.',
       'If an instructor needs to leave early, they may instruct an assigned student to lock the room. That student can use their registered RFID school ID for the locking action according to their assigned permission and the instructions given by the instructor.',
-      'A student may also request permission to use a vacant room for a valid reason. This includes a room that has a scheduled class but is currently unused. The administrator must approve the request and grant temporary access before the student can use their school ID to enter. With approved temporary access, the card opens the room during the approved time even when no faculty member is inside. Account approval alone does not authorize a student to open any room whenever they choose.',
+      'A student may also request permission to use a vacant room for a valid reason. This includes a room that has a scheduled class but is currently unused. The administrator must approve the request and grant temporary access before the student can use their school ID to enter. With an approved override, the card opens the room during the approved time only. Account approval alone does not authorize a student to open any room whenever they choose.',
     ],
   },
   {
@@ -83,16 +84,23 @@ const faqs = [
   {
     question: 'How do faculty open and lock a room?',
     answer: [
-      'Scan an enrolled fingerprint at the door. It opens only while you have an approved schedule for that time. During your schedule you can open the room again as often as you need; outside your schedule the door stays locked for your fingerprint.',
-      'To lock the room after opening it with your fingerprint, touch the touch sensor first, then scan the same finger you used to open the door within 15 seconds. A different finger is not accepted for locking; touch the sensor again and use the same finger.',
+      'Scan an enrolled fingerprint at the door. Your account must be active, and the door opens only while you have an approved regular schedule or an approved override schedule for that room and time. During your schedule you can open the room again as often as you need; outside it the door stays locked for your fingerprint.',
+      'Touching the sensor alone never locks the door. To lock the room, touch the touch sensor first, then scan the same finger you used to open the door within 15 seconds. A different finger, or a finger of another person, is not accepted and the door stays unlocked; touch the sensor again and use the same finger.',
       'Leaving and locking are always allowed, even after your schedule has ended, so no one is locked inside the room.',
+    ],
+  },
+  {
+    question: 'Do administrators need a schedule to open a room?',
+    answer: [
+      'No. Admin and super admin fingerprints are a permanent override: with an active account and a registered fingerprint, the door opens at any time, with or without a regular or override schedule, so administrators can inspect, manage, and maintain the room.',
+      'Locking follows the same procedure as for faculty: touch the touch sensor first, then scan the same finger that opened the door.',
     ],
   },
   {
     question: 'Can faculty, staff, or administrators use an RFID card?',
     answer: [
       'Yes. An administrator can assign a backup RFID card to a faculty, staff, or administrator account from Manage Users. Use it if your fingerprint is not read, for example because of an injury or a worn fingerprint.',
-      'A backup card follows the same rules as your fingerprint: tap it at the outside reader to open the room during your approved schedule. To lock the room, tap the card at the inside reader and then touch the touch sensor. Leaving is always allowed.',
+      'A backup card follows the same rules as your fingerprint: tap it at the outside reader to open the room during your approved schedule or override (administrators at any time). To lock the room, tap the card at the inside reader and then touch the touch sensor. Leaving is always allowed.',
       'Keep your card safe and report a lost card to an administrator right away so it can be removed from your account.',
     ],
   },
@@ -100,7 +108,7 @@ const faqs = [
     question: 'What should I do if my card or fingerprint is not accepted?',
     answer: [
       'First check that you are using the correct room and have permission for the action you are trying to perform. Faculty should confirm that their fingerprints have been enrolled by an administrator and that the room and time match an approved schedule. The door opens only during an approved schedule, and locking after a fingerprint entry needs the same finger that opened the door.',
-      'Students should confirm that their account is approved and that they are using the registered CSUCC school ID. A student card opens the room only after a faculty member, staff member, or administrator has entered, or during temporary access granted by an administrator. Students do not need to scan their cards for ordinary entry into a class opened by the instructor.',
+      'Students should confirm that their account is approved and that they are using the registered CSUCC school ID. A student card opens the room only during an override schedule approved by an administrator. Students do not need to scan their cards for ordinary entry into a class opened by the instructor.',
       'If your card or fingerprint is still not accepted, contact an administrator and provide the room, the time, the action you attempted, and any message shown by the device. The administrator can review your account, RFID record or fingerprint enrollment, schedule, and access permissions to identify the issue. For a card that cannot be read, ask for help checking the card and its registration.',
     ],
   },

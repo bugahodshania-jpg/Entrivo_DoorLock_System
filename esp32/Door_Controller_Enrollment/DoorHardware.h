@@ -32,7 +32,12 @@ bool consumeFingerprintExitTouch();
 // The door state survives a restart (WiFi brownout, crash, power cut): an
 // unlocked door is re-opened at boot instead of locking on its own.
 bool doorWasRestoredUnlocked();
+// Diagnostics: true when the relay GPIO currently reads the unlock level.
+bool relayPinIsActive();
 void saveUnlockSlot(uint16_t slot);
 uint16_t restoredUnlockSlot();
+// The user who unlocked the door (0 = unknown); only they can lock it by fingerprint.
+void saveUnlockUser(uint32_t userId);
+uint32_t restoredUnlockUser();
 
 #endif

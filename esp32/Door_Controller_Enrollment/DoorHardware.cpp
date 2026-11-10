@@ -29,6 +29,19 @@ namespace {
     Preferences doorStore;
     bool doorStoreReady = false;
 
+    // Relay diagnostics: the level actually read back from the GPIO after a write.
+    void logRelay(const char *action) {
+        Serial.print("[RELAY] ");
+        Serial.print(action);
+        Serial.print(": GPIO");
+        Serial.print(DOOR_RELAY_PIN);
+        Serial.print(" is now ");
+        Serial.print(digitalRead(DOOR_RELAY_PIN) == HIGH ? "HIGH" : "LOW");
+        Serial.print(" (unlock = ");
+        Serial.print(DOOR_RELAY_ACTIVE_LEVEL == HIGH ? "HIGH" : "LOW");
+        Serial.println(").");
+    }
+
     void saveUnlocked(bool value) {
         if (doorStoreReady && doorStore.getBool("unlocked", false) != value) doorStore.putBool("unlocked", value);
     }
@@ -75,11 +88,19 @@ void initDoorHardware() {
 
 bool doorWasRestoredUnlocked() { return restoredUnlocked; }
 
+bool relayPinIsActive() { return digitalRead(DOOR_RELAY_PIN) == DOOR_RELAY_ACTIVE_LEVEL; }
+
 void saveUnlockSlot(uint16_t slot) {
     if (doorStoreReady && doorStore.getUShort("slot", 0) != slot) doorStore.putUShort("slot", slot);
 }
 
 uint16_t restoredUnlockSlot() { return doorStoreReady ? doorStore.getUShort("slot", 0) : 0; }
+
+void saveUnlockUser(uint32_t userId) {
+    if (doorStoreReady && doorStore.getULong("user", 0) != userId) doorStore.putULong("user", userId);
+}
+
+uint32_t restoredUnlockUser() { return doorStoreReady ? doorStore.getULong("user", 0) : 0; }
 
 void initDoorFeedback() {
     Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
@@ -107,11 +128,12 @@ void openDoorRelay(uint16_t track) {
     digitalWrite(DOOR_RELAY_PIN, DOOR_RELAY_ACTIVE_LEVEL);
     unlocked = true;
     saveUnlocked(true);
+    logRelay("UNLOCK");
     fingerprintExitTouchPending = false;
     queueDoorStatus(true);
     exitAuthorized = false;
     printDeviceTime();
-    Serial.println("[DOOR] UNLOCKED. To lock: scan an exit card inside, then touch; or touch, then scan the finger that unlocked.");
+    Serial.println("[DOOR] UNLOCKED. Touch alone never locks. To lock: scan an exit card inside, then touch; or touch, then scan the finger that unlocked.");
     playAudio(track);
 }
 
@@ -121,6 +143,7 @@ void lockDoorRelay(uint16_t track) {
     const bool wasUnlocked = unlocked;
     unlocked = false;
     saveUnlocked(false);
+    if (wasUnlocked) logRelay("LOCK");
     exitAuthorized = false;
     fingerprintExitTouchPending = false;
     if (wasUnlocked) {
