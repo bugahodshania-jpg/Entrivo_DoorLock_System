@@ -32,7 +32,12 @@ constexpr uint8_t DOOR_RELAY_IDLE_LEVEL = HIGH;
 constexpr uint32_t DOOR_UNLOCK_DURATION_MS = 3000;
 
 constexpr char WIFI_SSID[] = "ESP32_HOTSPOT";
-constexpr char WIFI_PASSWORD[] = "onetwoeight";
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#else
+#error "Missing Secrets.h: copy Secrets.example.h to Secrets.h in this sketch folder and fill in the values."
+#endif
+constexpr char WIFI_PASSWORD[] = SECRET_WIFI_PASSWORD;
 
 constexpr uint32_t USER_WAIT_MS = 20000;
 constexpr uint32_t WIFI_WAIT_MS = 15000;

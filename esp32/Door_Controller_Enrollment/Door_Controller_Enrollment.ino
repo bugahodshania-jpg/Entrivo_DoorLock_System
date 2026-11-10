@@ -114,6 +114,11 @@ namespace {
         }
     }
 
+    bool isOfflineAccessCard(const String &uid) {
+        const String card(OFFLINE_ACCESS_CARD_UID);
+        return card.length() == 10 && uid.equalsIgnoreCase(card);
+    }
+
     void discardBufferedScans() {
         waitingForFingerRemoval = true;
         fingerprintExitArmed = false;
@@ -128,7 +133,15 @@ namespace {
         SerialLog::kv("Card UID", uid);
         String message;
         DoorDecision decision;
-        const bool granted = authorizeRfid(uid, isExit, message, &decision);
+        bool backendUnreachable = false;
+        bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable);
+        if (!granted && backendUnreachable && isOfflineAccessCard(uid)) {
+            // Connection lost: the emergency card works locally, same in/out process.
+            granted = true;
+            decision = DoorDecision{};
+            message = "Backend unreachable: emergency access card accepted locally (not logged).";
+            SerialLog::warn("[OFFLINE] Emergency access card " + uid + " used without the backend.");
+        }
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted

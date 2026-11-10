@@ -585,9 +585,10 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     return granted;
 }
 
-bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision)
+bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision, bool *backendUnreachable)
 {
     if (decision) *decision = DoorDecision{};
+    if (backendUnreachable) *backendUnreachable = false;
     message = "RFID verification unavailable. Check WiFi, the device token, and the backend.";
     if (isFingerprintWorkPending() || (isDoorUnlocked() && isExitAuthorized())) return false;
     DynamicJsonDocument payload(512);
@@ -600,7 +601,10 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     // outside reader to record an arrival through an already open door.
     const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, true);
     readDecision(response, decision);
-    if (!answered) return false;
+    if (!answered) {
+        if (backendUnreachable) *backendUnreachable = true;
+        return false;
+    }
     message = String(response["message"] | "RFID access denied.");
     return isExplicitTrue(response["access_granted"]);
 }

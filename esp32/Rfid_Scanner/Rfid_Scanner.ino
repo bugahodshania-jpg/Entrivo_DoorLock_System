@@ -45,10 +45,15 @@
 #include "soc/rtc_cntl_reg.h"
 
 const char *WIFI_SSID = "ESP32_HOTSPOT";
-const char *WIFI_PASS = "onetwoeight";
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#else
+#error "Missing Secrets.h: copy Secrets.example.h to Secrets.h in this sketch folder and fill in the values."
+#endif
+const char *WIFI_PASS = SECRET_WIFI_PASSWORD;
 const char *SERVER_URL = "https://entrivo-backend-production.up.railway.app";
 const char *SERVER_PATH = "/api/rfid_scan.php";
-const char *DEVICE_TOKEN = "entrivo-rfid-2026";
+const char *DEVICE_TOKEN = SECRET_RFID_DEVICE_TOKEN;
 const char *DEVICE_LABEL = "rfid-scanner";
 
 // Let's Encrypt root certificates (the issuer of *.up.railway.app).

@@ -26,7 +26,10 @@ struct DoorDecision {
 // refuses a locking fingerprint from anyone else. 0 = unknown, not checked.
 bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit = false, bool *exitOnly = nullptr,
     DoorDecision *decision = nullptr, uint32_t unlockedByUserId = 0);
-bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision = nullptr);
+// backendUnreachable is set when no decision came back (WiFi/backend down),
+// as opposed to the backend refusing the card.
+bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision = nullptr,
+    bool *backendUnreachable = nullptr);
 // Logs a finger the sensor did not recognize, so the admin's live Access Status
 // shows the unregistered attempt. Never grants access.
 void reportUnrecognizedFingerprint(bool isExit);

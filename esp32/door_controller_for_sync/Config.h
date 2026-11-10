@@ -1,12 +1,18 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#else
+#error "Missing Secrets.h: copy Secrets.example.h to Secrets.h in this sketch folder and fill in the values."
+#endif
+
 // ============================
 // WiFi
 // ============================
 
 #define WIFI_SSID "ESP32_HOTSPOT"
-#define WIFI_PASSWORD "onetwoeight"
+#define WIFI_PASSWORD SECRET_WIFI_PASSWORD
 
 // ============================
 // Backend

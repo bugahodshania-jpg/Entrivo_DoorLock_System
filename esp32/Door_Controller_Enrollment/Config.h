@@ -1,15 +1,21 @@
 #ifndef COMBINED_DOOR_CONFIG_H
 #define COMBINED_DOOR_CONFIG_H
 
+#if __has_include("Secrets.h")
+#include "Secrets.h"
+#else
+#error "Missing Secrets.h: copy Secrets.example.h to Secrets.h in this sketch folder and fill in the values."
+#endif
+
 // Match these to the backend and the ESP32's network before uploading.
 #define WIFI_SSID "ESP32_HOTSPOT"
-#define WIFI_PASSWORD "onetwoeight"
+#define WIFI_PASSWORD SECRET_WIFI_PASSWORD
 // Deployed backend (HTTPS). The ESP32 reaches it through the hotspot's internet.
 // For a backend on this PC instead, use "http://192.168.137.1:8000".
 #define SERVER_URL "https://entrivo-backend-production.up.railway.app"
 #define ENROLLMENT_DEVICE_ID 1
 // Set the SAME private value in backend/.env as DOOR_DEVICE_TOKEN.
-#define DOOR_DEVICE_TOKEN "1016SjHeAtNhItAaBgUuGrAaHnOD0130"
+#define DOOR_DEVICE_TOKEN SECRET_DOOR_DEVICE_TOKEN
 
 // Requests reuse one open TLS connection (BackendClient.cpp), so a job check
 // costs a few hundred ms instead of a 1-3 s handshake and can run every 2 s.
@@ -41,6 +47,14 @@
 #define TOUCH_ACTIVE_LEVEL HIGH
 #define TOUCH_DEBOUNCE_MS 300UL
 #define FINGERPRINT_EXIT_WINDOW_MS 15000UL
+
+// Emergency access card, used ONLY when the backend cannot be reached (WiFi
+// down, backend or database offline). Same process as any card: the entrance
+// reader unlocks; the exit reader (unlocking a locked door) arms touch-to-lock,
+// then touch locks. While the backend is reachable the card is checked and
+// logged online like every other card. Offline uses are not logged. The UID is in
+// Secrets.h (SECRET_OFFLINE_ACCESS_CARD_UID); set it to "" to disable.
+#define OFFLINE_ACCESS_CARD_UID SECRET_OFFLINE_ACCESS_CARD_UID
 
 // IN2 controls the solenoid; IN1 is held OFF. No automatic locking timer.
 #define DOOR_RELAY_PIN 17

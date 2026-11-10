@@ -3,3 +3,6 @@ frontend/dist/
 backend/.env
 backend/storage/
 *.log
+
+# Device secrets (copy Secrets.example.h to Secrets.h in each sketch)
+esp32/**/Secrets.h

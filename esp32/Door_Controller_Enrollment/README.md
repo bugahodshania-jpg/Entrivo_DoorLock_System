@@ -16,7 +16,9 @@ allowlist is not used. Existing sensor templates are preserved.
    ESP32 core 3.3.12. Required libraries: Adafruit Fingerprint Sensor Library,
    ArduinoJson, EspSoftwareSerial, RTClib, and Adafruit BusIO. WiFi, HTTPClient,
    Wire, and mbedTLS come with the ESP32 core.
-2. Edit `Config.h`: set `WIFI_SSID`, `WIFI_PASSWORD`, `SERVER_URL`, and
+2. Copy `Secrets.example.h` to `Secrets.h` (git-ignored, never commit it) and
+   set the WiFi password, `SECRET_DOOR_DEVICE_TOKEN` and the emergency card.
+   Edit `Config.h`: set `WIFI_SSID`, `SERVER_URL`, and
    `ENROLLMENT_DEVICE_ID`. The URL must be reachable from the ESP32; `localhost`
    on the board cannot reach the computer's backend. Sensor A normally uses ID 1.
 3. Generate a private device token, put it in `DOOR_DEVICE_TOKEN` in `Config.h`,
@@ -97,7 +99,11 @@ fingerprint hardware does not disable RFID verification.
 
 Every new credential decision requires a reachable backend and an active,
 approved account with completed setup. RFID cards must be uniquely registered,
-active, and linked to that account. There is no offline credential allowlist.
+active, and linked to that account. The one offline exception is the emergency
+card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cannot be
+reached (no answer at all, not a refusal), it is accepted locally with the same
+in/out process as any card (entrance reader unlocks; exit reader, then touch,
+locks). Offline uses are printed on Serial but not logged in the backend.
 A failed request cannot unlock the door or arm exit. A connection loss after
 unlock leaves the existing latched state intact; serial `L` can lock locally.
 
