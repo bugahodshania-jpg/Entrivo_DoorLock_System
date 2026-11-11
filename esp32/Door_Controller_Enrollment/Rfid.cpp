@@ -9,7 +9,10 @@ namespace {
     SoftwareSerial exitReader;
     DoorRfidProtocol::FrameParser parsers[2];
     String lastUid[2];
-    unsigned long lastAcceptedAt[2] = {};
+    // When each reader last saw its previous card. A reader repeats a card's
+    // frame for as long as the card stays in range, so a card is accepted again
+    // only after it has been away for RFID_COOLDOWN_MS (one tap = one scan).
+    unsigned long lastSeenAt[2] = {};
     unsigned long switchedAt = 0;
     bool listeningExit = false;
 
@@ -33,6 +36,9 @@ void resetRfidReaders() {
     parsers[1].reset();
     while (entrance.available() > 0) entrance.read();
     while (exitReader.available() > 0) exitReader.read();
+    // A scan can block for seconds; restart the "away" timer so a card that
+    // stayed on the reader during it is not taken as a new tap.
+    lastSeenAt[0] = lastSeenAt[1] = millis();
     selectReader(isDoorUnlocked());
 }
 
@@ -49,9 +55,12 @@ bool pollRfidReader(String &uid, bool &isExit) {
         char decoded[11] = {};
         if (!parsers[index].feed(static_cast<uint8_t>(port.read()), millis(), decoded)) continue;
         const String candidate(decoded);
-        if (candidate == lastUid[index] && millis() - lastAcceptedAt[index] < RFID_COOLDOWN_MS) continue;
+        if (candidate == lastUid[index] && millis() - lastSeenAt[index] < RFID_COOLDOWN_MS) {
+            lastSeenAt[index] = millis(); // Still in range: the same tap.
+            continue;
+        }
         lastUid[index] = candidate;
-        lastAcceptedAt[index] = millis();
+        lastSeenAt[index] = millis();
         uid = candidate;
         isExit = listeningExit;
         return true;

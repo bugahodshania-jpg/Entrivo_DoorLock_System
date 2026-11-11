@@ -64,7 +64,28 @@ namespace {
         mp3.write(packet, sizeof(packet));
     }
 
-    void playAudio(uint16_t track) { mp3Command(0x12, track); }
+    const char *trackName(uint16_t track) {
+        switch (track) {
+            case AUDIO_ACCESS_GRANTED: return "access granted";
+            case AUDIO_ACCESS_DENIED: return "access denied";
+            case AUDIO_NOT_REGISTERED: return "not registered";
+            case AUDIO_OUTSIDE_SCHEDULE: return "outside schedule";
+            case AUDIO_REMINDER: return "15-minute reminder";
+            case AUDIO_SCHEDULE_EXPIRED: return "schedule expired";
+            case AUDIO_OVERRIDE_APPROVED: return "override approved";
+            case AUDIO_ROOM_LOCKED: return "room locked";
+            case AUDIO_DOOR_LOCKED: return "door locked";
+            case AUDIO_DOOR_UNLOCK: return "door unlock";
+            case AUDIO_EXIT_VERIFIED: return "exit RFID verified";
+            default: return "unknown";
+        }
+    }
+
+    // Every prompt is logged, so a repeating sound can be identified on Serial.
+    void playAudio(uint16_t track) {
+        Serial.printf("[AUDIO] Playing %04u.mp3 (%s)\n", static_cast<unsigned>(track), trackName(track));
+        mp3Command(0x12, track);
+    }
 }
 
 void initDoorHardware() {
