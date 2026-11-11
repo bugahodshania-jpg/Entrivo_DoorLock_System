@@ -195,10 +195,12 @@ namespace {
         else if (isExit) {
             // The exit reader is inside: a locked door is opened only to let
             // this user out, then touch outside locks it again.
+            // Either way the user hears that the card was accepted and what to do next.
             if (lockedIn) {
-                openDoorRelay(AUDIO_DOOR_UNLOCK);
+                openDoorRelay(AUDIO_EXIT_VERIFIED);
                 rememberUnlocker(0, decision.userId);
             }
+            else playTrack(AUDIO_EXIT_VERIFIED);
             authorizeExit();
         }
         else if (alreadyOpen) {

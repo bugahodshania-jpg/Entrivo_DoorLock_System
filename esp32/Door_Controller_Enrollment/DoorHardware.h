@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0010.mp3.
+// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0011.mp3.
 enum AudioTrack : uint16_t {
     AUDIO_ACCESS_GRANTED = 1,   // "Access granted. Door unlocked. You may now enter."
     AUDIO_ACCESS_DENIED = 2,    // "...not authorized to access this room at the current time."
@@ -15,6 +15,7 @@ enum AudioTrack : uint16_t {
     AUDIO_ROOM_LOCKED = 8,      // "The room has been successfully locked. Thank you."
     AUDIO_DOOR_LOCKED = 9,      // "Door is now locked"
     AUDIO_DOOR_UNLOCK = 10,     // "Door unlock"
+    AUDIO_EXIT_VERIFIED = 11,   // Exit RFID verified; touch sensor to lock
 };
 
 void initDoorHardware();
