@@ -68,10 +68,11 @@ namespace {
 }
 
 void initDoorHardware() {
-    // ESP32 core 3.x ignores digitalWrite before pinMode; latch LOW directly.
+    // ESP32 core 3.x ignores digitalWrite before pinMode; latch the idle level
+    // directly, with a pull toward idle so no relay switches on during boot.
     const uint8_t pins[] = {DOOR_RELAY_PIN, DOOR_UNUSED_RELAY_PIN};
     for (uint8_t pin : pins) {
-        gpio_set_pull_mode(static_cast<gpio_num_t>(pin), GPIO_PULLDOWN_ONLY);
+        gpio_set_pull_mode(static_cast<gpio_num_t>(pin), DOOR_RELAY_IDLE_LEVEL == HIGH ? GPIO_PULLUP_ONLY : GPIO_PULLDOWN_ONLY);
         gpio_set_level(static_cast<gpio_num_t>(pin), DOOR_RELAY_IDLE_LEVEL);
         pinMode(pin, OUTPUT);
         digitalWrite(pin, DOOR_RELAY_IDLE_LEVEL);

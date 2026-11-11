@@ -317,7 +317,7 @@ namespace {
 }
 
 void setup() {
-    // Set both relay outputs LOW before serial, sensor, or network initialization.
+    // Set both relay outputs to idle before serial, sensor, or network initialization.
     initDoorHardware();
     Serial.begin(115200);
     delay(50);

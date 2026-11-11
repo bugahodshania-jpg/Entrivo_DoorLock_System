@@ -57,6 +57,7 @@
 #define OFFLINE_ACCESS_CARD_UID SECRET_OFFLINE_ACCESS_CARD_UID
 
 // IN2 controls the solenoid; IN1 is held OFF. No automatic locking timer.
+// Confirmed on the door: HIGH energizes the relay and opens the solenoid.
 #define DOOR_RELAY_PIN 17
 #define DOOR_UNUSED_RELAY_PIN 4
 #define DOOR_RELAY_ACTIVE_LEVEL HIGH
