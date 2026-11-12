@@ -5,7 +5,6 @@ import PublicFooter from '../../components/PublicFooter';
 import { clearRegistrationSession, verifiedRfidKey } from '../../utils/registrationSession';
 import campusBuilding from '../../assets/images/csucc_noback.png';
 import campusOutline from '../../assets/images/outline_csucc.png';
-import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import cbaLogo from '../../assets/images/CBA_logo.png';
 import ceitLogo from '../../assets/images/CEIT_logo.png';
@@ -257,9 +256,6 @@ export default function Home() {
               <span className="home-logo-csu">
                 <img src={csuLogo} alt="" />
               </span>
-              <span className="home-logo-csucc">
-                <img src={csuccLogo} alt="" />
-              </span>
             </span>
             <span className="home-brand-text">
               <strong>Caraga State University</strong>
@@ -313,7 +309,6 @@ export default function Home() {
 
       <section className="home-hero" id="top">
         <div className="home-hero-band" aria-hidden="true" />
-        <img className="home-hero-seal" src={csuccLogo} alt="" aria-hidden="true" />
         <div className="home-hero-stripes" aria-hidden="true">
           <span />
           <span className="home-hero-stripe-green" />

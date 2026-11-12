@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Menu, X } from 'lucide-react';
 import PublicFooter from '../../components/PublicFooter';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
-import csuccLogo from '../../assets/images/csucc_logo.png';
 import '../../styles/home/home.css';
 import '../../styles/home/faqs.css';
 
@@ -136,7 +135,6 @@ export default function Faqs() {
           <a className="home-brand" href="/" aria-label="Entrivo home">
             <span className="home-brand-marks" aria-hidden="true">
               <span className="home-logo-csu"><img src={csuLogo} alt="" /></span>
-              <span className="home-logo-csucc"><img src={csuccLogo} alt="" /></span>
             </span>
             <span className="home-brand-text">
               <strong>Caraga State University</strong>

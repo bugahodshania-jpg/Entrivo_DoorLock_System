@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Camera, Eye, EyeOff, GraduationCap, IdCard, Info, KeyRound, Lock, MapPin, Menu, Shield, Trash2, Upload, UserRound, X } from 'lucide-react';
 import axiosClient from '../../api/axiosClient';
-import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import schoolIdExample from '../../assets/images/csucc-school-id-example.jpg';
 import { getManilaDateStamp } from '../../utils/dateTime';
@@ -16,6 +15,7 @@ import {
   validatePersonalInformation,
   validateSchoolEmail,
 } from '../../utils/registrationValidation';
+import { isValidSchoolId, normalizeIssuedId, SCHOOL_ID_ERROR, SCHOOL_ID_MAX_LENGTH } from '../../utils/schoolProfileOptions';
 import { clearRegistrationSession, registrationDraftKey, verifiedRfidKey, registrationResumeAction } from '../../utils/registrationSession';
 import '../../styles/home/home.css';
 import '../../styles/auth/auth.css';
@@ -181,8 +181,7 @@ function normalizeZipCode(value) {
 }
 
 function normalizeSchoolId(value) {
-  const digits = value.replace(/\D/g, '').slice(0, 8);
-  return digits.length <= 4 ? digits : `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return normalizeIssuedId(value, 'student');
 }
 
 function validateRegistration(form, questions) {
@@ -190,8 +189,8 @@ function validateRegistration(form, questions) {
 
   if (!form.school_id) {
     errors.school_id = 'School ID is required.';
-  } else if (!/^\d{4}-\d{4}$/.test(form.school_id)) {
-    errors.school_id = 'School ID must use xxxx-xxxx format.';
+  } else if (!isValidSchoolId(form.school_id)) {
+    errors.school_id = SCHOOL_ID_ERROR;
   }
 
   if (!form.rfid_uid.trim()) errors.rfid_uid = 'A verified School ID UID is required.';
@@ -880,9 +879,6 @@ export default function Register() {
               <span className="home-logo-csu">
                 <img src={csuLogo} alt="" />
               </span>
-              <span className="home-logo-csucc">
-                <img src={csuccLogo} alt="" />
-              </span>
             </span>
             <span className="home-brand-text">
               <strong>Caraga State University</strong>
@@ -1173,9 +1169,8 @@ export default function Register() {
                         <span>School ID<i className="public-register-required">*</i></span>
                         <input
                           required
-                          inputMode="numeric"
-                          maxLength={9}
-                          placeholder="xxxx-xxxx"
+                          maxLength={SCHOOL_ID_MAX_LENGTH}
+                          placeholder="As printed on your school ID"
                           aria-invalid={Boolean(getFieldError('school_id'))}
                           aria-describedby="registration-school_id-error"
                           value={form.school_id}

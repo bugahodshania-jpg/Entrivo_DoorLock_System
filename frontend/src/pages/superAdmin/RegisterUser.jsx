@@ -6,7 +6,11 @@ import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import {
   composeSchoolEmail,
   formatRole,
+  issuedIdError,
+  isValidSchoolId,
   normalizeIssuedId,
+  SCHOOL_ID_HINT,
+  SCHOOL_ID_MAX_LENGTH,
   roleOptions,
   schoolEmailDomain,
   temporaryPassword,
@@ -124,16 +128,15 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
 
   const isStudent = form.role === 'student';
   const idKind = isStudent ? 'student' : 'employee';
-  const idFormat = isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
   const idLabel = isStudent ? 'School ID' : 'Employee ID';
-  const generatedPassword = temporaryPassword(form.username, form.identifier);
+  const generatedPassword = temporaryPassword(form.username, form.identifier, idKind);
   const composedEmail = composeSchoolEmail(form.school_email);
   const schoolEmailValue = form.school_email ? `${form.school_email}@${schoolEmailDomain}` : '';
   const roleLabel = formatRole(form.role);
   const passwordPattern = isStudent ? 'firstname.lastname@xxxx' : 'firstname.lastname@xxxxxx';
   const passwordExample = isStudent
-    ? 'Example: firstname.lastname@xxxx uses the last 4 digits of the School ID.'
-    : 'Example: firstname.lastname@xxxxxx uses the last 6 digits of the Employee ID.';
+    ? 'Example: firstname.lastname@xxxx uses the last 4 letters or digits of the School ID.'
+    : 'Example: firstname.lastname@xxxxxx uses the last 6 letters or digits of the Employee ID.';
 
   const errors = useMemo(() => {
     const next = {};
@@ -142,8 +145,8 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
       next.role = 'The super admin limit has been reached.';
     }
     if (!form.identifier.trim()) next.identifier = `${idLabel} is required.`;
-    else if (!(isStudent ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/).test(form.identifier)) {
-      next.identifier = `${idLabel} must use ${idFormat} format.`;
+    else if (!isValidSchoolId(form.identifier)) {
+      next.identifier = issuedIdError(idLabel);
     } else if (
       identifierAvailability.value === form.identifier
       && identifierAvailability.role === (isStudent ? 'student' : 'employee')
@@ -184,7 +187,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
       }
     }
     return next;
-  }, [composedEmail, emailAvailability, form, generatedPassword, idFormat, idLabel, identifierAvailability, isIdentifyingRfid, isStudent, rfidIdentify, superAdminSlotsFull, usernameAvailability]);
+  }, [composedEmail, emailAvailability, form, generatedPassword, idLabel, identifierAvailability, isIdentifyingRfid, isStudent, rfidIdentify, superAdminSlotsFull, usernameAvailability]);
 
   function updateField(field, value) {
     setForm((current) => {
@@ -286,7 +289,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
   const checkIdentifierAvailability = useCallback(async (identifier, student) => {
     const requestId = identifierRequestRef.current + 1;
     identifierRequestRef.current = requestId;
-    const formatOk = (student ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/).test(identifier);
+    const formatOk = isValidSchoolId(identifier);
     const roleKey = student ? 'student' : 'employee';
 
     if (!formatOk) {
@@ -706,9 +709,8 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
             <label>
               <span>{idLabel}<i>*</i></span>
               <input
-                inputMode="numeric"
-                maxLength={isStudent ? 9 : 13}
-                placeholder={isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx'}
+                maxLength={SCHOOL_ID_MAX_LENGTH}
+                placeholder={isStudent ? 'As printed on the school ID' : 'As printed on the employee ID'}
                 aria-invalid={Boolean(fieldError('identifier'))}
                 value={form.identifier}
                 onBlur={() => setTouched((current) => ({ ...current, identifier: true }))}
@@ -717,8 +719,8 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
               {fieldMessage(
                 'identifier',
                 isStudent
-                  ? 'Format xxxx-xxxx.'
-                  : 'Format xxxxxx-xxxxxx.',
+                  ? SCHOOL_ID_HINT
+                  : 'Type the ID exactly as printed on the employee ID.',
               )}
             </label>
             <label>

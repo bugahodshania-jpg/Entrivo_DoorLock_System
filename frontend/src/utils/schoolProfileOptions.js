@@ -70,26 +70,44 @@ export function formatRole(role) {
   return roleOptions.find((option) => option.value === role)?.label || 'User';
 }
 
-export function normalizeIssuedId(value, kind = 'student') {
-  const groupSize = kind === 'employee' ? 6 : 4;
-  const digits = String(value || '').replace(/\D/g, '').slice(0, groupSize * 2);
+// School and employee IDs are typed as printed: letters, numbers, spaces,
+// dashes, slashes and periods, up to 20 characters. No fixed format.
+export const SCHOOL_ID_MAX_LENGTH = 20;
+export const SCHOOL_ID_HINT = 'Type the ID exactly as printed on the school ID.';
+export const SCHOOL_ID_ERROR = 'School ID can use letters, numbers, spaces, dashes, slashes and periods, up to 20 characters.';
 
-  if (digits.length <= groupSize) {
-    return digits;
-  }
-
-  return `${digits.slice(0, groupSize)}-${digits.slice(groupSize)}`;
+export function isValidSchoolId(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9 ./-]{0,19}$/.test(String(value || '').trim());
 }
 
-export function temporaryPassword(username, identifier) {
-  const name = String(username || '').trim();
-  const match = String(identifier || '').match(/^(?:(\d{4})-(\d{4})|(\d{6})-(\d{6}))$/);
+export function issuedIdError(label = 'ID') {
+  return `${label} can use letters, numbers, spaces, dashes, slashes and periods, up to 20 characters.`;
+}
 
-  if (!name || !match) {
+// Keeps only the allowed characters while typing. The kind is unused now that
+// school and employee IDs share one rule; callers still pass it.
+export function normalizeIssuedId(value) {
+  return String(value || '').replace(/[^A-Za-z0-9 ./-]/g, '').replace(/^[^A-Za-z0-9]+/, '').slice(0, SCHOOL_ID_MAX_LENGTH);
+}
+
+export function temporaryPassword(username, identifier, kind = 'employee') {
+  const name = String(username || '').trim();
+  const id = String(identifier || '').trim();
+  const match = id.match(/^(?:(\d{4})-(\d{4})|(\d{6})-(\d{6}))$/);
+
+  if (!name) {
     return '';
   }
 
-  return `${name}@${match[2] || match[4]}`;
+  if (match) {
+    return `${name}@${match[2] || match[4]}`;
+  }
+
+  // Any other ID uses its last letters or digits, as the server does:
+  // four for a school ID, six for an employee ID.
+  const suffix = isValidSchoolId(id) ? id.replace(/[^A-Za-z0-9]/g, '').slice(kind === 'student' ? -4 : -6) : '';
+
+  return suffix ? `${name}@${suffix}` : '';
 }
 
 export function schoolEmailLocalPart(value) {

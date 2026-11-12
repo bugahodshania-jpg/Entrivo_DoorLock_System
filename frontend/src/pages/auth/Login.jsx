@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../api/axiosClient';
 import { Eye, EyeOff, Lock, Mail, Menu, X } from 'lucide-react';
-import csuccLogo from '../../assets/images/csucc_logo.png';
 import csuLogo from '../../assets/images/Caraga_State_University_logo.png';
 import FirstLoginSetup, { clearFirstLoginSession, readFirstLoginSession } from './FirstLoginSetup';
 import PasswordReset, { readPasswordResetSession } from './PasswordReset';
@@ -398,9 +397,6 @@ export default function Login() {
             <span className="home-brand-marks">
               <span className="home-logo-csu">
                 <img src={csuLogo} alt="" />
-              </span>
-              <span className="home-logo-csucc">
-                <img src={csuccLogo} alt="" />
               </span>
             </span>
             <span className="home-brand-text">

@@ -251,7 +251,6 @@ void drawClock() {
 
 void drawBrandMarks() {
   tft.drawRGBBitmap(4, 3, kCsuLogo, kBrandLogoSize, kBrandLogoSize);
-  tft.drawRGBBitmap(27, 3, kCsuccLogo, kBrandLogoSize, kBrandLogoSize);
 }
 
 void drawHeader() {

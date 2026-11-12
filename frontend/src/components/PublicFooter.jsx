@@ -1,5 +1,4 @@
 import csuLogo from '../assets/images/Caraga_State_University_logo.png';
-import csuccLogo from '../assets/images/csucc_logo.png';
 
 const sectionLinks = [
   { label: 'Home', href: '#top' },
@@ -15,7 +14,6 @@ export default function PublicFooter({ isHome = false, isFaqs = false }) {
         <div className="home-footer-brand">
           <span className="home-brand-marks" aria-hidden="true">
             <span className="home-logo-csu"><img src={csuLogo} alt="" /></span>
-            <span className="home-logo-csucc"><img src={csuccLogo} alt="" /></span>
           </span>
           <div>
             <strong>Entrivo</strong>

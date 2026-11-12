@@ -6,6 +6,8 @@ require_once __DIR__ . '/RegistrationInputValidation.php';
 class UserRegistrationService
 {
     private const SCHOOL_EMAIL_DOMAIN = 'csucc.edu.ph';
+    public const SCHOOL_ID_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9 .\/-]{0,19}$/';
+    public const SCHOOL_ID_MESSAGE = 'School ID can use letters, numbers, spaces, dashes, slashes and periods, up to 20 characters.';
     private const CONTACT_NUMBER_LENGTH = 11;
     private const SECURITY_QUESTIONS = [
         'What is the name of your first school?',
@@ -74,7 +76,7 @@ class UserRegistrationService
             $idLabel,
             $role
         );
-        $password = $this->temporaryPasswordFromId($username, $identifier);
+        $password = $this->temporaryPasswordFromId($username, $identifier, $role);
         $email = $this->normalizeEmail($this->requiredText($input, 'email', 'School email'));
         $firstName = $this->normalizePersonName($this->requiredText($input, 'first_name', 'First name'), 'First name');
         $lastName = $this->normalizePersonName($this->requiredText($input, 'last_name', 'Last name'), 'Last name');
@@ -794,22 +796,26 @@ class UserRegistrationService
 
     private function normalizeIssuedId(string $value, string $label, string $role = 'student'): string
     {
+        // School and employee IDs are accepted as printed for every role; only
+        // the characters and the length (both ID columns hold 20) are checked.
         $normalized = trim($value);
-        $isStudent = $role === 'student';
-        $pattern = $isStudent ? '/^\d{4}-\d{4}$/' : '/^\d{6}-\d{6}$/';
-        $format = $isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
 
-        if (!preg_match($pattern, $normalized)) {
-            throw new InvalidArgumentException("{$label} must use {$format} format.");
+        if (!preg_match(self::SCHOOL_ID_PATTERN, $normalized)) {
+            throw new InvalidArgumentException("{$label} can use letters, numbers, spaces, dashes, slashes and periods, up to 20 characters.");
         }
 
         return $normalized;
     }
 
-    private function temporaryPasswordFromId(string $username, string $identifier): string
+    private function temporaryPasswordFromId(string $username, string $identifier, string $role = 'student'): string
     {
-        $parts = explode('-', $identifier, 2);
-        $password = $username . '@' . ($parts[1] ?? '');
+        // Old-format IDs (xxxx-xxxx, xxxxxx-xxxxxx) keep using the part after the
+        // dash. Any other ID uses its last letters or digits: four for a school
+        // ID, six for an employee ID.
+        $suffix = preg_match('/^(?:\d{4}-\d{4}|\d{6}-\d{6})$/', $identifier)
+            ? explode('-', $identifier, 2)[1]
+            : substr(preg_replace('/[^A-Za-z0-9]/', '', $identifier), $role === 'student' ? -4 : -6);
+        $password = $username . '@' . $suffix;
 
         if (strlen($password) < 8 || strlen($password) > 72) {
             throw new InvalidArgumentException('The generated temporary password is not valid. Check the username and ID.');
@@ -851,10 +857,12 @@ class UserRegistrationService
 
     private function normalizeSchoolId(string $schoolId): string
     {
+        // Schools print IDs in different ways, so only the characters and the
+        // length (the student_info.school_id column holds 20) are checked.
         $normalized = trim($schoolId);
 
-        if (!preg_match('/^\d{4}-\d{4}$/', $normalized)) {
-            throw new InvalidArgumentException('School ID must use xxxx-xxxx format.');
+        if (!preg_match(self::SCHOOL_ID_PATTERN, $normalized)) {
+            throw new InvalidArgumentException(self::SCHOOL_ID_MESSAGE);
         }
 
         return $normalized;

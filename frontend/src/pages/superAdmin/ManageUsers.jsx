@@ -31,7 +31,7 @@ import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import DeleteRequestModal from '../../components/DeleteRequestModal';
 import DeleteRequestToast from '../../components/DeleteRequestToast';
 import { ROLE_PRIVILEGE_DEFAULTS, canDeleteRecords, userHasPrivilege } from '../../utils/privileges';
-import { normalizeIssuedId, schoolEmailDomain, suffixOptions } from '../../utils/schoolProfileOptions';
+import { issuedIdError, isValidSchoolId, normalizeIssuedId, SCHOOL_ID_MAX_LENGTH, schoolEmailDomain, suffixOptions } from '../../utils/schoolProfileOptions';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
@@ -574,12 +574,10 @@ function validateEditForm(form) {
   }
 
   const identifier = String(form.identifier || '').trim();
-  const identifierPattern = form.isStudent ? /^\d{4}-\d{4}$/ : /^\d{6}-\d{6}$/;
-  const identifierFormat = form.isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
   if (!identifier) {
     errors.identifier = `${form.identifierLabel || 'ID'} is required.`;
-  } else if (!identifierPattern.test(identifier)) {
-    errors.identifier = `${form.identifierLabel || 'ID'} must use ${identifierFormat} format.`;
+  } else if (!isValidSchoolId(identifier)) {
+    errors.identifier = issuedIdError(form.identifierLabel || 'ID');
   }
 
   if (!['active', 'inactive', 'blocked', 'pending_login'].includes(form.status)) {
@@ -2269,9 +2267,8 @@ export default function ManageUsers({ user: currentUser } = {}) {
                         <EditField label={editForm.identifierLabel} error={editFieldErrors.identifier}>
                           <input
                             type="text"
-                            inputMode="numeric"
-                            maxLength={editForm.isStudent ? 9 : 13}
-                            placeholder={editForm.isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx'}
+                            maxLength={SCHOOL_ID_MAX_LENGTH}
+                            placeholder={editForm.isStudent ? 'As printed on the school ID' : 'As printed on the employee ID'}
                             value={editForm.identifier}
                             onChange={(event) => updateEditField(
                               'identifier',

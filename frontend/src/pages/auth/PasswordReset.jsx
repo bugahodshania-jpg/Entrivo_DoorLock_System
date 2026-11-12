@@ -167,7 +167,7 @@ export default function PasswordReset({ onClose }) {
                   setSchoolId(event.target.value);
                   setError('');
                 }}
-                placeholder="2021-1234"
+                placeholder="Your school or employee ID"
                 autoComplete="off"
                 autoFocus
               />
