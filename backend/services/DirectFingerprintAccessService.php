@@ -6,6 +6,7 @@ require_once __DIR__ . '/ScheduleAccessPolicy.php';
 require_once __DIR__ . '/DirectFingerprintImportSchema.php';
 require_once __DIR__ . '/FingerprintTemplateFormat.php';
 require_once __DIR__ . '/FingerprintEnrollmentVerification.php';
+require_once __DIR__ . '/DoorEventLog.php';
 require_once __DIR__ . '/../utils/agent_debug_log.php';
 
 /** Online authorization for a sensor that both enrolls and scans its own slots. */
@@ -74,6 +75,10 @@ final class DirectFingerprintAccessService
             'hash_valid' => $validLiveTemplateHash,
         ]);
         // #endregion
+        // The controller numbers each exit; a later offline upload of the same
+        // exit (reply lost) is then not logged twice.
+        $eventId = DoorEventLog::validId($input['event_id'] ?? null);
+        if ($eventId !== null) DoorEventLog::ensure($this->pdo);
         $this->pdo->beginTransaction();
 
         try {
@@ -106,6 +111,7 @@ final class DirectFingerprintAccessService
             // #endregion
             // A grant is returned only after its access log has been persisted.
             $this->recordDecision($decision, $now);
+            if ($eventId !== null) DoorEventLog::remember($this->pdo, $eventId, (int) $this->pdo->lastInsertId(), $now);
             $this->pdo->commit();
             return $decision;
         } catch (Throwable $error) {

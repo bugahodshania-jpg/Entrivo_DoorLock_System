@@ -11,6 +11,7 @@
 #include "Fingerprint.h"
 #include "SensorMemory.h"
 #include "Rfid.h"
+#include "OfflineExitQueue.h"
 #include "WiFiManager.h"
 #include "SerialLog.h"
 
@@ -114,6 +115,7 @@ namespace {
         SerialLog::kv("Door", isDoorUnlocked() ? "UNLOCKED" : "LOCKED");
         SerialLog::kv("Relay pin", relayPinIsActive() ? "ON (unlock level)" : "OFF (lock level)");
         SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
+        SerialLog::kv("Offline exits waiting", String(offlineExitCount()));
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
         SerialLog::kv("Locking finger", unlockedByFingerSlot ? "sensor slot " + String(unlockedByFingerSlot)
             : unlockedByUserId ? "any finger of user " + String(unlockedByUserId) : String("any registered finger"));
@@ -166,23 +168,31 @@ namespace {
         String message;
         DoorDecision decision;
         bool backendUnreachable = false;
-        bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable);
+        // Every exit is numbered, so it reaches the access log exactly once:
+        // online now, or later from the offline queue if the reply is lost.
+        char exitEventId[33] = {};
+        if (isExit) newDoorEventId(exitEventId);
+        bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable, isExit ? exitEventId : nullptr);
+        bool grantedOffline = false;
         if (!granted && backendUnreachable && isOfflineAccessCard(uid)) {
             // Connection lost: the emergency card works locally, same in/out process.
-            granted = true;
+            granted = grantedOffline = true;
             decision = DoorDecision{};
-            message = "Backend unreachable: emergency access card accepted locally (not logged).";
+            message = isExit ? "Backend unreachable: emergency access card accepted locally (exit saved for the access log)."
+                : "Backend unreachable: emergency access card accepted locally (entry not logged).";
             SerialLog::warn("[OFFLINE] Emergency access card " + uid + " used without the backend.");
         }
         else if (!granted && backendUnreachable && isExit) {
             // Nobody may be trapped by an outage. The exit reader is inside the
             // room and registered cards cannot be checked offline, so any card
             // here opens the door to leave and arms touch-to-lock. Never entry.
-            granted = true;
+            granted = grantedOffline = true;
             decision = DoorDecision{};
-            message = "Backend unreachable: exit allowed locally (not logged).";
+            message = "Backend unreachable: exit allowed locally (saved for the access log).";
             SerialLog::warn("[OFFLINE] Exit reader used without the backend. Card " + uid + ".");
         }
+        // The OUT the backend could not record is kept and uploaded later.
+        if (grantedOffline && isExit) queueOfflineExit(exitEventId, uid, 0);
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
@@ -281,13 +291,17 @@ namespace {
         bool exitOnly = false;
         DoorDecision decision;
         bool backendUnreachable = false;
-        bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId, &backendUnreachable);
+        char exitEventId[33] = {};
+        if (isExit) newDoorEventId(exitEventId);
+        bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId,
+            &backendUnreachable, isExit ? exitEventId : nullptr);
         if (!granted && backendUnreachable && isExit && unlockedByFingerSlot != 0) {
             // Connection lost: the slot check above already proved this is the
             // finger that unlocked the door, so it may lock without the backend.
             granted = true;
-            message = "Backend unreachable: same finger confirmed locally (not logged).";
+            message = "Backend unreachable: same finger confirmed locally (exit saved for the access log).";
             SerialLog::warn("[OFFLINE] Door locked by the finger that unlocked it, without the backend.");
+            queueOfflineExit(exitEventId, "", match.matchedSlot);
         }
         SerialLog::result(granted, granted
             ? (isExit ? "Exit granted, door locked"
@@ -347,6 +361,7 @@ void setup() {
     lastSensorAttemptAt = millis();
     initRfidReaders();
     SerialLog::step("RFID readers ready.");
+    initOfflineExits();
     connectWiFi();
     initDoorStatus(isDoorUnlocked());
     printStatus();
@@ -371,6 +386,7 @@ void loop() {
     if (isDoorUnlocked() && isExitAuthorized()) { serviceDoorStatus(true); delay(2); return; }
     ensureWiFiConnected();
     serviceDoorStatus();
+    serviceOfflineExits(); // Exits saved during an outage reach the access log.
     if (isDoorUnlocked()) {
         scanRfid(); // Student exit card arms the outside touch. It does not lock by itself.
         if (consumeFingerprintExitTouch()) {

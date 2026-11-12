@@ -3,6 +3,8 @@
 require_once __DIR__ . '/DirectFingerprintAccessService.php';
 require_once __DIR__ . '/AccessLogSchema.php';
 require_once __DIR__ . '/ScheduleAccessPolicy.php';
+require_once __DIR__ . '/DoorEventLog.php';
+require_once __DIR__ . '/OfflineExitService.php';
 
 /**
  * Door decisions for the combined door/enrollment controller. Entry needs a
@@ -28,6 +30,10 @@ final class CombinedDoorAccessService
 
     public function verify(array $input, ?DateTimeImmutable $now = null): array
     {
+        // An exit the controller already allowed offline: record it, never re-decide it.
+        if (($input['offline_exit'] ?? null) === true) {
+            return (new OfflineExitService($this->pdo))->record($input, $now);
+        }
         $method = $input['method'] ?? null;
         if ($method === 'fingerprint') {
             return (new DirectFingerprintAccessService($this->pdo))->verifyRegisteredIdentity($input, $now);
@@ -40,10 +46,15 @@ final class CombinedDoorAccessService
             ->setTimezone(new DateTimeZone('Asia/Manila'));
         $hasRole = (bool) $this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
         AccessLogSchema::ensureRfidUid($this->pdo);
+        // The controller numbers each exit; if its reply is lost and it uploads
+        // the same exit later from its offline queue, it is not logged twice.
+        $eventId = DoorEventLog::validId($input['event_id'] ?? null);
+        if ($eventId !== null) DoorEventLog::ensure($this->pdo);
         $this->pdo->beginTransaction();
         try {
             $decision = $this->authorizeRfid($input, $hasRole, $now);
             $this->recordRfidDecision($decision, $now);
+            if ($eventId !== null) DoorEventLog::remember($this->pdo, $eventId, (int) $this->pdo->lastInsertId(), $now);
             $this->pdo->commit();
             return $decision;
         } catch (Throwable $error) {

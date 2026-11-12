@@ -554,7 +554,7 @@ namespace
 }
 
 bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isExit, bool *exitOnly, DoorDecision *decision,
-    uint32_t unlockedByUserId, bool *backendUnreachable)
+    uint32_t unlockedByUserId, bool *backendUnreachable, const char *eventId)
 {
     if (decision) *decision = DoorDecision{};
     if (backendUnreachable) *backendUnreachable = false;
@@ -578,6 +578,7 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     payload["template_hash"] = liveTemplateHash;
     payload["direction"] = isExit ? "exit" : "entry";
     if (isExit && unlockedByUserId != 0) payload["unlocked_by_user_id"] = unlockedByUserId;
+    if (eventId) payload["event_id"] = eventId;
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     const bool answered = postJson("/api/door/verify_access.php", payload, response, nullptr, isExit);
     // A refusal is an HTTP 200 with access_granted=false, so read the reason either way.
@@ -594,7 +595,8 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     return granted;
 }
 
-bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision, bool *backendUnreachable)
+bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision, bool *backendUnreachable,
+    const char *eventId)
 {
     if (decision) *decision = DoorDecision{};
     if (backendUnreachable) *backendUnreachable = false;
@@ -605,6 +607,7 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
     payload["rfid_uid"] = uid;
     payload["direction"] = isExit ? "exit" : "entry";
+    if (eventId) payload["event_id"] = eventId;
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     // Card checks run while unlocked too: the inside reader for exits, the
     // outside reader to record an arrival through an already open door.
@@ -616,6 +619,24 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     }
     message = String(response["message"] | "RFID access denied.");
     return isExplicitTrue(response["access_granted"]);
+}
+
+bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, long ageSeconds, bool &rejected)
+{
+    rejected = false;
+    DynamicJsonDocument payload(512);
+    payload["offline_exit"] = true;
+    payload["method"] = slot ? "fingerprint" : "rfid";
+    payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
+    if (slot) payload["matched_slot"] = slot;
+    else payload["rfid_uid"] = rfidUid;
+    payload["direction"] = "exit";
+    payload["event_id"] = eventId;
+    if (ageSeconds >= 0) payload["age_seconds"] = ageSeconds;
+    DynamicJsonDocument response(JSON_BUFFER_SIZE);
+    if (postJson("/api/door/verify_access.php", payload, response, nullptr, true)) return true;
+    rejected = String(response["reason"] | "") == "invalid_request";
+    return false;
 }
 
 bool isFingerprintWorkPending()

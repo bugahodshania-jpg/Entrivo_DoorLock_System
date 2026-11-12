@@ -52,7 +52,7 @@ ground, relay contact wiring, and peripheral voltage arrangements.
 | --- | --- |
 | R307S TX to ESP32 RX | 32, hardware UART1, 57600 baud |
 | R307S RX from ESP32 TX | 33, hardware UART1 |
-| Entrance RDM6300 TX | 14, software serial, 9600 baud |
+| Entrance RDM6300 TX | 16, software serial, 9600 baud |
 | Exit RDM6300 TX | 27, software serial, 9600 baud |
 | DFPlayer TX to ESP32 RX | 25, hardware UART2, 9600 baud |
 | DFPlayer RX from ESP32 TX | 26, hardware UART2 |
@@ -104,6 +104,15 @@ card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cann
 reached (no answer at all, not a refusal), it is accepted locally with the same
 in/out process as any card (entrance reader unlocks; exit reader, then touch,
 locks). Offline uses are printed on Serial but not logged in the backend.
+
+Every exit reaches the access log. Each exit request carries a 32-hex
+`event_id`; an exit allowed offline (exit reader, same-finger lock, emergency
+card) is saved in NVS (`exitq`, up to 32, kept through restarts) and uploaded
+with `offline_exit: true` every 3 s once the backend answers. The backend logs
+it as a granted OUT at the time it happened and records the `event_id` in
+`door_event_log`, so a retried upload or an exit already logged online is
+never written twice. After a restart the exact time is known only while the
+RTC is running; otherwise the upload time is used.
 
 Nobody is trapped by an outage. With no backend answer, any card on the inside
 **exit** reader unlocks a locked door and arms touch-to-lock, because registered

@@ -16,6 +16,8 @@ foreach ([null, false, '', 'wrong-token', ' fixture-token', ['fixture-token']] a
 }
 
 $pdo = entrivo_pdo();
+// The fixture card may also be a configured emergency card; these checks need the plain rules.
+putenv('DOOR_EMERGENCY_RFID_UIDS');
 $tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'fingerprint_sensor_slots'];
 $now = new DateTimeImmutable('2026-10-21 10:00:00', new DateTimeZone('Asia/Manila'));
 $template = str_repeat("\x44\x45", 256);
