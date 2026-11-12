@@ -520,11 +520,9 @@ function assertEditableIdentifier(string $identifier, bool $isStudent, string $l
         throw new InvalidArgumentException("{$label} is required.");
     }
 
-    $pattern = $isStudent ? '/^\d{4}-\d{4}$/' : '/^\d{6}-\d{6}$/';
-    $format = $isStudent ? 'xxxx-xxxx' : 'xxxxxx-xxxxxx';
-
-    if (!preg_match($pattern, $identifier)) {
-        throw new InvalidArgumentException("{$label} must use {$format} format.");
+    // School and employee IDs are accepted as printed; only characters and length are checked.
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9 .\/-]{0,19}$/', $identifier)) {
+        throw new InvalidArgumentException("{$label} can use letters, numbers, spaces, dashes, slashes and periods, up to 20 characters.");
     }
 }
 
@@ -1521,9 +1519,34 @@ try {
                 (string) $userId
             );
 
+            // A blocked account gets no new fingerprints: stop any enrollment or
+            // database restore that was already waiting or running for it.
+            $stoppedFingerprintWork = 0;
+            if ($shouldBlock) {
+                $reason = 'Cancelled because the account was blocked.';
+                try {
+                    require_once dirname(__DIR__) . '/services/FingerprintEnrollmentService.php';
+                    $cancelledJobs = (new FingerprintEnrollmentService($pdo))->cancelOpenJobsForUser($userId, $reason);
+                    $stoppedFingerprintWork += count($cancelledJobs);
+                    foreach ($cancelledJobs as $jobId) {
+                        (new ActivityLogService($pdo))->recordFingerprintJob('cancelled', ['job_id' => $jobId, 'user_id' => $userId, 'error_message' => ''], $actorId);
+                    }
+                } catch (Throwable $error) {
+                    error_log('Blocking user #' . $userId . ': open enrollments could not be cancelled: ' . $error->getMessage());
+                }
+                try {
+                    require_once dirname(__DIR__) . '/services/DirectFingerprintImportService.php';
+                    $stoppedFingerprintWork += (new DirectFingerprintImportService($pdo, false))->cancelForUser($userId, $reason);
+                } catch (Throwable $error) {
+                    error_log('Blocking user #' . $userId . ': open fingerprint restores could not be cancelled: ' . $error->getMessage());
+                }
+            }
+
             echo json_encode([
+                'stoppedFingerprintWork' => $stoppedFingerprintWork,
                 'message' => $shouldBlock
-                    ? 'User blocked successfully.'
+                    ? 'User blocked successfully.' . ($stoppedFingerprintWork > 0
+                        ? ' Their fingerprint enrollment in progress was cancelled.' : '')
                     : ($demoteToAdmin
                         ? 'User unblocked as Admin successfully.'
                         : 'User unblocked successfully.'),

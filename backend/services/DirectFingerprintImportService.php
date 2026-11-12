@@ -65,6 +65,7 @@ final class DirectFingerprintImportService
             $fingerprint = $this->fingerprint($fingerprintId);
             if ((int) $fingerprint['user_id'] !== $owner['user_id']) $this->reject('The selected backup does not belong to this employee.', 403);
             $binary = $this->binary($fingerprint);
+            if ($owner['status'] !== 'active') $this->reject('This account is blocked or inactive. Unblock it in Manage Users before restoring a fingerprint.', 403);
             if (!$this->eligible($owner) || $fingerprint['status'] !== 'active') $this->reject('Only an active fingerprint for an active, approved account with completed setup can be restored.', 403);
             if ($binary === null) $this->reject('This fingerprint has no valid database backup of a supported size (' . FingerprintTemplateFormat::describeSupportedSizes() . ' bytes). Enroll it again first.', 422);
             $active = $this->pdo->prepare("SELECT * FROM direct_fingerprint_import_jobs WHERE status IN ('pending','processing') AND (enrollment_device_id=? OR fingerprint_id=?) FOR UPDATE");
@@ -127,6 +128,22 @@ final class DirectFingerprintImportService
             $this->pdo->prepare("UPDATE direct_fingerprint_import_jobs SET status='cancelled',current_step='Import cancelled by administrator',error_message='Import cancelled by an administrator. You can retry this database restore.',finished_at=NOW(),active_device_key=NULL,active_fingerprint_key=NULL WHERE id=? AND status IN ('pending','processing')")->execute([$jobId]);
             return $this->jobResponse($this->job($jobId), 'Import cancelled. You can retry this database restore.');
         });
+    }
+
+    /**
+     * Cancels a user's waiting or running database restores (used when the
+     * account is blocked). A running board import is refused when it reports
+     * back, exactly as after an administrator's cancel. Returns how many.
+     */
+    public function cancelForUser(int $userId, string $reason): int
+    {
+        try {
+            $statement = $this->pdo->prepare("UPDATE direct_fingerprint_import_jobs SET status='cancelled',current_step='Import cancelled: account blocked',error_message=?,finished_at=NOW(),active_device_key=NULL,active_fingerprint_key=NULL WHERE user_id=? AND status IN ('pending','processing')");
+            $statement->execute([$reason, $userId]);
+            return $statement->rowCount();
+        } catch (PDOException) {
+            return 0; // No import table yet: nothing can be running.
+        }
     }
 
     public function claim(array $input): array

@@ -46,6 +46,16 @@ class FingerprintEnrollmentService
             ];
         }
 
+        // No admin or super admin, whatever their privileges, may enroll or
+        // update a fingerprint for a blocked account.
+        $blocked = $this->blockedAccountMessage((int) $userId);
+        if ($blocked !== null) {
+            return [
+                "success" => false,
+                "message" => $blocked
+            ];
+        }
+
         $this->jobModel->ensureEnrollmentDevice((int) $deviceId);
 
         if (!$this->jobModel->deviceExists($deviceId)) {
@@ -141,6 +151,56 @@ class FingerprintEnrollmentService
                 ? "Fingerprint update job created. The existing Sensor A mapping stays active until the replacement is confirmed."
                 : "Enrollment job created."
         ];
+    }
+
+    /**
+     * Message refusing fingerprint enrollment for a blocked account, or null
+     * when the account may be enrolled. Blocked = switched off (is_active 0),
+     * except a Super Admin on standby, who is shown as Inactive, not Blocked.
+     */
+    public function blockedAccountMessage(int $userId): ?string
+    {
+        $query = $this->conn->prepare('SELECT * FROM users WHERE id = ?');
+        $query->execute([$userId]);
+        $user = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$user || !array_key_exists('is_active', $user) || (int) $user['is_active'] === 1) {
+            return null;
+        }
+        if (($user['role'] ?? '') === 'super_admin') {
+            try {
+                $standby = $this->conn->prepare('SELECT 1 FROM super_admin_session_standby WHERE user_id = ? LIMIT 1');
+                $standby->execute([$userId]);
+                if ($standby->fetchColumn()) {
+                    return null;
+                }
+            } catch (PDOException) {
+                // No standby table: a switched-off Super Admin is blocked.
+            }
+        }
+        return 'This account is blocked. Unblock it in Manage Users before enrolling or updating a fingerprint.';
+    }
+
+    /**
+     * Cancels every open enrollment job of a user (used when the account is
+     * blocked), with the same rollback as an administrator's cancel: the
+     * reserved sensor slot and staged backup are released and the board's
+     * late progress or completion is refused. Returns the cancelled job IDs.
+     *
+     * @return list<int>
+     */
+    public function cancelOpenJobsForUser(int $userId, string $reason): array
+    {
+        $statuses = FingerprintEnrollmentJob::OPEN_STATUSES;
+        $query = $this->conn->prepare('SELECT job_id FROM fingerprint_enrollment_jobs WHERE user_id = ? AND status IN ('
+            . implode(',', array_fill(0, count($statuses), '?')) . ') ORDER BY job_id');
+        $query->execute([$userId, ...$statuses]);
+        $cancelled = [];
+        foreach ($query->fetchAll(PDO::FETCH_COLUMN) as $jobId) {
+            if ($this->jobModel->cancelOpenJob((int) $jobId, $reason)) {
+                $cancelled[] = (int) $jobId;
+            }
+        }
+        return $cancelled;
     }
 
     public function startEnrollment(array $input): array
@@ -953,6 +1013,18 @@ class FingerprintEnrollmentService
                 'body' => [
                     'success' => false,
                     'message' => 'Enrollment job not found.'
+                ],
+            ];
+        }
+
+        // A retry is a new enrollment attempt: refused for a blocked account too.
+        $blocked = $this->blockedAccountMessage((int) ($job['user_id'] ?? 0));
+        if ($blocked !== null) {
+            return [
+                'status' => 409,
+                'body' => [
+                    'success' => false,
+                    'message' => $blocked
                 ],
             ];
         }
