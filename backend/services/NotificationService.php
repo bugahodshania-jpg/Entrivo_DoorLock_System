@@ -252,6 +252,30 @@ final class NotificationService
         }
     }
 
+    /** Tell the approvers about a new request, outside the requester's HTTP response. */
+    public static function dispatchRequestAlert(int $overrideId): bool
+    {
+        try {
+            return self::launchDetachedPhp(dirname(__DIR__) . '/tools/notify_override_request.php', [(string) $overrideId]);
+        } catch (Throwable $error) {
+            error_log('Override request alert worker could not start: ' . $error->getMessage());
+            return false;
+        }
+    }
+
+    /** Email the requester the approve/reject decision, outside the approver's HTTP response. */
+    public static function dispatchDecisionEmail(array $message): bool
+    {
+        try {
+            return self::launchDetachedPhp(dirname(__DIR__) . '/tools/send_override_decision.php', [
+                base64_encode(json_encode($message, JSON_THROW_ON_ERROR)),
+            ]);
+        } catch (Throwable $error) {
+            error_log('Override decision email worker could not start: ' . $error->getMessage());
+            return false;
+        }
+    }
+
     private static function launchDetachedPhp(string $script, array $arguments): bool
     {
         if (!function_exists('exec')) {

@@ -288,6 +288,32 @@
   white-space: nowrap;
 }
 
+.super-admin-nav-badge {
+  background: var(--sidebar-gold, #f0c423);
+  border-radius: 999px;
+  color: #08281c;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 18px;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  text-align: center;
+}
+
+.super-admin-layout.is-sidebar-collapsed .super-admin-nav-badge {
+  font-size: 9px;
+  line-height: 14px;
+  margin-left: 0;
+  min-width: 14px;
+  padding: 0 3px;
+  position: absolute;
+  right: 4px;
+  top: -2px;
+}
+
 .super-admin-nav-link:hover {
   background: #f5f6f6;
   color: #111715;

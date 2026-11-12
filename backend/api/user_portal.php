@@ -24,6 +24,8 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/NotificationService.php';
+require_once dirname(__DIR__) . '/services/OverrideRequestAlertService.php';
 require_once dirname(__DIR__) . '/services/ScheduleStatusService.php';
 require_once dirname(__DIR__) . '/services/OverrideRequestCancellationService.php';
 require_once dirname(__DIR__) . '/services/OverrideScheduleService.php';
@@ -1654,9 +1656,20 @@ try {
             (string) $overrideId
         );
 
+        // Email the approvers in the background; the request is saved either way.
+        // Mark it queued first: the worker may finish and record "sent" at any moment.
+        OverrideRequestAlertService::ensureSchema($pdo);
+        $alerts = new OverrideRequestAlertService($pdo);
+        $alerts->markQueued($overrideId, true);
+        $approversAlerted = NotificationService::dispatchRequestAlert($overrideId);
+        if (!$approversAlerted) {
+            $alerts->markQueued($overrideId, false);
+        }
+
         echo json_encode([
             'message' => 'Override request submitted and is pending review.',
             'overrideId' => $overrideId,
+            'approversAlerted' => $approversAlerted,
             'overrides' => portalOverrides($pdo, $userId),
         ]);
         exit;

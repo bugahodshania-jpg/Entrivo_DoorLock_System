@@ -17,6 +17,33 @@ overlapping Regular schedule without changing its times. The affected user is
 notified in the dashboard modal and by email. User-requested approvals use the
 same stamp and also notify the owner when their regular schedule is overlapped.
 
+## New request alerts for approvers
+
+Submitting an override request emails everyone who can approve it: active super
+admins, and active admins who hold the Pending Overrides privilege. The email
+names the requester, the requested window and the reason, and points to Pending
+Overrides in the portal. The requester is never emailed about their own request.
+
+The email is sent by a background PHP CLI process, so the requester's response
+does not wait for SMTP. The request is saved even when no email can be sent;
+failures are written to the PHP error log. There is no retry queue.
+
+The result is stored on the request (`access_overrides.approver_alert_status`
+and `approver_alert_at`, added automatically) and shown in the **Email alert**
+column of Pending Overrides: Sending, Sent, Partly sent, Failed, No approver
+email, or Not recorded for requests made before this feature. "Sent" means the
+mail server accepted the message, not that it reached the inbox.
+
+To resend the alert for one request:
+
+```powershell
+& C:\xampp\php\php.exe backend/tools/notify_override_request.php 123
+```
+
+```powershell
+& C:\xampp\php\php.exe backend/tests/override_request_alert_test.php
+```
+
 ## Setup
 
 Run this once when deploying with a database user that cannot create tables at

@@ -30,6 +30,7 @@ import {
 import UniversityBrand from '../../components/UniversityBrand';
 import { formatDateInManila } from '../../utils/dateTime';
 import { portalLayoutClassName, useCompactNav } from '../../hooks/useCompactNav';
+import usePendingOverrideCount from '../../hooks/usePendingOverrideCount';
 import { normalizePrivileges, PRIVILEGE_PATHS } from '../../utils/privileges';
 import '../../styles/superAdmin/adminLayout.css';
 import '../../styles/superAdmin/tables.css';
@@ -258,6 +259,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
   const profilePhoto = headerProfilePhoto(user);
   const profileInitial = (displayName.trim().charAt(0) || 'A').toUpperCase();
   const userPrivileges = normalizePrivileges(user?.privileges, user?.role);
+  const pendingOverrideCount = usePendingOverrideCount(userPrivileges.includes('pending_overrides'));
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
@@ -362,6 +364,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
               <div className="super-admin-nav-section-links">
                 {links.map(({ label, href, icon: Icon }) => {
                   const isActive = window.location.pathname === href;
+                  const badge = href.endsWith('/pending-overrides') ? pendingOverrideCount : 0;
 
                   return (
                     <a
@@ -374,6 +377,11 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
                     >
                       <Icon size={20} aria-hidden="true" />
                       <span>{label}</span>
+                      {badge > 0 ? (
+                        <strong className="super-admin-nav-badge" aria-label={`${badge} waiting for review`}>
+                          {badge > 99 ? '99+' : badge}
+                        </strong>
+                      ) : null}
                     </a>
                   );
                 })}

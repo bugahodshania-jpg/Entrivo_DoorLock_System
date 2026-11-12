@@ -23,6 +23,8 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
 require_once dirname(__DIR__) . '/services/NotificationService.php';
+require_once dirname(__DIR__) . '/services/OverrideRequestAlertService.php';
+require_once dirname(__DIR__) . '/services/OverrideDecisionEmailService.php';
 require_once dirname(__DIR__) . '/services/OverrideScheduleService.php';
 
 function ensureScheduleKindColumn(PDO $pdo): void
@@ -99,6 +101,10 @@ function mapPendingOverride(array $row): array
         'createdTimeLabel' => $row['created_time_label'],
         'state' => $state,
         'stateLabel' => $isApproved ? 'Approved' : 'Pending',
+        // Result of the email that told the approvers about this request.
+        'approverAlert' => $row['approver_alert_status'] ?? null,
+        'approverAlertLabel' => OverrideRequestAlertService::STATUS_LABELS[$row['approver_alert_status'] ?? ''] ?? 'Not recorded',
+        'approverAlertAt' => $row['approver_alert_at'] ?? null,
         'isApproved' => $isApproved,
         'canReviewActions' => !$isApproved,
         'approvedById' => $isApproved ? (int) $row['approved_by'] : null,
@@ -122,6 +128,7 @@ function pendingOverrideSelectSql(): string
             access_overrides.override_start,
             access_overrides.override_end,
             access_overrides.created_at,
+            " . OverrideRequestAlertService::selectColumnsSql() . "
             users.username,
             users.email,
             users.role,
@@ -296,6 +303,7 @@ function fetchPendingOverride(PDO $pdo, int $overrideId): ?array
 try {
     $pdo = entrivo_pdo();
     ensureScheduleKindColumn($pdo);
+    OverrideRequestAlertService::ensureSchema($pdo);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $overrideId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
@@ -314,6 +322,12 @@ try {
                 'message' => 'Override request loaded.',
                 'override' => $override,
             ]);
+            exit;
+        }
+
+        // Sidebar badge: only the counts, without loading the request list.
+        if (isset($_GET['counts'])) {
+            echo json_encode(['counts' => countOverridesByStatus($pdo)]);
             exit;
         }
 
@@ -548,6 +562,20 @@ try {
         $description = 'Rejected override request #' . $overrideId . ' for ' . $existing['name'] . '.';
     }
 
+    // Tell the requester the decision. The message comes from the request read
+    // before the decision, because a rejected request is already deleted.
+    $deciderName = null;
+    if ($actorId) {
+        $decider = $pdo->prepare('SELECT username FROM users WHERE id = ?');
+        $decider->execute([$actorId]);
+        $deciderName = $decider->fetchColumn() ?: null;
+    }
+    $decisionEmail = OverrideDecisionEmailService::message($existing, $action, $deciderName);
+    $requesterEmailQueued = $decisionEmail !== null && NotificationService::dispatchDecisionEmail($decisionEmail);
+    $message .= $decisionEmail === null
+        ? ' The requester has no email address, so no decision email was sent.'
+        : ($requesterEmailQueued ? ' The requester is being emailed the decision.' : ' The decision email to the requester could not be started.');
+
     (new ActivityLogService($pdo))->record(
         $actorId,
         $activityType,
@@ -560,7 +588,10 @@ try {
 
     echo json_encode(array_merge(
         overrideListPayload($pdo, $listStatus),
-        array_merge(['message' => $message], isset($emailDelivery) ? [
+        array_merge(['message' => $message, 'requesterEmail' => [
+            'hasEmail' => $decisionEmail !== null,
+            'queued' => $requesterEmailQueued,
+        ]], isset($emailDelivery) ? [
             'affectedUsersNotified' => count($notificationIds),
             'emailNotifications' => $emailDelivery,
         ] : [])

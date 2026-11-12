@@ -214,6 +214,7 @@ export default function PendingOverrides() {
     'Requested window',
     'Reason',
     'Submitted',
+    'Email alert',
     'Status',
     'Action',
   ];
@@ -401,6 +402,7 @@ export default function PendingOverrides() {
         actor_id: getActorId(),
       });
       applyOverridesPayload(response.data);
+      window.dispatchEvent(new Event('entrivo:pending-overrides-changed'));
       const message = response.data.message || 'Override request updated.';
       const toastId = Date.now();
       setToast({ id: toastId, message });
@@ -783,6 +785,14 @@ export default function PendingOverrides() {
                       <td>
                         <strong>{override.createdDateLabel}</strong>
                         <span>{override.createdTimeLabel}</span>
+                      </td>
+                      <td>
+                        <span
+                          className={`pending-override-alert pending-override-alert-${override.approverAlert || 'unknown'}`}
+                          title={override.approverAlertAt ? `Updated ${override.approverAlertAt}` : 'Email to the approvers about this request'}
+                        >
+                          {override.approverAlertLabel || 'Not recorded'}
+                        </span>
                       </td>
                       <td>
                         <span className={`dashboard-log-status dashboard-log-status-${override.state || 'pending'}`}>
