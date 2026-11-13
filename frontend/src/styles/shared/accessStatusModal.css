@@ -156,3 +156,20 @@
 @media (max-width: 420px) {
   .access-status-details > div { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* Security Warning: 3 or more failed attempts in a row by the same person. */
+.access-status-modal.is-alert { border-top: 6px solid #b42318; box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.18), 0 18px 48px rgba(16, 24, 40, 0.28); }
+.is-alert .access-status-icon { background: #fde8e6; color: #b42318; }
+.access-status-modal.is-alert h2 { color: #b42318; }
+.is-alert .access-status-eyebrow { color: #b42318; font-weight: 800; }
+.access-status-modal .access-status-warning {
+  background: #fde8e6;
+  border: 1px solid #f4b7b1;
+  border-radius: 4px;
+  color: #7a1a12;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+}

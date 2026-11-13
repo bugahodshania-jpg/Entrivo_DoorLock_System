@@ -5,6 +5,7 @@ import {
   IdCard,
   LockKeyhole,
   LockKeyholeOpen,
+  ShieldAlert,
   ShieldCheck,
   ShieldX,
   WifiOff,
@@ -16,6 +17,7 @@ import {
   ACCESS_STATUS_QUEUE_LIMIT,
   createAccessStatusPoller,
   describeAccessEvent,
+  isFailedAttemptAlert,
 } from '../utils/accessStatusPoller';
 import '../styles/shared/actionConfirm.css';
 import '../styles/shared/accessStatusModal.css';
@@ -25,10 +27,12 @@ function browserIsActive() {
 }
 
 /**
- * Pops up centered on every Super Admin page the moment a door access attempt
- * (granted or denied) is recorded, together with the live lock state.
+ * Pops up centered on every page the moment a door access attempt is recorded,
+ * together with the live lock state. From the 3rd failed attempt in a row by
+ * the same person it is a red Security Warning. With alertsOnly (Admin
+ * dashboard) only those warnings pop up.
  */
-export default function GlobalAccessStatusModal({ actorId }) {
+export default function GlobalAccessStatusModal({ actorId, alertsOnly = false }) {
   const [queue, setQueue] = useState([]);
   const [doorSnapshot, setDoorSnapshot] = useState(null);
   const [isLive, setIsLive] = useState(false);
@@ -44,7 +48,10 @@ export default function GlobalAccessStatusModal({ actorId }) {
     const poller = createAccessStatusPoller({
       actorId,
       client: axiosClient,
-      onEvents: (events) => setQueue((current) => [...current, ...events].slice(-ACCESS_STATUS_QUEUE_LIMIT)),
+      onEvents: (events) => {
+        const shown = alertsOnly ? events.filter(isFailedAttemptAlert) : events;
+        if (shown.length) setQueue((current) => [...current, ...shown].slice(-ACCESS_STATUS_QUEUE_LIMIT));
+      },
       onDoors: (doors, startedAt) => setDoorSnapshot({ doors, startedAt }),
       onError: (message) => setIsLive(message === ''),
     });
@@ -75,7 +82,7 @@ export default function GlobalAccessStatusModal({ actorId }) {
       window.removeEventListener('focus', resume);
       window.removeEventListener('online', resume);
     };
-  }, [actorId]);
+  }, [actorId, alertsOnly]);
 
   const current = queue[0] || null;
   const dismiss = useCallback(() => setQueue((items) => items.slice(1)), []);
@@ -100,7 +107,7 @@ export default function GlobalAccessStatusModal({ actorId }) {
   const report = doors.find((door) => Number(door.device_id) === 1) || doors[0];
   const door = doorStatusView(report, doorSnapshot ? Math.max(0, performance.now() - doorSnapshot.startedAt) : Infinity);
   const DoorIcon = door.state === 'locked' ? LockKeyhole : door.state === 'unlocked' ? LockKeyholeOpen : WifiOff;
-  const StatusIcon = view.tone === 'granted' ? ShieldCheck : ShieldX;
+  const StatusIcon = view.tone === 'alert' ? ShieldAlert : view.tone === 'granted' ? ShieldCheck : ShieldX;
   const MethodIcon = current.method === 'RFID' ? IdCard : Fingerprint;
 
   const rows = [
@@ -127,7 +134,7 @@ export default function GlobalAccessStatusModal({ actorId }) {
         <header className="access-status-header">
           <span className="access-status-icon" aria-hidden="true"><StatusIcon size={26} /></span>
           <div>
-            <span className="access-status-eyebrow">Door Access Status</span>
+            <span className="access-status-eyebrow">{view.eyebrow}</span>
             <h2 id="access-status-title">{view.title}</h2>
             <p className="access-status-subtitle">
               <MethodIcon size={14} aria-hidden="true" />
@@ -145,6 +152,7 @@ export default function GlobalAccessStatusModal({ actorId }) {
           ))}
         </dl>
 
+        {view.warning ? <p className="access-status-warning" role="alert">{view.warning}</p> : null}
         {view.reason ? <p className="access-status-reason" role="note">{view.reason}</p> : null}
 
         <div className={`access-status-door is-${door.state}`} role="status" aria-live="polite">

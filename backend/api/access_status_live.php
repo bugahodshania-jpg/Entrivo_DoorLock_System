@@ -36,6 +36,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/DoorStatusService.php';
 require_once dirname(__DIR__) . '/services/ScheduleAccessPolicy.php';
+require_once dirname(__DIR__) . '/services/FailedAccessStreak.php';
 
 $actorId = filter_input(INPUT_GET, 'actor_id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 $afterId = filter_input(INPUT_GET, 'after_id', FILTER_VALIDATE_INT, ['options' => ['default' => 0, 'min_range' => 0]]);
@@ -89,6 +90,7 @@ try {
             DATE_FORMAT(access_log.access_timestamp, '%b %e, %Y') AS access_date,
             DATE_FORMAT(access_log.access_timestamp, '%h:%i:%s %p') AS access_time,
             DATE_FORMAT(access_log.access_timestamp, '%Y-%m-%d') AS access_day,
+            access_log.access_timestamp,
             access_log.schedule_id,
             access_log.access_status,
             access_log.denial_reason,
@@ -129,9 +131,15 @@ try {
         return $scheduleCache["{$userId}|{$day}"] ??= $policy->schedulesOn($userId, $day);
     };
 
-    $events = array_map(static function (array $row) use ($schedulesFor): array {
+    // Failed attempts in a row by the same person; the portal warns
+    // administrators from the 3rd one on (FailedAccessStreak).
+    $hasRfidUid = isset($columns['rfid_uid']);
+    $failedStreak = static fn (array $row): int => FailedAccessStreak::count($pdo, $row, $hasRfidUid);
+
+    $events = array_map(static function (array $row) use ($schedulesFor, $failedStreak): array {
         $userId = $row['user_id'] !== null ? (int) $row['user_id'] : null;
         return [
+            'failedAttempts' => $failedStreak($row),
             'id' => (int) $row['log_id'],
             'status' => $row['access_status'],
             'denialReason' => $row['denial_reason'],

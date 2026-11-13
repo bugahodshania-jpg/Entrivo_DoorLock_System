@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { createAccessStatusPoller, describeAccessEvent } from '../src/utils/accessStatusPoller.js';
+import { createAccessStatusPoller, describeAccessEvent, isFailedAttemptAlert, FAILED_ATTEMPT_ALERT_AT } from '../src/utils/accessStatusPoller.js';
 test('baseline then only new events, once each', async () => {
   const responses=[{success:true,latest_id:40,events:[],doors:[]},
     {success:true,latest_id:42,events:[{id:41,status:'granted'},{id:42,status:'denied'}],doors:[]},
@@ -37,4 +37,24 @@ test('describe a student refused before the instructor enters', () => {
   assert.match(v.reason,/only after a faculty member/);
   assert.equal(describeAccessEvent({status:'denied',denialReason:'unauthorized',method:'RFID',userId:3,userName:'Prof',userRole:'faculty'}).reason,
     'The user is not authorized to use this door.');
+});
+
+test('a Security Warning starts at the 3rd failed attempt in a row', () => {
+  assert.equal(FAILED_ATTEMPT_ALERT_AT, 3);
+  const attempt = (failedAttempts, status = 'denied') => ({ id: 1, status, denialReason: 'no_schedule', method: 'RFID', userId: 4, userName: 'Shan', failedAttempts });
+  assert.equal(isFailedAttemptAlert(attempt(2)), false);
+  assert.equal(isFailedAttemptAlert(attempt(3)), true);
+  assert.equal(isFailedAttemptAlert(attempt(4)), true);
+  assert.equal(isFailedAttemptAlert(attempt(5, 'granted')), false);
+  assert.equal(isFailedAttemptAlert({ id: 1, status: 'denied' }), false, 'an older backend without the count never warns');
+  const third = describeAccessEvent(attempt(3));
+  assert.equal(third.tone, 'alert');
+  assert.equal(third.eyebrow, 'Security Warning');
+  assert.equal(third.title, '3 Failed Attempts in a Row');
+  assert.match(third.warning, /failed 3 door access attempts in a row/);
+  assert.equal(describeAccessEvent(attempt(4)).title, '4 Failed Attempts in a Row');
+  const second = describeAccessEvent(attempt(2));
+  assert.equal(second.tone, 'denied');
+  assert.equal(second.eyebrow, 'Door Access Status');
+  assert.equal(second.warning, '');
 });

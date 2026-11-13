@@ -5,6 +5,13 @@
 export const ACCESS_STATUS_POLL_MS = 500;
 export const ACCESS_STATUS_TIMEOUT_MS = 4000;
 export const ACCESS_STATUS_QUEUE_LIMIT = 10;
+// From this many failed attempts in a row by the same person, administrators
+// get a Security Warning (at the 3rd, the 4th, and every one after).
+export const FAILED_ATTEMPT_ALERT_AT = 3;
+
+export function isFailedAttemptAlert(event) {
+  return event?.status === 'denied' && Number(event?.failedAttempts) >= FAILED_ATTEMPT_ALERT_AT;
+}
 
 const DENIAL_REASONS = {
   not_registered: 'This credential is not registered to any user.',
@@ -73,9 +80,15 @@ export function describeAccessEvent(event) {
   } else if (event?.method === 'Fingerprint' && unregistered) {
     credential = 'Fingerprint not registered';
   }
+  const alert = isFailedAttemptAlert(event);
+  const failedAttempts = Number(event?.failedAttempts) || 0;
   return {
-    tone: granted ? 'granted' : 'denied',
-    title: granted ? (isExit ? 'Exit Granted' : 'Access Granted') : (isExit ? 'Exit Denied' : 'Access Denied'),
+    tone: alert ? 'alert' : granted ? 'granted' : 'denied',
+    eyebrow: alert ? 'Security Warning' : 'Door Access Status',
+    failedAttempts,
+    title: alert
+      ? `${failedAttempts} Failed Attempts in a Row`
+      : granted ? (isExit ? 'Exit Granted' : 'Access Granted') : (isExit ? 'Exit Denied' : 'Access Denied'),
     person: String(event?.userName || '').trim() || (unregistered ? 'Unregistered person' : 'Unknown user'),
     role: ROLE_LABELS[event?.userRole] || (event?.userRole ? String(event.userRole) : ''),
     identifier: String(event?.userIdentifier || '').trim(),
@@ -85,6 +98,9 @@ export function describeAccessEvent(event) {
     when: [event?.date, event?.time].filter(Boolean).join(' · '),
     schedules: describeSchedules(event),
     reason: granted ? '' : denialText(event),
+    warning: alert
+      ? `This person has failed ${failedAttempts} door access attempts in a row within 10 minutes. Check who is at the door.`
+      : '',
   };
 }
 

@@ -3,6 +3,7 @@ import { ActionConfirmProvider, useActionConfirm } from '../../components/Action
 import NotificationBell from '../../components/NotificationBell';
 import DoorStatusCard from '../../components/DoorStatusCard';
 import DoorWifiIcon from '../../components/DoorWifiIcon';
+import GlobalAccessStatusModal from '../../components/GlobalAccessStatusModal';
 import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import {
   ClipboardCheck,
@@ -494,6 +495,8 @@ export default function AdminLayout({ children, user, onLogout }) {
         </footer>
       </div>
     </div>
+    {/* Admins see only Security Warnings: 3+ failed door attempts in a row. */}
+    <GlobalAccessStatusModal actorId={user?.id} alertsOnly />
     </ActionConfirmProvider>
     </DoorStatusProvider>
   );
