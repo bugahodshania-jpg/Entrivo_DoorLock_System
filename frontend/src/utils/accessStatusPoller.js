@@ -25,7 +25,7 @@ const DENIAL_REASONS = {
 };
 
 // How a granted access happened (backend AccessEventType).
-const ACCESS_TYPE_LABELS = {
+export const ACCESS_TYPE_LABELS = {
   regular: 'Regular schedule',
   override: 'Approved override',
   admin_override: 'Admin permanent override',
@@ -35,7 +35,7 @@ const ACCESS_TYPE_LABELS = {
   no_schedule: 'No schedule',
 };
 
-const ROLE_LABELS = {
+export const ROLE_LABELS = {
   super_admin: 'Super Admin',
   admin: 'Admin',
   faculty: 'Faculty',

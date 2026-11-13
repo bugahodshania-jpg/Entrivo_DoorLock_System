@@ -39,3 +39,11 @@ test('the time of the last controller report is shown as Manila time, without re
   assert.equal(at(null), '');
   assert.equal(doorStatusView(null).updatedAt, '');
 });
+
+test('the person using the door is shown only while it is unlocked', () => {
+  const occupant = { name: 'Ana Cruz', role: 'faculty', access_type: 'regular' };
+  assert.deepEqual(doorStatusView({ ...report('unlocked'), occupant }).occupant, occupant);
+  assert.equal(doorStatusView({ ...report('locked'), occupant }).occupant, null);
+  assert.equal(doorStatusView({ ...report('unlocked'), occupant }, 15000).occupant, null, 'an expired report hides it');
+  assert.equal(doorStatusView(report('unlocked')).occupant, null);
+});

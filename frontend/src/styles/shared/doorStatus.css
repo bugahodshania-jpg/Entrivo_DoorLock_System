@@ -20,6 +20,12 @@
 .door-status-card.is-unlocked { color: #a25712; border-color: #edd7b3; background: #fffbf3; }
 .door-status-dot { background: currentColor; border-radius: 50%; flex: 0 0 auto; height: 6px; width: 6px; }
 
+/* An unlocked door opens "Currently using the door". */
+button.door-status-card { cursor: pointer; font: inherit; text-align: left; }
+button.door-status-card:hover { filter: brightness(0.97); box-shadow: 0 1px 4px rgba(162, 87, 18, 0.18); }
+button.door-status-card:focus-visible { outline: 2px solid #a25712; outline-offset: 2px; }
+.door-occupant-empty { color: #5c6b76; font-size: 13px; margin: 0; }
+
 @media (max-width: 1100px) {
   .door-status-card small { max-width: 95px; }
 }

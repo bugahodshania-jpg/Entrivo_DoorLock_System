@@ -39,7 +39,20 @@ final class DoorStatusService
             throw new DoorStatusException('An active approved portal account is required to view door status.', 403);
         }
         $ids = $this->pdo->query("SELECT device_id FROM fingerprint_devices WHERE device_type='enrollment' ORDER BY (status='active') DESC,device_id")->fetchAll(PDO::FETCH_COLUMN);
-        return ['success' => true, 'doors' => array_map(fn($id) => $this->snapshot((int) $id), $ids)];
+        $doors = array_map(fn($id) => $this->snapshot((int) $id), $ids);
+        // While a door is unlocked, say who unlocked it (the header card's modal).
+        $occupant = null;
+        foreach ($doors as &$door) {
+            if ($door['state'] !== 'unlocked') continue;
+            if ($occupant === null) {
+                require_once __DIR__ . '/DoorOccupant.php';
+                require_once __DIR__ . '/CombinedDoorAccessService.php';
+                $occupant = ['value' => DoorOccupant::current($this->pdo, CombinedDoorAccessService::emergencyCardUids())];
+            }
+            $door['occupant'] = $occupant['value'];
+        }
+        unset($door);
+        return ['success' => true, 'doors' => $doors];
     }
 
     public function snapshot(int $deviceId): array

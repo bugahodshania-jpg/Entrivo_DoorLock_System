@@ -17,6 +17,8 @@ export function doorStatusView(report, elapsedMs = 0) {
     label: state === 'locked' ? 'Locked' : state === 'unlocked' ? 'Unlocked' : 'Unavailable',
     // When the controller last confirmed this state.
     updatedAt: reportTime(report?.received_at),
+    // Who unlocked the door (latest granted entry); only while it is unlocked.
+    occupant: state === 'unlocked' && report.occupant && typeof report.occupant === 'object' ? report.occupant : null,
     canReadSensor: state === 'locked' && report.can_read_sensor === true,
     readBlockedReason: state === 'unlocked'
       ? 'The door is unlocked. Lock the door before reading sensor memory.'
