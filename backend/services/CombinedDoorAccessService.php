@@ -138,7 +138,8 @@ final class CombinedDoorAccessService
             'schedule_id' => $schedule['schedule_id'],
             'override_id' => $schedule['override_id'],
             'schedule_kind' => $schedule['schedule_kind'],
-            'seconds_remaining' => ScheduleAccessPolicy::secondsLeft($schedule['time_end'] ?? null, $now),
+            // The 15-minute reminder: remaining time, the schedule end and the server time.
+            ...ScheduleAccessPolicy::reminderFields($schedule['time_end'] ?? null, $now),
         ]);
     }
 

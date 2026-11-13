@@ -316,6 +316,21 @@ final class ScheduleAccessPolicy
     }
 
     /** Whole seconds from $now until today's $timeEnd (HH:MM:SS); null when unknown or already past. */
+    /**
+     * Fields the door controller needs to plan the 15-minute reminder from the
+     * schedule itself: the end as a Unix time (null when unknown or past) and
+     * the server's current Unix time, which also sets the controller's clock.
+     */
+    public static function reminderFields(?string $timeEnd, DateTimeImmutable $now): array
+    {
+        $left = self::secondsLeft($timeEnd, $now);
+        return [
+            'seconds_remaining' => $left,
+            'schedule_end_epoch' => $left !== null ? $now->getTimestamp() + $left : null,
+            'server_time_epoch' => $now->getTimestamp(),
+        ];
+    }
+
     public static function secondsLeft(?string $timeEnd, DateTimeImmutable $now): ?int
     {
         if (!is_string($timeEnd) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $timeEnd)) return null;

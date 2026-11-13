@@ -20,6 +20,7 @@ struct DoorDecision {
     String scheduleKind;         // regular, override, permanent_override (granted entries)
     long secondsRemaining = -1;  // seconds until the schedule ends (granted entries), -1 if unknown
     uint32_t userId = 0;         // the identified user, 0 if unknown
+    uint32_t scheduleEndEpoch = 0; // schedule end as Unix time (granted entries), 0 if unknown
 };
 
 // unlockedByUserId (exit only): the user who unlocked the door. The backend

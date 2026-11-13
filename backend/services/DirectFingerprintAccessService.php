@@ -254,8 +254,8 @@ final class DirectFingerprintAccessService
             'schedule_id' => $schedule['schedule_id'],
             'override_id' => $schedule['override_id'],
             'schedule_kind' => $schedule['schedule_kind'],
-            // Lets the door controller play the 15-minute reminder.
-            'seconds_remaining' => ScheduleAccessPolicy::secondsLeft($schedule['time_end'] ?? null, $now),
+            // Lets the door controller plan the 15-minute reminder from the schedule end.
+            ...ScheduleAccessPolicy::reminderFields($schedule['time_end'] ?? null, $now),
         ]);
     }
 

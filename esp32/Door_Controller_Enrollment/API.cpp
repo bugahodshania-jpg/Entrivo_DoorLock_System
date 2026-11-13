@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <memory>
 #include <new>
+#include <time.h>
+#include <sys/time.h>
 
 #include "API.h"
 #include "BackendClient.h"
@@ -536,13 +538,29 @@ bool failEnrollmentJob(int jobId, const String &errorMessage)
 
 namespace
 {
+    // Every door decision carries the backend's time: it keeps the controller's
+    // clock right without the RTC, so the 15-minute reminder survives a restart.
+    void syncClockFromServer(JsonDocument &response)
+    {
+        if (!response["server_time_epoch"].is<uint32_t>()) return;
+        const uint32_t server = response["server_time_epoch"].as<uint32_t>();
+        if (server < 1700000000UL) return;
+        const time_t now = time(nullptr);
+        if (now < 1700000000 || labs(static_cast<long>(now) - static_cast<long>(server)) > 5) {
+            timeval tv{static_cast<time_t>(server), 0};
+            settimeofday(&tv, nullptr);
+        }
+    }
+
     void readDecision(JsonDocument &response, DoorDecision *decision)
     {
+        syncClockFromServer(response);
         if (decision == nullptr) return;
         decision->reason = String(response["reason"] | "");
         decision->scheduleKind = String(response["schedule_kind"] | "");
         decision->secondsRemaining = response["seconds_remaining"].is<long>() ? response["seconds_remaining"].as<long>() : -1;
         decision->userId = response["user_id"].is<uint32_t>() ? response["user_id"].as<uint32_t>() : 0;
+        decision->scheduleEndEpoch = response["schedule_end_epoch"].is<uint32_t>() ? response["schedule_end_epoch"].as<uint32_t>() : 0;
     }
 
     // No usable decision came back. A request the backend called malformed is

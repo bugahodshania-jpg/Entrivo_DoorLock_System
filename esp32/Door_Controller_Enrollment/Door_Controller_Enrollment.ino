@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <time.h>
 #include <esp_system.h>
 // Keep hardware dependencies visible to Arduino's incremental library discovery.
 #include <Wire.h>
@@ -57,26 +58,39 @@ namespace {
             ? AUDIO_OVERRIDE_APPROVED : AUDIO_ACCESS_GRANTED;
     }
 
-    // Plan the reminder 15 minutes before the schedule ends. With several
-    // entries the latest end wins; under 15 minutes left there is no reminder.
+    // The 15-minute reminder is planned from the schedule END sent by the
+    // backend: reminder = end - 15 min, kept in NVS as a Unix time. The
+    // countdown runs on millis(), so WiFi loss never affects it. After a
+    // restart the reminder is re-armed from that saved time as soon as the
+    // clock is known again (backend time or internet time, not the RTC).
+    // With several entries the latest end wins; under 15 minutes left there
+    // is no reminder.
     constexpr long REMINDER_LEAD_S = 15L * 60L;
+    constexpr uint32_t CLOCK_VALID_AFTER = 1700000000UL; // Nov 2023: below = clock not set
+    uint32_t reminderEpoch = 0;        // reminder moment as Unix time, 0 = unknown
+    uint32_t pendingRestoreEpoch = 0;  // after a restart, waiting for the clock
 
-    void armReminder(long secondsRemaining) {
+    bool clockValid() { return time(nullptr) >= static_cast<time_t>(CLOCK_VALID_AFTER); }
+
+    void armReminder(long secondsRemaining, uint32_t scheduleEndEpoch) {
         if (secondsRemaining <= REMINDER_LEAD_S) return;
         const long untilReminder = secondsRemaining - REMINDER_LEAD_S;
         const unsigned long at = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
         if (!reminderArmed || static_cast<long>(at - reminderAt) > 0) {
             reminderAt = at;
             reminderArmed = true;
-            // Also kept in NVS as an RTC moment, so a restart keeps the reminder.
-            const uint32_t now = rtcSeconds();
-            saveReminderAt(now ? now + static_cast<uint32_t>(untilReminder) : 0);
+            pendingRestoreEpoch = 0;
+            reminderEpoch = scheduleEndEpoch >= CLOCK_VALID_AFTER ? scheduleEndEpoch - static_cast<uint32_t>(REMINDER_LEAD_S)
+                : clockValid() ? static_cast<uint32_t>(time(nullptr)) + static_cast<uint32_t>(untilReminder) : 0;
+            saveReminderAt(reminderEpoch);
             SerialLog::step("15-minute reminder in " + String(untilReminder / 60) + " min.");
         }
     }
 
     void cancelReminder() {
         reminderArmed = false;
+        reminderEpoch = 0;
+        pendingRestoreEpoch = 0;
         saveReminderAt(0);
     }
 
@@ -86,28 +100,37 @@ namespace {
         playTrack(AUDIO_REMINDER);
     }
 
-    void serviceReminder() {
-        if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) playReminder();
-    }
-
-    // After a restart with the door still unlocked: re-arm the saved reminder
-    // from the RTC. If its moment passed while the board was restarting but the
-    // schedule has not ended yet (less than 15 min late), play it right away.
-    void restoreReminder() {
-        const uint32_t savedAt = restoredReminderAt();
-        const uint32_t now = rtcSeconds();
-        if (savedAt == 0) return;
-        if (now == 0) {
-            SerialLog::warn("RTC unavailable: the 15-minute reminder could not be restored after the restart.");
+    // After a restart: re-arm the saved reminder once the clock is known. If
+    // its moment passed during the restart but the schedule has not ended yet
+    // (less than 15 min late), play it right away.
+    void restoreReminderFromClock() {
+        const uint32_t epoch = pendingRestoreEpoch;
+        pendingRestoreEpoch = 0;
+        const long untilReminder = static_cast<long>(epoch) - static_cast<long>(time(nullptr));
+        if (untilReminder > 24L * 3600L || untilReminder <= -REMINDER_LEAD_S) {
             cancelReminder();
+            SerialLog::step("Saved 15-minute reminder is no longer due (the schedule has ended).");
             return;
         }
-        const long untilReminder = static_cast<long>(savedAt - now);
-        if (untilReminder > 24L * 3600L || untilReminder <= -REMINDER_LEAD_S) { cancelReminder(); return; }
         if (untilReminder <= 0) { playReminder(); return; }
         reminderAt = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
         reminderArmed = true;
-        SerialLog::step("15-minute reminder restored: in " + String(untilReminder / 60) + " min.");
+        reminderEpoch = epoch;
+        SerialLog::step("15-minute reminder restored after the restart: in " + String(untilReminder / 60) + " min.");
+    }
+
+    void serviceReminder() {
+        if (pendingRestoreEpoch && clockValid()) restoreReminderFromClock();
+        if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) playReminder();
+    }
+
+    String reminderStatus() {
+        if (reminderArmed) {
+            const long left = static_cast<long>(reminderAt - millis()) / 1000L;
+            return "in " + String(left / 60) + " min " + String(left % 60) + " s";
+        }
+        if (pendingRestoreEpoch) return "saved; waiting for internet time to restore it";
+        return "none";
     }
 
     void printStatus() {
@@ -115,6 +138,8 @@ namespace {
         SerialLog::kv("Door", isDoorUnlocked() ? "UNLOCKED" : "LOCKED");
         SerialLog::kv("Relay pin", relayPinIsActive() ? "ON (unlock level)" : "OFF (lock level)");
         SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
+        SerialLog::kv("15-min reminder", reminderStatus());
+        SerialLog::kv("Clock", clockValid() ? "set (backend / internet time)" : "not set yet (waiting for internet)");
         SerialLog::kv("Offline exits waiting", String(offlineExitCount()));
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
         SerialLog::kv("Locking finger", unlockedByFingerSlot ? "sensor slot " + String(unlockedByFingerSlot)
@@ -127,7 +152,7 @@ namespace {
         SerialLog::kv("Enrollment device", String(ENROLLMENT_DEVICE_ID));
         SerialLog::blank();
         SerialLog::step("Registered identities and schedules are verified by the backend.");
-        SerialLog::step("Serial commands: M = status, T = RTC time, L = lock, U = unlock (relay test).");
+        SerialLog::step("Serial commands: M = status, T = RTC time, L = lock, U = unlock (relay test), R = play the 15-min reminder (audio test).");
         if (!sensorReady) SerialLog::debug("Sensor unavailable: check the R307S wiring/power. It is retried automatically.");
         if (WiFi.status() != WL_CONNECTED && !isWiFiConnecting()) SerialLog::debug("WiFi offline: check WIFI_SSID / WIFI_PASSWORD in Config.h.");
         SerialLog::blank();
@@ -139,6 +164,11 @@ namespace {
             if (command == 'm' || command == 'M') printStatus();
             else if (command == 't' || command == 'T') { printDeviceTime(); Serial.println(); }
             else if (command == 'l' || command == 'L') lockDoorRelay();
+            else if (command == 'r' || command == 'R') {
+                // Audio test only: the planned reminder is not changed.
+                Serial.println("[TEST] R: playing the 15-minute reminder (0005.mp3).");
+                playTrack(AUDIO_REMINDER);
+            }
             else if (command == 'u' || command == 'U') {
                 // Hardware test: drive the relay without a credential.
                 Serial.println("[TEST] U: unlocking from the Serial Monitor (relay test). Type L to lock.");
@@ -217,13 +247,13 @@ namespace {
             // Arrival through an open door (e.g. the instructor is inside): it is
             // logged by the backend; the lock state and locking finger stay as they are.
             playTrack(entryTrack(decision));
-            armReminder(decision.secondsRemaining);
+            armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
         }
         else {
             openDoorRelay(entryTrack(decision));
             // Card entry: touch + any finger of this same user locks.
             rememberUnlocker(0, decision.userId);
-            armReminder(decision.secondsRemaining);
+            armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
         }
         discardBufferedScans();
         return true;
@@ -324,7 +354,7 @@ namespace {
             else {
                 openDoorRelay(entryTrack(decision));
                 rememberUnlocker(match.matchedSlot, decision.userId);
-                armReminder(decision.secondsRemaining);
+                armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
                 SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
             }
             discardBufferedScans();
@@ -355,14 +385,20 @@ void setup() {
     previousDoorState = isDoorUnlocked();
     initDoorFeedback();
     // Needs the RTC (started in initDoorFeedback) to measure the restart gap.
-    if (doorWasRestoredUnlocked()) restoreReminder();
-    else saveReminderAt(0);
+    // A reminder saved before the restart is restored once the clock is known.
+    // Values below CLOCK_VALID_AFTER are old RTC-based saves: dropped.
+    if (doorWasRestoredUnlocked() && restoredReminderAt() >= CLOCK_VALID_AFTER) {
+        pendingRestoreEpoch = restoredReminderAt();
+        SerialLog::step("A 15-minute reminder was planned before the restart; it is restored once internet time is known.");
+    } else saveReminderAt(0);
     sensorReady = initFingerprint();
     lastSensorAttemptAt = millis();
     initRfidReaders();
     SerialLog::step("RFID readers ready.");
     initOfflineExits();
     connectWiFi();
+    // Internet time (UTC) for the reminder; the backend's time also sets it.
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
     initDoorStatus(isDoorUnlocked());
     printStatus();
 }

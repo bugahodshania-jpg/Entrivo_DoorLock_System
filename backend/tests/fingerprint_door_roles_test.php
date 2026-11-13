@@ -63,6 +63,9 @@ try {
         $id = $roles[$role];
         $in = $verify($finger($id, 'entry'), '09:00:00');
         expectFingerRole($in['access_granted'] && $in['schedule_kind'] === 'regular', "A $role fingerprint must open the door on the regular schedule. Got " . json_encode($in));
+        // The 15-minute reminder is planned from the schedule end (10:00), not the RTC.
+        expectFingerRole($in['seconds_remaining'] === 3600 && $in['schedule_end_epoch'] === $at('10:00:00')->getTimestamp()
+            && $in['server_time_epoch'] === $at('09:00:00')->getTimestamp(), "An entry carries the schedule end and server time. Got " . json_encode($in));
         expectFingerRole($verify($finger($id, 'exit'), '09:05:00')['access_granted'], "The $role who unlocked can lock with a fingerprint.");
         $late = $verify($finger($id, 'entry'), '12:00:00');
         expectFingerRole(!$late['access_granted'] && $late['reason'] === 'expired_schedule', "A $role without a valid schedule must be refused. Got " . json_encode($late));
@@ -74,6 +77,7 @@ try {
         $any = $verify($finger($id, 'entry'), '21:00:00');
         expectFingerRole($any['access_granted'] && $any['schedule_kind'] === 'permanent_override' && empty($any['exit_only']),
             "A $role fingerprint must open the door without a schedule. Got " . json_encode($any));
+        expectFingerRole(($any['schedule_end_epoch'] ?? null) === null, 'A permanent override has no schedule end, so no reminder.');
         expectFingerRole($lastLog()['access_status'] === 'granted' && $lastLog()['access_type'] === 'IN', "The $role entry must be logged IN.");
         $exit = $verify($finger($id, 'exit', ['unlocked_by_user_id' => $id]), '21:10:00');
         expectFingerRole($exit['access_granted'], "The $role who unlocked can lock with a fingerprint. Got " . json_encode($exit));

@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <Preferences.h>
 #include <esp_system.h>
+#include <time.h>
 #include "API.h"
 #include "DoorHardware.h"
 
@@ -28,7 +29,11 @@ namespace {
         else store.remove("items");
     }
 
+    // Unix time from the clock the backend / internet keeps set, else from
+    // the RTC when it is running; 0 when neither is known.
     uint32_t saneRtc() {
+        const time_t system = time(nullptr);
+        if (system >= static_cast<time_t>(RTC_SANE_AFTER)) return static_cast<uint32_t>(system);
         const uint32_t now = rtcSeconds();
         return now >= RTC_SANE_AFTER ? now : 0;
     }
