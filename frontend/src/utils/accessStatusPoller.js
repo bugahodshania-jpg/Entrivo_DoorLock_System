@@ -24,6 +24,17 @@ const DENIAL_REASONS = {
   offline: 'The door controller could not reach the backend.',
 };
 
+// How a granted access happened (backend AccessEventType).
+const ACCESS_TYPE_LABELS = {
+  regular: 'Regular schedule',
+  override: 'Approved override',
+  admin_override: 'Admin permanent override',
+  super_admin_override: 'Super Admin permanent override',
+  emergency_card: 'Emergency card',
+  exit: 'Exit',
+  no_schedule: 'No schedule',
+};
+
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
   admin: 'Admin',
@@ -96,6 +107,7 @@ export function describeAccessEvent(event) {
     direction: isExit ? 'Exit' : 'Entry',
     credential,
     when: [event?.date, event?.time].filter(Boolean).join(' · '),
+    accessType: granted ? (ACCESS_TYPE_LABELS[event?.accessType] || '') : '',
     schedules: describeSchedules(event),
     reason: granted ? '' : denialText(event),
     warning: alert

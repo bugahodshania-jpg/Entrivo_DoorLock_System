@@ -115,6 +115,7 @@ export default function GlobalAccessStatusModal({ actorId, alertsOnly = false })
     view.role ? ['Role', view.role] : null,
     view.identifier ? ['ID', view.identifier] : null,
     ['Method', `${view.method} · ${view.direction}`],
+    view.accessType ? ['Access type', view.accessType] : null,
     view.credential ? ['Credential', view.credential] : null,
     ['Time', view.when || '—'],
     view.schedules.length

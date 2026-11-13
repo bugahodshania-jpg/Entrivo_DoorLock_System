@@ -58,3 +58,14 @@ test('a Security Warning starts at the 3rd failed attempt in a row', () => {
   assert.equal(second.eyebrow, 'Door Access Status');
   assert.equal(second.warning, '');
 });
+
+test('granted access shows how it happened', () => {
+  const granted = (accessType) => describeAccessEvent({ id: 1, status: 'granted', method: 'Fingerprint', userId: 1, userName: 'Root', accessType });
+  assert.equal(granted('super_admin_override').accessType, 'Super Admin permanent override');
+  assert.equal(granted('admin_override').accessType, 'Admin permanent override');
+  assert.equal(granted('override').accessType, 'Approved override');
+  assert.equal(granted('regular').accessType, 'Regular schedule');
+  assert.equal(granted('emergency_card').accessType, 'Emergency card');
+  assert.equal(granted(undefined).accessType, '', 'an older backend shows no type');
+  assert.equal(describeAccessEvent({ id: 1, status: 'denied', accessType: 'regular' }).accessType, '', 'denied attempts have no type');
+});

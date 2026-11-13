@@ -37,6 +37,8 @@ require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/DoorStatusService.php';
 require_once dirname(__DIR__) . '/services/ScheduleAccessPolicy.php';
 require_once dirname(__DIR__) . '/services/FailedAccessStreak.php';
+require_once dirname(__DIR__) . '/services/AccessEventType.php';
+require_once dirname(__DIR__) . '/services/CombinedDoorAccessService.php';
 
 $actorId = filter_input(INPUT_GET, 'actor_id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 $afterId = filter_input(INPUT_GET, 'after_id', FILTER_VALIDATE_INT, ['options' => ['default' => 0, 'min_range' => 0]]);
@@ -83,6 +85,8 @@ try {
     $optional = static fn (string $column, string $alias) => isset($columns[$column])
         ? "access_log.{$column} AS {$alias}" : "NULL AS {$alias}";
 
+    $hasScheduleKind = (bool) $pdo->query("SHOW COLUMNS FROM schedules LIKE 'schedule_kind'")->fetch();
+
     $statement = $pdo->prepare(
         "SELECT
             access_log.log_id,
@@ -92,6 +96,9 @@ try {
             DATE_FORMAT(access_log.access_timestamp, '%Y-%m-%d') AS access_day,
             access_log.access_timestamp,
             access_log.schedule_id,
+            " . $optional('override_id', 'override_id') . ",
+            " . ($hasScheduleKind ? 'linked_schedule.schedule_kind' : 'NULL') . " AS schedule_kind,
+            linked_schedule.status AS schedule_status,
             access_log.access_status,
             access_log.denial_reason,
             access_log.method_access,
@@ -111,6 +118,7 @@ try {
             COALESCE(student_info.school_id, faculty_info.employee_id, staff_info.employee_id, admin_info.employee_id) AS user_identifier
          FROM access_log
          LEFT JOIN users ON users.id = access_log.user_id
+         LEFT JOIN schedules AS linked_schedule ON linked_schedule.schedule_id = access_log.schedule_id
          LEFT JOIN student_info ON student_info.user_id = users.id
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
@@ -136,7 +144,10 @@ try {
     $hasRfidUid = isset($columns['rfid_uid']);
     $failedStreak = static fn (array $row): int => FailedAccessStreak::count($pdo, $row, $hasRfidUid);
 
-    $events = array_map(static function (array $row) use ($schedulesFor, $failedStreak): array {
+    // How each granted access happened (regular, override, admin permanent override, emergency card).
+    $emergencyUids = CombinedDoorAccessService::emergencyCardUids();
+
+    $events = array_map(static function (array $row) use ($schedulesFor, $failedStreak, $emergencyUids): array {
         $userId = $row['user_id'] !== null ? (int) $row['user_id'] : null;
         return [
             'failedAttempts' => $failedStreak($row),
@@ -156,6 +167,7 @@ try {
             'matchedSlot' => $row['matched_slot'] !== null ? (int) $row['matched_slot'] : null,
             'matchConfidence' => $row['match_confidence'] !== null ? (int) $row['match_confidence'] : null,
             'scheduleId' => $row['schedule_id'] !== null ? (int) $row['schedule_id'] : null,
+            'accessType' => AccessEventType::classify($row, $emergencyUids),
             'schedules' => $schedulesFor($userId, (string) $row['access_day']),
         ];
     }, $statement->fetchAll(PDO::FETCH_ASSOC));
