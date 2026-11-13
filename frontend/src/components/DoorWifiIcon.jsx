@@ -15,7 +15,7 @@ export default function DoorWifiIcon() {
   const label = `Door controller WiFi: ${LABELS[door.wifi]}${door.wifiRssi !== null ? ` (${door.wifiRssi} dBm)` : ''}`;
   return (
     <span className={`door-wifi-icon is-${door.wifi}`} role="img" aria-label={label} title={label}>
-      <Icon size={18} aria-hidden="true" />
+      <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
     </span>
   );
 }
