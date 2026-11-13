@@ -39,25 +39,3 @@ test('the time of the last controller report is shown as Manila time, without re
   assert.equal(at(null), '');
   assert.equal(doorStatusView(null).updatedAt, '');
 });
-
-test('the door controller WiFi icon is connected, weak or offline', () => {
-  const wifi = (rssi, overrides = {}) => doorStatusView({ ...report(), wifi_rssi: rssi, ...overrides });
-  assert.equal(wifi(-55).wifi, 'connected');
-  assert.equal(wifi(-55).wifiRssi, -55);
-  assert.equal(wifi(-70).wifi, 'connected');
-  assert.equal(wifi(-71).wifi, 'weak');
-  assert.equal(wifi(null).wifi, 'connected', 'older firmware sends no strength: reporting means connected');
-  assert.equal(wifi(-55, { online: false }).wifi, 'offline');
-  assert.equal(doorStatusView({ ...report(), wifi_rssi: -55 }, 20000).wifi, 'offline', 'an expired report is offline');
-  assert.equal(doorStatusView(null).wifi, 'offline');
-  assert.equal(doorStatusView(null).wifiRssi, null);
-});
-
-test('the WiFi icon goes not connected after its own 20 s window, while the door state keeps 45 s', () => {
-  const door = { ...report(), wifi_rssi: -55, expires_in_ms: 25000, wifi_expires_in_ms: 1000 };
-  assert.equal(doorStatusView(door, 500).wifi, 'connected');
-  const later = doorStatusView(door, 2000);
-  assert.equal(later.wifi, 'offline', 'the WiFi window has passed');
-  assert.equal(later.wifiRssi, null);
-  assert.equal(later.state, 'locked', 'the door state is still within its own window');
-});
