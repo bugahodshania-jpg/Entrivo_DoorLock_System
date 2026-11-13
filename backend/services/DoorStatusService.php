@@ -18,6 +18,9 @@ final class DoorStatusService
     // Lock/unlock changes are still pushed at once; this window only decides when a
     // silent controller counts as offline, so it must cover a few slow heartbeats.
     public const FRESH_SECONDS = 45;
+    // The WiFi icon turns "not connected" sooner: just over the slowest normal
+    // report gap (15 s while touch-to-lock is armed), so it does not flicker.
+    public const WIFI_FRESH_SECONDS = 20;
     private PDO $pdo;
 
     public function __construct(?PDO $pdo = null)
@@ -46,7 +49,8 @@ final class DoorStatusService
         $device = $query->fetch(PDO::FETCH_ASSOC);
         $report = false;
         if (DoorStatusSchema::exists($this->pdo)) {
-            $query = $this->pdo->prepare('SELECT door_state,received_at,TIMESTAMPDIFF(MICROSECOND,received_at,NOW(6))/1000000 AS age_seconds FROM door_controller_status WHERE device_id=?');
+            $wifi = DoorStatusSchema::hasWifiColumn($this->pdo) ? 'wifi_rssi' : 'NULL AS wifi_rssi';
+            $query = $this->pdo->prepare("SELECT door_state,received_at,{$wifi},TIMESTAMPDIFF(MICROSECOND,received_at,NOW(6))/1000000 AS age_seconds FROM door_controller_status WHERE device_id=?");
             $query->execute([$deviceId]);
             $report = $query->fetch(PDO::FETCH_ASSOC);
         }
@@ -61,6 +65,9 @@ final class DoorStatusService
             'online' => (bool) $online,
             'can_read_sensor' => $state === 'locked',
             'received_at' => $report['received_at'] ?? null,
+            // The controller's WiFi signal (dBm) in its last report; null when unknown.
+            'wifi_rssi' => $online && isset($report['wifi_rssi']) ? (int) $report['wifi_rssi'] : null,
+            'wifi_expires_in_ms' => $online ? max(0, (int) floor((self::WIFI_FRESH_SECONDS - $age) * 1000)) : 0,
             'expires_in_ms' => $online ? max(0, (int) floor((self::FRESH_SECONDS - $age) * 1000)) : 0,
         ];
     }
@@ -93,6 +100,9 @@ final class DoorStatusService
         if (!DoorStatusSchema::exists($this->pdo)) {
             throw new DoorStatusException('Run backend/migrations/create_door_status.php before reporting door status.', 503);
         }
+        // WiFi strength is optional: older firmware does not send it.
+        $rssi = filter_var($input['wifi_rssi'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => -127, 'max_range' => 0]]);
+        $storeWifi = DoorStatusSchema::ensureWifiColumn($this->pdo);
         $this->pdo->beginTransaction();
         try {
             // Sensor read requests lock the same device row, serializing their guard
@@ -109,9 +119,15 @@ final class DoorStatusService
             if ($previous && $previous['boot_id'] === $bootId && $sequence <= (int) $previous['report_sequence']) {
                 throw new DoorStatusException('An older or duplicate door status report cannot refresh the connection.');
             }
-            $this->pdo->prepare('INSERT INTO door_controller_status (device_id,door_state,boot_id,report_sequence,received_at) VALUES (?,?,?,?,NOW(6))
-                ON DUPLICATE KEY UPDATE door_state=VALUES(door_state),boot_id=VALUES(boot_id),report_sequence=VALUES(report_sequence),received_at=NOW(6)')
-                ->execute([$deviceId, $state, $bootId, $sequence]);
+            if ($storeWifi) {
+                $this->pdo->prepare('INSERT INTO door_controller_status (device_id,door_state,boot_id,report_sequence,received_at,wifi_rssi) VALUES (?,?,?,?,NOW(6),?)
+                    ON DUPLICATE KEY UPDATE door_state=VALUES(door_state),boot_id=VALUES(boot_id),report_sequence=VALUES(report_sequence),received_at=NOW(6),wifi_rssi=VALUES(wifi_rssi)')
+                    ->execute([$deviceId, $state, $bootId, $sequence, $rssi === false ? null : $rssi]);
+            } else {
+                $this->pdo->prepare('INSERT INTO door_controller_status (device_id,door_state,boot_id,report_sequence,received_at) VALUES (?,?,?,?,NOW(6))
+                    ON DUPLICATE KEY UPDATE door_state=VALUES(door_state),boot_id=VALUES(boot_id),report_sequence=VALUES(report_sequence),received_at=NOW(6)')
+                    ->execute([$deviceId, $state, $bootId, $sequence]);
+            }
             if ($state === 'unlocked') {
                 // A read queued just before an unlock must not start or resume later.
                 require_once __DIR__ . '/SensorMemorySchema.php';

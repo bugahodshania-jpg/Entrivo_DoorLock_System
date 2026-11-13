@@ -17,6 +17,7 @@ import {
 import UniversityBrand from '../../components/UniversityBrand';
 import { ActionConfirmProvider, useActionConfirm } from '../../components/ActionConfirm';
 import DoorStatusCard from '../../components/DoorStatusCard';
+import DoorWifiIcon from '../../components/DoorWifiIcon';
 import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import NotificationBell from '../../components/NotificationBell';
 import { formatDateInManila } from '../../utils/dateTime';
@@ -355,6 +356,7 @@ export default function UserLayout({ children, user, onLogout }) {
                   }}
                 />
                 <DoorStatusCard />
+                <DoorWifiIcon />
               </>
             )}
             <div

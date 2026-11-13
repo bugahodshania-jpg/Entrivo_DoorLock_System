@@ -32,6 +32,8 @@ namespace {
         payload["door_state"] = unlocked ? "unlocked" : "locked";
         payload["boot_id"] = bootId;
         payload["sequence"] = ++sequence;
+        // Signal strength for the portal's WiFi icon (connected / weak).
+        payload["wifi_rssi"] = WiFi.RSSI();
         String body;
         serializeJson(payload, body);
         EntrivoHttpLock httpLock;

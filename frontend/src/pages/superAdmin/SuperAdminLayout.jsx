@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActionConfirmProvider, useActionConfirm } from '../../components/ActionConfirm';
 import NotificationBell from '../../components/NotificationBell';
 import DoorStatusCard from '../../components/DoorStatusCard';
+import DoorWifiIcon from '../../components/DoorWifiIcon';
 import GlobalAccessStatusModal from '../../components/GlobalAccessStatusModal';
 import { DoorStatusProvider } from '../../hooks/useDoorStatus';
 import {
@@ -460,6 +461,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
               }}
             />
             <DoorStatusCard />
+            <DoorWifiIcon />
             <div className="super-admin-date-card" aria-label={`${headerDate}, ${headerMetaLabel} Asia/Manila`}>
               <div>
                 <strong>{headerDate}</strong>

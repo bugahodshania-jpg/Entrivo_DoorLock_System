@@ -30,3 +30,22 @@
   .door-status-card small, .door-status-dot { display: none; }
   .door-status-card > svg { height: 14px; width: 14px; }
 }
+
+/* Door controller WiFi: one icon in the header. */
+.door-wifi-icon {
+  align-items: center;
+  border-radius: 4px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 40px;
+  justify-content: center;
+  width: 32px;
+}
+.door-wifi-icon.is-connected { color: #0f6841; }
+.door-wifi-icon.is-weak { color: #a25712; }
+.door-wifi-icon.is-offline { color: #b42318; }
+
+@media (max-width: 640px) {
+  .door-wifi-icon { height: 32px; width: 24px; }
+  .door-wifi-icon > svg { height: 15px; width: 15px; }
+}
