@@ -323,7 +323,7 @@ export default function UserDashboard({ user }) {
                 )}
               </div>
 
-              <a className="dashboard-schedule-button" href="/user/request-override">
+              <a className="dashboard-schedule-button" href="/user/request-override?new=1">
                 Request Override
               </a>
             </aside>

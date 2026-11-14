@@ -39,8 +39,6 @@ const emptyEditForm = {
   reason: '',
 };
 
-const SMALL_SCREEN_QUERY = '(max-width: 640px)';
-
 function getInitialOverrideForm() {
   const params = new URLSearchParams(window.location.search);
   const dateParam = params.get('date');
@@ -130,10 +128,10 @@ export default function RequestOverride({ user }) {
   const statusFilterMenuRef = useRef(null);
   const requestButtonRef = useRef(null);
   const requestDialogRef = useRef(null);
-  const [isSmallScreen, setIsSmallScreen] = useState(
-    () => window.matchMedia(SMALL_SCREEN_QUERY).matches,
+  // The request form is a modal. The dashboard's Request Override button opens it directly (?new=1).
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(
+    () => new URLSearchParams(window.location.search).has('new'),
   );
-  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [form, setForm] = useState(getInitialOverrideForm);
   const [overrides, setOverrides] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -154,21 +152,16 @@ export default function RequestOverride({ user }) {
   const rowsPerPage = 7;
 
   useEffect(() => {
-    const media = window.matchMedia(SMALL_SCREEN_QUERY);
-
-    function handleChange() {
-      setIsSmallScreen(media.matches);
-      if (!media.matches) {
-        setIsRequestModalOpen(false);
-      }
+    // Opened from the dashboard: drop ?new=1 so a reload does not reopen the form.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('new')) {
+      url.searchParams.delete('new');
+      window.history.replaceState(window.history.state, '', url);
     }
-
-    media.addEventListener('change', handleChange);
-    return () => media.removeEventListener('change', handleChange);
   }, []);
 
   useEffect(() => {
-    if (!isSmallScreen || !isRequestModalOpen) {
+    if (!isRequestModalOpen) {
       return undefined;
     }
 
@@ -190,7 +183,7 @@ export default function RequestOverride({ user }) {
       }
       trigger?.focus({ preventScroll: true });
     };
-  }, [isRequestModalOpen, isSmallScreen]);
+  }, [isRequestModalOpen]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -584,24 +577,6 @@ export default function RequestOverride({ user }) {
           onClose={() => setToast(null)}
         />
       ) : null}
-      {isSmallScreen ? (
-        <div className="user-override-mobile-actions">
-          <button
-            ref={requestButtonRef}
-            type="button"
-            className="schedules-primary-button"
-            aria-haspopup="dialog"
-            aria-controls="override-request-form"
-            aria-expanded={isRequestModalOpen}
-            onClick={() => {
-              setIsStatusFilterMenuOpen(false);
-              setIsRequestModalOpen(true);
-            }}
-          >
-            Request Override
-          </button>
-        </div>
-      ) : null}
       <div className="user-override-page-layout">
         <section className="dashboard-recent-card schedules-card user-override-history-card">
           <div className="dashboard-panel-header">
@@ -609,6 +584,21 @@ export default function RequestOverride({ user }) {
               <h2>My Override Requests</h2>
               <p>Track pending, active, and completed requests.</p>
             </div>
+            <button
+              ref={requestButtonRef}
+              type="button"
+              className="schedules-primary-button user-override-request-button"
+              aria-haspopup="dialog"
+              aria-controls="override-request-form"
+              aria-expanded={isRequestModalOpen}
+              onClick={() => {
+                setIsStatusFilterMenuOpen(false);
+                setIsRequestModalOpen(true);
+              }}
+            >
+              <ShieldAlert size={15} aria-hidden="true" />
+              Request Override
+            </button>
           </div>
 
           <div className="schedules-table-filters user-override-toolbar">
@@ -809,13 +799,11 @@ export default function RequestOverride({ user }) {
           ) : null}
         </section>
 
-        {!isSmallScreen || isRequestModalOpen ? (
+        {isRequestModalOpen ? (
           <div
-            className={isSmallScreen
-              ? 'schedules-modal-overlay user-override-request-overlay'
-              : 'user-override-request-container'}
+            className="schedules-modal-overlay user-override-request-overlay"
             onClick={(event) => {
-              if (isSmallScreen && event.target === event.currentTarget) {
+              if (event.target === event.currentTarget) {
                 closeRequestModal();
               }
             }}
@@ -823,35 +811,27 @@ export default function RequestOverride({ user }) {
             <section
               ref={requestDialogRef}
               id="override-request-form"
-              className={`dashboard-recent-card schedules-card user-override-form-card${
-                isSmallScreen ? ' schedules-modal user-override-request-modal' : ''
-              }`}
-              role={isSmallScreen ? 'dialog' : undefined}
-              aria-modal={isSmallScreen ? true : undefined}
+              className="dashboard-recent-card schedules-card user-override-form-card schedules-modal user-override-request-modal"
+              role="dialog"
+              aria-modal="true"
               aria-labelledby="override-request-title"
-              tabIndex={isSmallScreen ? -1 : undefined}
-              onKeyDown={isSmallScreen ? handleRequestDialogKeyDown : undefined}
+              tabIndex={-1}
+              onKeyDown={handleRequestDialogKeyDown}
             >
               <div className="dashboard-panel-header">
                 <div>
                   <h2 id="override-request-title">Request Override</h2>
                   <p>Request a single-day access window outside your normal schedule.</p>
                 </div>
-                {isSmallScreen ? (
-                  <button
-                    type="button"
-                    className="schedules-modal-close"
-                    aria-label="Close request override form"
-                    disabled={isSubmitting}
-                    onClick={closeRequestModal}
-                  >
-                    <X size={16} aria-hidden="true" />
-                  </button>
-                ) : (
-                  <span className="user-override-form-icon" aria-hidden="true">
-                    <ShieldAlert size={18} />
-                  </span>
-                )}
+                <button
+                  type="button"
+                  className="schedules-modal-close"
+                  aria-label="Close request override form"
+                  disabled={isSubmitting}
+                  onClick={closeRequestModal}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
               </div>
 
               <form className="user-override-form" onSubmit={handleSubmit}>
@@ -915,16 +895,14 @@ export default function RequestOverride({ user }) {
                 </div>
 
                 <div className="schedules-form-actions">
-                  {isSmallScreen ? (
-                    <button
-                      type="button"
-                      className="schedules-secondary-button"
-                      disabled={isSubmitting}
-                      onClick={closeRequestModal}
-                    >
-                      Cancel
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="schedules-secondary-button"
+                    disabled={isSubmitting}
+                    onClick={closeRequestModal}
+                  >
+                    Cancel
+                  </button>
                   <button
                     type="submit"
                     className="schedules-primary-button"

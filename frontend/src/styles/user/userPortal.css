@@ -303,17 +303,40 @@
 .user-override-page-layout {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
-.user-override-request-container {
-  display: contents;
+/* The request form opens as a modal from the table header's button. */
+.user-override-request-button {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-.user-override-mobile-actions {
-  display: flex;
-  justify-content: flex-end;
+.user-override-request-modal.user-override-form-card {
+  max-height: calc(100dvh - 48px);
+  max-width: 460px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.user-override-request-modal .dashboard-panel-header {
+  display: block;
+  padding-right: 44px;
+  position: relative;
+}
+
+.user-override-request-modal .dashboard-panel-header > div {
+  min-width: 0;
+}
+
+.user-override-request-modal .schedules-modal-close {
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .user-override-form-card {
@@ -732,26 +755,11 @@
 
   .user-override-request-modal.user-override-form-card {
     max-height: calc(100dvh - 24px);
-    max-width: 420px;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
     padding: 18px;
   }
 
-  .user-override-request-modal .dashboard-panel-header {
-    display: block;
-    padding-right: 44px;
-    position: relative;
-  }
-
-  .user-override-request-modal .dashboard-panel-header > div {
-    min-width: 0;
-  }
-
-  .user-override-request-modal .schedules-modal-close {
-    position: absolute;
-    right: 0;
-    top: 0;
+  .user-override-history-card .dashboard-panel-header {
+    flex-wrap: wrap;
   }
 
   .user-override-form-card .dashboard-panel-header h2,
