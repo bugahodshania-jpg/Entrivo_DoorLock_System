@@ -1,11 +1,55 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, X } from 'lucide-react';
+import {
+  Bell,
+  CalendarClock,
+  DoorOpen,
+  FingerprintPattern,
+  IdCard,
+  KeyRound,
+  LifeBuoy,
+  LogIn,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  ShieldAlert,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
+  Workflow,
+  X,
+} from 'lucide-react';
 import axiosClient from '../api/axiosClient';
 
 const VISIBLE_ROWS = 6;
 const MAX_ROWS = 10;
 const SEEN_STORAGE_LIMIT = 200;
+
+// One icon + tone per activity category (matches ActivityLogService::category on the backend).
+const ACTIVITY_ICONS = {
+  login: { Icon: LogIn, tone: 'login' },
+  logout: { Icon: LogOut, tone: 'logout' },
+  access: { Icon: DoorOpen, tone: 'access' },
+  enroll: { Icon: FingerprintPattern, tone: 'fingerprint' },
+  update: { Icon: FingerprintPattern, tone: 'fingerprint' },
+  job: { Icon: Workflow, tone: 'fingerprint' },
+  sync: { Icon: RefreshCw, tone: 'sync' },
+  rfid: { Icon: IdCard, tone: 'rfid' },
+  schedule: { Icon: CalendarClock, tone: 'schedule' },
+  override: { Icon: ShieldAlert, tone: 'override' },
+  password: { Icon: KeyRound, tone: 'security' },
+  recovery: { Icon: LifeBuoy, tone: 'security' },
+  security: { Icon: ShieldCheck, tone: 'security' },
+  registration: { Icon: UserPlus, tone: 'user' },
+  user: { Icon: Users, tone: 'user' },
+  account: { Icon: UserCog, tone: 'user' },
+  delete: { Icon: Trash2, tone: 'delete' },
+};
+
+function activityIcon(activity) {
+  return ACTIVITY_ICONS[String(activity || '').trim().toLowerCase()] || { Icon: Bell, tone: 'default' };
+}
 
 function transactionWhen(log) {
   return [log?.time, log?.date].filter(Boolean).join(' · ');
@@ -240,7 +284,7 @@ export default function NotificationBell({
         if (isActive) {
           setLogs([]);
           setHasMore(false);
-          setErrorMessage('Unable to load transactions right now.');
+          setErrorMessage('Unable to load notifications right now.');
         }
       } finally {
         if (isActive) {
@@ -325,21 +369,21 @@ export default function NotificationBell({
           className="notification-menu"
           id="notification-transaction-menu"
           role="dialog"
-          aria-label="Recent transactions"
+          aria-label="Recent notifications"
         >
           <div className="notification-menu-header">
-            <strong>Transactions</strong>
+            <strong>Notifications</strong>
             <span>Latest activity</span>
           </div>
 
-          {isLoading && !hasLoaded ? <p className="notification-menu-status">Loading transactions...</p> : null}
+          {isLoading && !hasLoaded ? <p className="notification-menu-status">Loading notifications...</p> : null}
           {hasLoaded && errorMessage ? (
             <p className="notification-menu-status is-error" role="alert">
               {errorMessage}
             </p>
           ) : null}
           {hasLoaded && !errorMessage && logs.length === 0 ? (
-            <p className="notification-menu-status">No transactions yet.</p>
+            <p className="notification-menu-status">No notifications yet.</p>
           ) : null}
 
           {hasLoaded && !errorMessage && logs.length > 0 ? (
@@ -350,6 +394,8 @@ export default function NotificationBell({
               {logs.map((log) => {
                 const when = transactionWhen(log);
                 const isUnseen = Boolean(log.id) && !seenIds.has(String(log.id));
+                const { Icon, tone } = activityIcon(log.activity);
+                const isFailed = String(log.status || '').trim().toLowerCase() === 'failed';
 
                 return (
                   <li className={`notification-menu-item${isUnseen ? ' is-unseen' : ''}`} key={log.id}>
@@ -361,18 +407,26 @@ export default function NotificationBell({
                         setViewLog(log);
                       }}
                     >
-                      <div className="notification-menu-item-top">
-                        <strong>{log.activity || 'Activity'}</strong>
-                        {when ? <time>{when}</time> : null}
+                      <span
+                        className={`notification-menu-item-icon is-${tone}${isFailed ? ' is-failed' : ''}`}
+                        aria-hidden="true"
+                      >
+                        <Icon size={16} strokeWidth={1.9} />
+                      </span>
+                      <div className="notification-menu-item-content">
+                        <div className="notification-menu-item-top">
+                          <strong>{log.activity || 'Activity'}</strong>
+                          {when ? <time>{when}</time> : null}
+                        </div>
+                        <p>{log.description || 'No details recorded.'}</p>
+                        {log.name || log.status ? (
+                          <small>
+                            {log.name ? <span>{log.name}</span> : null}
+                            {log.name && log.status ? <span> · </span> : null}
+                            {log.status ? <span className={statusClassName(log.status)}>{log.status}</span> : null}
+                          </small>
+                        ) : null}
                       </div>
-                      <p>{log.description || 'No details recorded.'}</p>
-                      {log.name || log.status ? (
-                        <small>
-                          {log.name ? <span>{log.name}</span> : null}
-                          {log.name && log.status ? <span> · </span> : null}
-                          {log.status ? <span className={statusClassName(log.status)}>{log.status}</span> : null}
-                        </small>
-                      ) : null}
                     </button>
                   </li>
                 );
