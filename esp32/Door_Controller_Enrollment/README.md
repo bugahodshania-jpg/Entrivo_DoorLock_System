@@ -101,9 +101,16 @@ Every new credential decision requires a reachable backend and an active,
 approved account with completed setup. RFID cards must be uniquely registered,
 active, and linked to that account. The one offline exception is the emergency
 card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cannot be
-reached (no answer at all, not a refusal), it is accepted locally with the same
-in/out process as any card (entrance reader unlocks; exit reader, then touch,
-locks). Offline uses are printed on Serial but not logged in the backend.
+reached (no answer at all, not a refusal), it is accepted locally. Offline
+entries are printed on Serial but not logged in the backend.
+
+The exit reader lets any card out, online or offline, and logs it by UID. An
+emergency card (the `Secrets.h` card, or any UID in the backend's
+`DOOR_EMERGENCY_RFID_UIDS`, which the backend flags as `emergency_card`) only
+opens the door at the exit reader: it does not arm touch-only locking. Whoever
+leaves (e.g. a faculty member locked inside) locks the usual way, touch then
+their own registered finger, so the access log shows who left. Offline, any
+registered finger may lock a door the emergency card opened.
 
 Every exit reaches the access log. Each exit request carries a 32-hex
 `event_id`; an exit allowed offline (exit reader, same-finger lock, emergency

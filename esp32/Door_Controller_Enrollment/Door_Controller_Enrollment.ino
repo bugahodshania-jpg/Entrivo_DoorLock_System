@@ -223,15 +223,29 @@ namespace {
         }
         // The OUT the backend could not record is kept and uploaded later.
         if (grantedOffline && isExit) queueOfflineExit(exitEventId, uid, 0);
+        // An emergency card at the exit reader only opens the door. It does not
+        // arm touch-only locking: whoever leaves locks the usual way (touch, then
+        // their own fingerprint), so the access log shows who left.
+        const bool emergencyExit = isExit && granted && (decision.emergencyCard || isOfflineAccessCard(uid));
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
-            ? (lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
+            ? (emergencyExit ? "Emergency card: door unlocked. To lock, touch the sensor, then scan your finger"
+                : lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
                 : isExit ? "Exit approved, touch to lock"
                 : alreadyOpen ? "Entry recorded, the door is already unlocked"
                 : "Access granted, door unlocked")
             : "Access denied", message);
         if (!granted) playDeniedFeedback(deniedTrack(decision.reason));
+        else if (emergencyExit) {
+            if (lockedIn) {
+                openDoorRelay(AUDIO_EXIT_VERIFIED);
+                // Unlocker unknown: any registered finger may lock (touch first).
+                rememberUnlocker(0, 0);
+            }
+            else playTrack(AUDIO_EXIT_VERIFIED);
+            SerialLog::step("To lock: touch the sensor, then scan your finger.");
+        }
         else if (isExit) {
             // The exit reader is inside: a locked door is opened only to let
             // this user out, then touch outside locks it again.
@@ -325,12 +339,15 @@ namespace {
         if (isExit) newDoorEventId(exitEventId);
         bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId,
             &backendUnreachable, isExit ? exitEventId : nullptr);
-        if (!granted && backendUnreachable && isExit && unlockedByFingerSlot != 0) {
+        if (!granted && backendUnreachable && isExit && (unlockedByFingerSlot != 0 || unlockedByUserId == 0)) {
             // Connection lost: the slot check above already proved this is the
-            // finger that unlocked the door, so it may lock without the backend.
+            // finger that unlocked the door, or nobody is known to have unlocked
+            // it (emergency card), so any registered finger may lock it.
             granted = true;
-            message = "Backend unreachable: same finger confirmed locally (exit saved for the access log).";
-            SerialLog::warn("[OFFLINE] Door locked by the finger that unlocked it, without the backend.");
+            message = unlockedByFingerSlot != 0
+                ? "Backend unreachable: same finger confirmed locally (exit saved for the access log)."
+                : "Backend unreachable: registered finger locked the door (exit saved for the access log).";
+            SerialLog::warn("[OFFLINE] Door locked by a registered finger, without the backend.");
             queueOfflineExit(exitEventId, "", match.matchedSlot);
         }
         SerialLog::result(granted, granted

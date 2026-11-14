@@ -21,6 +21,7 @@ struct DoorDecision {
     long secondsRemaining = -1;  // seconds until the schedule ends (granted entries), -1 if unknown
     uint32_t userId = 0;         // the identified user, 0 if unknown
     uint32_t scheduleEndEpoch = 0; // schedule end as Unix time (granted entries), 0 if unknown
+    bool emergencyCard = false;  // the card is a backend emergency access card (DOOR_EMERGENCY_RFID_UIDS)
 };
 
 // unlockedByUserId (exit only): the user who unlocked the door. The backend

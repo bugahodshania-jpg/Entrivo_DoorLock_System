@@ -561,6 +561,7 @@ namespace
         decision->secondsRemaining = response["seconds_remaining"].is<long>() ? response["seconds_remaining"].as<long>() : -1;
         decision->userId = response["user_id"].is<uint32_t>() ? response["user_id"].as<uint32_t>() : 0;
         decision->scheduleEndEpoch = response["schedule_end_epoch"].is<uint32_t>() ? response["schedule_end_epoch"].as<uint32_t>() : 0;
+        decision->emergencyCard = response["emergency_card"] | false;
     }
 
     // No usable decision came back. A request the backend called malformed is

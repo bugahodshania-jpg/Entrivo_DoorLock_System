@@ -140,7 +140,9 @@ try {
         'An unregistered emergency card must open the door. Got ' . json_encode($looseEntry));
     expectAnyRole($lastLog()['user_id'] === null && $lastLog()['rfid_uid'] === 'BB000000EE' && $lastLog()['access_status'] === 'granted',
         'An unregistered emergency card entry is logged by UID with no user.');
-    expectAnyRole($service->verify($loose('exit'), $at('22:05:00'))['access_granted'] === true, 'An unregistered emergency card can exit.');
+    $looseExit = $service->verify($loose('exit'), $at('22:05:00'));
+    expectAnyRole($looseExit['access_granted'] === true && $looseExit['emergency_card'] === true, 'An unregistered emergency card can exit and is flagged so the controller leaves locking to touch + fingerprint. Got ' . json_encode($looseExit));
+    expectAnyRole($service->verify($card($faculty, 'exit'), $at('22:06:00'))['emergency_card'] === false, 'Other cards are not flagged as emergency cards.');
     $unknown = $service->verify(['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'CC000000FF', 'direction' => 'entry'], $at('22:10:00'));
     expectAnyRole($unknown['reason'] === 'not_registered', 'Other unregistered cards are still refused.');
     putenv('DOOR_EMERGENCY_RFID_UIDS');

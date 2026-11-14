@@ -163,6 +163,9 @@ final class CombinedDoorAccessService
      */
     private function exitDecision(array $cards, array $scan, DateTimeImmutable $now): array
     {
+        // The controller only opens the door for an emergency card at the exit;
+        // the person leaving locks with touch + their fingerprint (logged by name).
+        $scan['emergency_card'] = in_array($scan['rfid_uid'], self::emergencyCardUids(), true);
         $card = count($cards) === 1 ? $cards[0] : null;
         if ($card === null || $card['username'] === null) {
             // Unregistered, unlinked or conflicting card: logged by its UID only.
