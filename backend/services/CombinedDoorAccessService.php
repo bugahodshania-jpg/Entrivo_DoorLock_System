@@ -89,15 +89,18 @@ final class CombinedDoorAccessService
             WHERE UPPER(c.rfid_uid)=? FOR SHARE');
         $query->execute([$uid]);
         $cards = $query->fetchAll(PDO::FETCH_ASSOC);
+        // The exit reader is inside the room: nobody may be trapped, so ANY card
+        // is let out, as the controller already does offline. The exit is always
+        // logged with the card's UID, and with its owner when the card belongs to
+        // exactly one account (even an inactive card or account).
+        if ($direction === 'exit') {
+            return $this->exitDecision($cards, $scan, $now);
+        }
         // An emergency access card that belongs to no account is a standalone
-        // override: entry and exit at any time, logged by its UID only.
+        // override for entry at any time, logged by its UID only.
         $unlinked = $cards === [] || (count($cards) === 1 && $cards[0]['username'] === null);
         if ($unlinked && in_array($uid, self::emergencyCardUids(), true)) {
             $standalone = [...$scan, 'card_id' => $cards === [] ? null : (int) $cards[0]['card_id']];
-            if ($direction === 'exit') {
-                return $this->decision(true, 'access_granted', 'Exit granted: emergency access card.',
-                    [...$standalone, 'schedule_id' => null, 'override_id' => null]);
-            }
             return $this->decision(true, 'access_granted', 'Access granted: emergency access card (permanent override).', [
                 ...$standalone,
                 'schedule_id' => null,
@@ -126,17 +129,8 @@ final class CombinedDoorAccessService
             return $this->decision(false, 'account_incomplete', 'Complete the account setup before using door access.', $identity);
         }
         // RFID is open to every role (students, and backup cards for faculty,
-        // staff and administrators). Entry and exit are separate decisions.
-        // The exit reader is inside the room. Exit is never schedule-gated, so
-        // a user who stays past the schedule (or is locked in) can always
-        // leave; it is linked to the user's session and marked EXTENDED when
-        // that schedule has already ended. The exit card only unlocks / arms
-        // the touch sensor; the touch that follows it locks the door.
+        // staff and administrators). Exits are decided in exitDecision().
         $policy = new ScheduleAccessPolicy($this->pdo);
-        if ($direction === 'exit') {
-            $exit = $policy->exitContext($identity['user_id'], $now);
-            return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
-        }
         // Entry by role: faculty/staff need a regular or override schedule,
         // students an approved override only, admins have a permanent override.
         $schedule = $policy->evaluateEntry($identity['user_id'], $hasRole ? (string) ($card['role'] ?? '') : null, $now);
@@ -158,6 +152,31 @@ final class CombinedDoorAccessService
             // The 15-minute reminder: remaining time, the schedule end and the server time.
             ...ScheduleAccessPolicy::reminderFields($schedule['time_end'] ?? null, $now),
         ]);
+    }
+
+    /**
+     * Exit reader decision: always granted. Exit is never schedule-gated, so a
+     * user who stays past the schedule (or is locked in) can always leave; a
+     * known owner's exit is linked to their session and marked EXTENDED when
+     * that schedule has already ended. The exit card only unlocks / arms the
+     * touch sensor; the touch that follows it locks the door.
+     */
+    private function exitDecision(array $cards, array $scan, DateTimeImmutable $now): array
+    {
+        $card = count($cards) === 1 ? $cards[0] : null;
+        if ($card === null || $card['username'] === null) {
+            // Unregistered, unlinked or conflicting card: logged by its UID only.
+            $standalone = [...$scan, 'card_id' => $card !== null ? (int) $card['card_id'] : null,
+                'schedule_id' => null, 'override_id' => null];
+            $message = $card === null && $cards !== []
+                ? 'Exit granted: this card UID has conflicting registrations (logged by UID).'
+                : 'Exit granted: this card is not linked to an account (logged by UID).';
+            return $this->decision(true, 'access_granted', $message, $standalone);
+        }
+
+        $identity = [...$scan, 'user_id' => (int) $card['user_id'], 'card_id' => (int) $card['card_id'], 'username' => (string) $card['username']];
+        $exit = (new ScheduleAccessPolicy($this->pdo))->exitContext($identity['user_id'], $now);
+        return $this->decision(true, 'access_granted', $exit['message'], [...$identity, ...ScheduleAccessPolicy::exitFields($exit)]);
     }
 
     /**

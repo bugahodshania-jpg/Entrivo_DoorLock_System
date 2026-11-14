@@ -149,5 +149,40 @@ try {
     putenv($previousEmergency === false ? 'DOOR_EMERGENCY_RFID_UIDS' : 'DOOR_EMERGENCY_RFID_UIDS=' . $previousEmergency);
 }
 
-echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), emergency access cards (permanent override on entry), inactive accounts refused, exit always allowed.
+// The exit reader lets ANY card out online (as offline), and every exit is saved as a granted OUT with the card UID.
+$exitScan = static fn (string $uid) => ['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => $uid, 'direction' => 'exit'];
+$expectExitLogged = static function (string $uid, ?int $userId, ?int $cardId, string $label) use ($service, $exitScan, $lastLog, $at): void {
+    $before = $lastLog()['log_id'] ?? 0;
+    $result = $service->verify($exitScan($uid), $at('23:00:00'));
+    expectAnyRole($result['access_granted'] === true, "$label must be let out. Got " . json_encode($result));
+    $log = $lastLog();
+    expectAnyRole((int) $log['log_id'] > (int) $before, "$label exit must be saved to the access log.");
+    expectAnyRole($log['access_status'] === 'granted' && $log['access_type'] === 'OUT' && $log['denial_reason'] === null
+        && $log['method_access'] === 'RFID' && $log['rfid_uid'] === $uid,
+        "$label exit must be logged as a granted RFID OUT with its UID. Got " . json_encode($log));
+    expectAnyRole(($log['user_id'] === null ? null : (int) $log['user_id']) === $userId
+        && ($log['card_id'] === null ? null : (int) $log['card_id']) === $cardId,
+        "$label exit must be logged to the right user and card. Got " . json_encode($log));
+};
+$expectExitLogged('DD000000AA', null, null, 'An unregistered card');
+$pdo->exec("INSERT INTO rfid_cards VALUES (20,NULL,'DD000000BB','active')");
+$expectExitLogged('DD000000BB', null, 20, 'A card linked to no account');
+$pdo->exec("INSERT INTO rfid_cards VALUES (21,1,'DD000000CC','active'),(22,2,'DD000000CC','active')");
+$expectExitLogged('DD000000CC', null, null, 'A card UID with conflicting registrations');
+$pdo->prepare("UPDATE rfid_cards SET status='lost' WHERE card_id=?")->execute([$faculty]);
+$expectExitLogged(sprintf('AA000000%02d', $faculty), $faculty, $faculty, 'A lost card');
+$pdo->prepare("UPDATE rfid_cards SET status='active' WHERE card_id=?")->execute([$faculty]);
+$pdo->prepare('UPDATE users SET is_active=0 WHERE id=?')->execute([$student]);
+$expectExitLogged(sprintf('AA000000%02d', $student), $student, $student, 'A card of an inactive account');
+$pdo->prepare("UPDATE users SET is_active=1, approval_status='pending' WHERE id=?")->execute([$student]);
+$expectExitLogged(sprintf('AA000000%02d', $student), $student, $student, 'A card of an unapproved account');
+$pdo->prepare("UPDATE users SET approval_status='approved', onboarding_step='security' WHERE id=?")->execute([$student]);
+$expectExitLogged(sprintf('AA000000%02d', $student), $student, $student, 'A card of an account still finishing setup');
+$pdo->prepare("UPDATE users SET onboarding_step='done' WHERE id=?")->execute([$student]);
+// Entry is unchanged: the same cards are still refused at the entrance.
+expectAnyRole($service->verify(['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'DD000000AA', 'direction' => 'entry'], $at('23:10:00'))['reason'] === 'not_registered',
+    'An unregistered card is still refused at the entrance.');
+expectAnyRole($lastLog()['access_status'] === 'denied' && $lastLog()['access_type'] === 'IN', 'The refused entry is logged as a denied IN.');
+
+echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), emergency access cards (permanent override on entry), inactive accounts refused, exit always allowed for any card (unregistered, unlinked, conflicting, lost, inactive or incomplete account) and saved to the access log.
 ";
