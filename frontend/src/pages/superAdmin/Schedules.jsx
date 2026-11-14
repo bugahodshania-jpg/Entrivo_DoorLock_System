@@ -453,8 +453,10 @@ export default function Schedules({ user }) {
     );
   }, [userSelectGroups]);
 
+  // Only fully active accounts can get a schedule (not pending, blocked, or
+  // still finishing their first login setup). The backend enforces the same.
   const schedulableUsers = useMemo(() => {
-    return allUsers;
+    return allUsers.filter((item) => !item.status || item.status === 'active');
   }, [allUsers]);
 
   const normalizedUserSearchQuery = normalizeLookupValue(userSearchQuery);
@@ -489,6 +491,16 @@ export default function Schedules({ user }) {
 
     return filteredUsers;
   }, [exactMatchedUser, filteredUsers]);
+
+  // A searched account that exists but is not active yet, to explain why it is not offered.
+  const unschedulableMatch = useMemo(() => {
+    if (!normalizedUserSearchQuery) return null;
+    return allUsers.find((item) => item.status && item.status !== 'active' && (
+      normalizeLookupValue(item.identifier).includes(normalizedUserSearchQuery)
+      || normalizeLookupValue(item.name || [item.firstName, item.lastName].filter(Boolean).join(' ') || item.username)
+        .includes(normalizedUserSearchQuery)
+    )) || null;
+  }, [allUsers, normalizedUserSearchQuery]);
 
   const selectedUser = useMemo(() => {
     return schedulableUsers.find((item) => String(item.id) === String(formState.userId)) || null;
@@ -2368,7 +2380,13 @@ export default function Schedules({ user }) {
                       onMouseDown={(event) => event.preventDefault()}
                     >
                       {suggestedUsers.length === 0 ? (
-                        <li className="schedules-user-suggestion-empty">No matching users.</li>
+                        <li className="schedules-user-suggestion-empty">
+                          {unschedulableMatch
+                            ? `${getUserDisplayName(unschedulableMatch)} cannot get a schedule yet: the account is ${
+                              { pending: 'pending approval', pending_login: 'still finishing its first login setup', blocked: 'blocked', inactive: 'inactive', rejected: 'rejected' }[unschedulableMatch.status] || 'not active'
+                            }.`
+                            : 'No matching users.'}
+                        </li>
                       ) : suggestedUsers.map((item, index) => (
                         <li key={item.id} role="presentation">
                           <button

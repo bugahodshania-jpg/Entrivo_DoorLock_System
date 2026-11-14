@@ -334,6 +334,26 @@ try {
             exit;
         }
 
+        // A schedule only opens the door for a fully active account, so one is
+        // never added for a pending, rejected, blocked, or unfinished account.
+        $accountStatement = $pdo->prepare('SELECT * FROM users WHERE id = :id LIMIT 1');
+        $accountStatement->execute([':id' => $userId]);
+        $account = $accountStatement->fetch(PDO::FETCH_ASSOC);
+        $accountProblem = match (true) {
+            !$account => 'This user account was not found.',
+            strtolower((string) ($account['approval_status'] ?? 'approved')) === 'pending' => 'This account is still pending approval. Approve it before adding a schedule.',
+            strtolower((string) ($account['approval_status'] ?? 'approved')) !== 'approved' => 'This account was not approved. A schedule cannot be added.',
+            (int) ($account['is_active'] ?? 0) !== 1 => 'This account is blocked or inactive. Activate it before adding a schedule.',
+            (int) ($account['must_change_password'] ?? 0) !== 0
+                || (string) ($account['onboarding_step'] ?? 'done') !== 'done' => 'This account has not finished its first login setup yet. A schedule can be added once the account is fully active.',
+            default => null,
+        };
+        if ($accountProblem !== null) {
+            http_response_code(422);
+            echo json_encode(['message' => $accountProblem]);
+            exit;
+        }
+
         $approvedAt = null;
         $approvedBy = $payload['approvedBy'] ?? $createdBy;
         if ($status === 'approved' && $approvedBy !== null) {
