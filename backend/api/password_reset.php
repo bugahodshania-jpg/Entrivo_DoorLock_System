@@ -131,7 +131,7 @@ function startReset(PDO $pdo, array $input): array
     ]);
 
     $mail = new MailService();
-    $mail->send($account['email'], recoveryEmailSubject(), recoveryEmailBody($otp));
+    $mail->send($account['email'], recoveryEmailSubject($otp), recoveryEmailBody($otp), null, recoveryEmailHtml($otp));
 
     recordRecoveryActivity(
         $pdo,
@@ -186,7 +186,7 @@ function resendReset(PDO $pdo, array $input): array
     ]);
 
     $mail = new MailService();
-    $mail->send($user['email'], recoveryEmailSubject(), recoveryEmailBody($otp));
+    $mail->send($user['email'], recoveryEmailSubject($otp), recoveryEmailBody($otp), null, recoveryEmailHtml($otp));
 
     recordRecoveryActivity(
         $pdo,
@@ -507,9 +507,23 @@ function assertPassword(string $password, string $confirm): void
     }
 }
 
-function recoveryEmailSubject(): string
+function recoveryEmailSubject(string $otp): string
 {
-    return 'Entrivo password reset verification code';
+    // "Your ... code: 123456" in the subject lets Gmail show its Copy code button.
+    return 'Your Entrivo password reset code: ' . $otp;
+}
+
+function recoveryEmailHtml(string $otp): string
+{
+    return MailService::otpEmailHtml(
+        'Reset your password',
+        'A password reset was requested for your Entrivo account. Use this code to confirm that you own this account.',
+        $otp,
+        [
+            'This code expires in 10 minutes. Enter it on the Entrivo reset screen to continue. After the code is accepted, you will answer your security questions and choose a new password.',
+            'If you did not request this reset, ignore this email. Your password will stay the same.',
+        ]
+    );
 }
 
 function recoveryEmailBody(string $otp): string

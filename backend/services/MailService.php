@@ -29,7 +29,7 @@ class MailService
         ];
     }
 
-    public function send(string $to, string $subject, string $text, ?array $account = null): void
+    public function send(string $to, string $subject, string $text, ?array $account = null, ?string $html = null): void
     {
         $host = getenv('SMTP_HOST') ?: 'smtp.gmail.com';
         $port = (int) (getenv('SMTP_PORT') ?: 587);
@@ -45,7 +45,7 @@ class MailService
             if ($fromEmail === '') {
                 throw new RuntimeException('Email is not configured. Set MAIL_FROM_EMAIL to a sender verified in Brevo.');
             }
-            $this->sendViaBrevo($brevoKey, $to, $subject, $text, $fromEmail, $fromName);
+            $this->sendViaBrevo($brevoKey, $to, $subject, $text, $fromEmail, $fromName, $html);
             return;
         }
 
@@ -84,7 +84,7 @@ class MailService
             $this->command($socket, 'RCPT TO:<' . $to . '>', [250, 251]);
             $this->command($socket, 'DATA', [354]);
 
-            $message = self::formatMessage($to, $subject, $text, $username, $fromName) . "\r\n.\r\n";
+            $message = self::formatMessage($to, $subject, $text, $username, $fromName, $html) ."\r\n.\r\n";
             $awaitingAcceptance = true;
             $offset = 0;
             while ($offset < strlen($message)) {
@@ -112,15 +112,19 @@ class MailService
     }
 
     /** Brevo transactional email API: https://developers.brevo.com/reference/sendtransacemail */
-    private function sendViaBrevo(string $apiKey, string $to, string $subject, string $text, string $fromEmail, string $fromName): void
+    private function sendViaBrevo(string $apiKey, string $to, string $subject, string $text, string $fromEmail, string $fromName, ?string $html = null): void
     {
         $clean = static fn (string $value): string => str_replace(["\r", "\n"], '', $value);
-        $payload = json_encode([
+        $fields = [
             'sender' => ['name' => $clean($fromName), 'email' => $clean($fromEmail)],
             'to' => [['email' => $clean($to)]],
             'subject' => $clean($subject),
             'textContent' => $text,
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        ];
+        if ($html !== null && $html !== '') {
+            $fields['htmlContent'] = $html;
+        }
+        $payload = json_encode($fields, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
         $curl = curl_init('https://api.brevo.com/v3/smtp/email');
         curl_setopt_array($curl, [
@@ -154,20 +158,88 @@ class MailService
         }
     }
 
-    /** SMTP DATA with a single CRLF per line and dot-stuffed body lines. */
-    public static function formatMessage(string $to, string $subject, string $text, string $from, string $fromName): string
+    /**
+     * SMTP DATA with a single CRLF per line and dot-stuffed body lines.
+     * With $html, the message is multipart/alternative: plain text first, HTML second.
+     */
+    public static function formatMessage(string $to, string $subject, string $text, string $from, string $fromName, ?string $html = null): string
     {
         $clean = static fn (string $value): string => str_replace(["\r", "\n"], '', $value);
+        $normalize = static fn (string $value): string => str_replace(["\r\n", "\r"], "\n", $value);
         $headers = [
             'From: ' . $clean($fromName) . ' <' . $clean($from) . '>',
             'To: <' . $clean($to) . '>',
             'Subject: ' . $clean($subject),
             'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset=UTF-8',
         ];
-        $body = str_replace(["\r\n", "\r"], "\n", $text);
+
+        if ($html === null || $html === '') {
+            $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+            $body = $normalize($text);
+        } else {
+            $boundary = 'entrivo-' . bin2hex(random_bytes(12));
+            $part = static fn (string $type, string $content): string => implode("\n", [
+                '--' . $boundary,
+                'Content-Type: ' . $type . '; charset=UTF-8',
+                'Content-Transfer-Encoding: base64',
+                '',
+                rtrim(chunk_split(base64_encode($normalize($content)), 76, "\n")),
+            ]);
+            $headers[] = 'Content-Type: multipart/alternative; boundary="' . $boundary . '"';
+            $body = $part('text/plain', $text) . "\n" . $part('text/html', $html) . "\n--" . $boundary . '--';
+        }
+
         $body = preg_replace('/^\./m', '..', $body);
         return implode("\r\n", $headers) . "\r\n\r\n" . str_replace("\n", "\r\n", $body);
+    }
+
+    /**
+     * Verification-code email with the code shown digit by digit in boxes.
+     * Pair it with a subject like "Your Entrivo verification code: 123456" so Gmail offers its Copy code button.
+     *
+     * @param string[] $paragraphs plain-text paragraphs shown under the code
+     */
+    public static function otpEmailHtml(string $heading, string $intro, string $code, array $paragraphs): string
+    {
+        $e = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $digits = '';
+        foreach (str_split($code) as $digit) {
+            $digits .= '<td style="padding:0 4px;"><div style="width:44px;height:54px;line-height:54px;'
+                . 'background:#ffffff;border:1px solid #d7dee4;border-radius:8px;text-align:center;'
+                . 'font-size:26px;font-weight:700;color:#0c4b2d;font-family:Consolas,Menlo,monospace;">'
+                . $e($digit) . '</div></td>';
+        }
+
+        $extra = '';
+        foreach ($paragraphs as $paragraph) {
+            $extra .= '<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#3d4a44;">' . $e($paragraph) . '</p>';
+        }
+
+        $heading = $e($heading);
+        $intro = $e($intro);
+        $columns = max(1, strlen($code));
+
+        return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1"><title>' . $heading . '</title></head>'
+            . '<body style="margin:0;padding:0;background:#f3f5f7;font-family:Segoe UI,Arial,Helvetica,sans-serif;">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f5f7;padding:24px 12px;"><tr><td align="center">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #e3e8ec;border-radius:12px;overflow:hidden;">'
+            . '<tr><td style="background:#0c4b2d;padding:18px 28px;">'
+            . '<div style="font-size:18px;font-weight:700;color:#ffffff;">Entrivo</div>'
+            . '<div style="font-size:12px;color:#cfe3d8;">Door Lock System &middot; Caraga State University - Cabadbaran Campus</div>'
+            . '</td></tr>'
+            . '<tr><td style="padding:28px;">'
+            . '<h1 style="margin:0 0 12px;font-size:20px;color:#18372b;">' . $heading . '</h1>'
+            . '<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#3d4a44;">' . $intro . '</p>'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="background:#eef3f0;border-radius:10px;padding:18px 14px;margin:0 0 20px;">'
+            . '<tr><td colspan="' . $columns . '" style="padding:0 4px 12px;font-size:13px;font-weight:600;color:#18372b;">Your verification code</td></tr>'
+            . '<tr>' . $digits . '</tr></table>'
+            . $extra
+            . '</td></tr>'
+            . '<tr><td style="padding:16px 28px;background:#f7f9fa;border-top:1px solid #e3e8ec;font-size:12px;color:#6b7280;">'
+            . 'Never share this code with anyone. Entrivo staff will never ask for it.</td></tr>'
+            . '</table></td></tr></table></body></html>';
     }
 
     private function command($socket, string $command, array $codes): void

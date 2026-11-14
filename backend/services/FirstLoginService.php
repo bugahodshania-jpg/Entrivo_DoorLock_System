@@ -501,7 +501,17 @@ Caraga State University - Cabadbaran Campus
 TEXT;
 
         $mail = new MailService();
-        $mail->send($email, 'Entrivo first login verification code', $body, MailService::mailbox('otp'));
+        $html = MailService::otpEmailHtml(
+            'Finish signing in',
+            "Hello {$username}, use this code to finish signing in to Entrivo for the first time.",
+            $otp,
+            [
+                'This code expires in 10 minutes. Enter it on the Entrivo login screen, choose a new password, complete your information, and set your security questions. Your dashboard opens after that setup is finished.',
+                'If you did not try to sign in, ignore this email.',
+            ]
+        );
+        // "Your ... code: 123456" in the subject lets Gmail show its Copy code button.
+        $mail->send($email, 'Your Entrivo verification code: ' . $otp, $body, MailService::mailbox('otp'), $html);
     }
 
     private function loginUrl(string $username): string
