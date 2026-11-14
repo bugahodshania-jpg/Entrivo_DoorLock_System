@@ -89,6 +89,23 @@ final class CombinedDoorAccessService
             WHERE UPPER(c.rfid_uid)=? FOR SHARE');
         $query->execute([$uid]);
         $cards = $query->fetchAll(PDO::FETCH_ASSOC);
+        // An emergency access card that belongs to no account is a standalone
+        // override: entry and exit at any time, logged by its UID only.
+        $unlinked = $cards === [] || (count($cards) === 1 && $cards[0]['username'] === null);
+        if ($unlinked && in_array($uid, self::emergencyCardUids(), true)) {
+            $standalone = [...$scan, 'card_id' => $cards === [] ? null : (int) $cards[0]['card_id']];
+            if ($direction === 'exit') {
+                return $this->decision(true, 'access_granted', 'Exit granted: emergency access card.',
+                    [...$standalone, 'schedule_id' => null, 'override_id' => null]);
+            }
+            return $this->decision(true, 'access_granted', 'Access granted: emergency access card (permanent override).', [
+                ...$standalone,
+                'schedule_id' => null,
+                'override_id' => null,
+                'schedule_kind' => 'permanent_override',
+                ...ScheduleAccessPolicy::reminderFields(null, $now),
+            ]);
+        }
         if (count($cards) !== 1) {
             return $this->decision(false, $cards === [] ? 'not_registered' : 'ambiguous_card', $cards === []
                 ? 'This RFID card is not registered.' : 'This RFID UID has conflicting registrations.', $scan);

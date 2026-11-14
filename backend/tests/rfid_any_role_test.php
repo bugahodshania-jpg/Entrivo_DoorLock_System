@@ -131,6 +131,18 @@ try {
     $pdo->prepare('UPDATE users SET is_active=0 WHERE id=?')->execute([$student]);
     expectAnyRole($service->verify($card($student, 'entry'), $at('21:10:00'))['reason'] === 'account_inactive', 'An emergency card on an inactive account is refused.');
     $pdo->prepare('UPDATE users SET is_active=1 WHERE id=?')->execute([$student]);
+
+    // A standalone emergency card (not registered to any account) still works, logged by UID only.
+    putenv('DOOR_EMERGENCY_RFID_UIDS=AA00000001,BB000000EE');
+    $loose = static fn (string $direction) => ['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'BB000000EE', 'direction' => $direction];
+    $looseEntry = $service->verify($loose('entry'), $at('22:00:00'));
+    expectAnyRole($looseEntry['access_granted'] === true && $looseEntry['schedule_kind'] === 'permanent_override',
+        'An unregistered emergency card must open the door. Got ' . json_encode($looseEntry));
+    expectAnyRole($lastLog()['user_id'] === null && $lastLog()['rfid_uid'] === 'BB000000EE' && $lastLog()['access_status'] === 'granted',
+        'An unregistered emergency card entry is logged by UID with no user.');
+    expectAnyRole($service->verify($loose('exit'), $at('22:05:00'))['access_granted'] === true, 'An unregistered emergency card can exit.');
+    $unknown = $service->verify(['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'CC000000FF', 'direction' => 'entry'], $at('22:10:00'));
+    expectAnyRole($unknown['reason'] === 'not_registered', 'Other unregistered cards are still refused.');
     putenv('DOOR_EMERGENCY_RFID_UIDS');
     expectAnyRole($service->verify($card($student, 'entry'), $at('21:15:00'))['access_granted'] === false, 'Without the setting the card follows the student rule again.');
 } finally {
