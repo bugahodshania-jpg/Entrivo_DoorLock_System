@@ -354,7 +354,7 @@ export default function UserLayout({ children, user, onLogout }) {
                     setIsSidebarProfileOpen(false);
                   }}
                 />
-                <DoorStatusCard />
+                <DoorStatusCard user={user} />
               </>
             )}
             <div

@@ -5,7 +5,9 @@ require_once __DIR__ . '/DoorEventLog.php';
 require_once __DIR__ . '/ScheduleAccessPolicy.php';
 
 /**
- * Exits the door controller allowed while the backend was unreachable. The
+ * Entries and exits the door controller allowed while the backend was
+ * unreachable (offline: the emergency card, and enrolled fingers while
+ * scheduling is Auto or Off). The
  * door already opened, so this is a record, not a decision: it is always
  * written as a granted OUT at the time it happened, linked to whoever the
  * card or fingerprint slot belongs to (or to no one for an unknown card).
@@ -30,9 +32,11 @@ final class OfflineExitService
         $deviceId = filter_var($input['enrollment_device_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         $validCredential = ($method === 'rfid' && preg_match('/^[A-F0-9]{10}$/D', $uid) === 1)
             || ($method === 'fingerprint' && $slot !== false);
-        if ($eventId === null || $deviceId === false || !$validCredential || ($input['direction'] ?? 'exit') !== 'exit') {
+        $direction = $input['direction'] ?? 'exit';
+        $isEntry = $direction === 'entry';
+        if ($eventId === null || $deviceId === false || !$validCredential || !in_array($direction, ['entry', 'exit'], true)) {
             return ['success' => false, 'recorded' => false, 'reason' => 'invalid_request',
-                'message' => 'An offline exit needs a 32-hex event_id, the device, and a card UID or sensor slot.'];
+                'message' => 'An offline entry or exit needs a 32-hex event_id, the device, and a card UID or sensor slot.'];
         }
         // When it happened: the controller reports how long ago, when it knows.
         $age = filter_var($input['age_seconds'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
@@ -45,15 +49,15 @@ final class OfflineExitService
         try {
             if (DoorEventLog::seen($this->pdo, $eventId)) {
                 $this->pdo->commit();
-                return ['success' => true, 'recorded' => false, 'duplicate' => true, 'message' => 'This exit is already in the access log.'];
+                return ['success' => true, 'recorded' => false, 'duplicate' => true, 'message' => 'This door use is already in the access log.'];
             }
             $identity = $method === 'rfid' ? $this->cardOwner($uid) : $this->slotOwner((int) $deviceId, (int) $slot);
-            $exit = $identity['user_id'] !== null
+            $exit = $identity['user_id'] !== null && !$isEntry
                 ? ScheduleAccessPolicy::exitFields((new ScheduleAccessPolicy($this->pdo))->exitContext($identity['user_id'], $at))
                 : ['schedule_id' => null, 'override_id' => null];
 
             $extraColumn = $hasAccessType ? ',access_type' : '';
-            $extraValue = $hasAccessType ? ",'OUT'" : '';
+            $extraValue = $hasAccessType ? ($isEntry ? ",'IN'" : ",'OUT'") : '';
             $this->pdo->prepare("INSERT INTO access_log
                 (user_id,card_id,rfid_uid,fingerprint_id,schedule_id,override_id,access_timestamp,access_status,denial_reason,method_access{$extraColumn})
                 VALUES (?,?,?,?,?,?,?,'granted',NULL,?{$extraValue})")
@@ -66,7 +70,7 @@ final class OfflineExitService
             DoorEventLog::remember($this->pdo, $eventId, $logId, $now);
             $this->pdo->commit();
             return ['success' => true, 'recorded' => true, 'log_id' => $logId, 'user_id' => $identity['user_id'],
-                'access_timestamp' => $at->format('Y-m-d H:i:s'), 'message' => 'Offline exit recorded.'];
+                'access_timestamp' => $at->format('Y-m-d H:i:s'), 'message' => $isEntry ? 'Offline entry recorded.' : 'Offline exit recorded.'];
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $error;

@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "DoorStatus.h"
 #include "HttpLock.h"
+#include <Preferences.h>
 
 namespace {
     // The backend shows a report for 45 s. A 4 s heartbeat leaves room for
@@ -29,13 +30,49 @@ namespace {
     uint32_t sessionEndEpoch = 0;
     long sessionSecondsLeft = -1;
 
-    void readSessionEnd(const String &body) {
-        DynamicJsonDocument reply(512);
-        if (deserializeJson(reply, body) != DeserializationError::Ok) return;
+    // Portal controls: scheduling mode (kept in NVS for offline use after a
+    // restart) and a remote lock/unlock waiting to run, then be confirmed.
+    Preferences controlStore;
+    bool controlStoreReady = false;
+    char scheduleMode[5] = "auto";
+    int32_t pendingCommandId = 0;
+    bool pendingUnlock = false;
+    bool commandFresh = false;
+    int32_t lastDoneCommandId = 0;   // reported back until the backend clears it
+    int32_t lastRunCommandId = 0;    // never run the same command twice
+
+    void readControls(JsonDocument &reply) {
+        const char *mode = reply["schedule_mode"] | "";
+        if ((!strcmp(mode, "auto") || !strcmp(mode, "on") || !strcmp(mode, "off")) && strcmp(mode, scheduleMode) != 0) {
+            strncpy(scheduleMode, mode, sizeof(scheduleMode) - 1);
+            if (controlStoreReady) controlStore.putString("mode", scheduleMode);
+            Serial.print("[DOOR CONTROL] Scheduling mode from the portal: ");
+            Serial.println(scheduleMode);
+        }
+        if (!reply["command"].is<JsonObject>()) {
+            if (lastDoneCommandId) lastDoneCommandId = 0; // the backend cleared it
+            return;
+        }
+        const int32_t id = reply["command"]["id"] | 0;
+        const char *action = reply["command"]["action"] | "";
+        if (id <= 0 || id == lastRunCommandId || (strcmp(action, "lock") && strcmp(action, "unlock"))) return;
+        pendingCommandId = id;
+        pendingUnlock = !strcmp(action, "unlock");
+        commandFresh = true;
+    }
+
+    void readSessionEnd(JsonDocument &reply) {
         if (!reply["session_end_epoch"].is<uint32_t>() || !reply["session_seconds_remaining"].is<long>()) return;
         sessionEndEpoch = reply["session_end_epoch"].as<uint32_t>();
         sessionSecondsLeft = reply["session_seconds_remaining"].as<long>();
         sessionEndFresh = true;
+    }
+
+    void readReply(const String &body, bool unlocked) {
+        DynamicJsonDocument reply(768);
+        if (deserializeJson(reply, body) != DeserializationError::Ok) return;
+        readControls(reply);
+        if (unlocked) readSessionEnd(reply);
     }
 
     bool postState(bool unlocked, bool touchArmed) {
@@ -47,6 +84,8 @@ namespace {
         payload["sequence"] = ++sequence;
         // Signal strength for the portal's WiFi icon (connected / weak).
         payload["wifi_rssi"] = WiFi.RSSI();
+        // Confirms a finished remote lock/unlock so the backend clears it.
+        if (lastDoneCommandId) payload["command_done"] = lastDoneCommandId;
         String body;
         serializeJson(payload, body);
         EntrivoHttpLock httpLock;
@@ -70,7 +109,7 @@ namespace {
             if (code < 0) Serial.println("[DOOR STATUS] Connection failed. Check SERVER_URL in Config.h, that WiFi has internet access, and that the backend is running.");
             return false;
         }
-        if (unlocked) readSessionEnd(reply);
+        readReply(reply, unlocked);
         return true;
     }
 }
@@ -85,6 +124,11 @@ bool takeSessionEnd(uint32_t &endEpoch, long &secondsLeft) {
 
 void initDoorStatus(bool unlocked) {
     if (started) return;
+    controlStoreReady = controlStore.begin("doorctl", false);
+    if (controlStoreReady) {
+        const String saved = controlStore.getString("mode", "auto");
+        if (saved == "auto" || saved == "on" || saved == "off") strncpy(scheduleMode, saved.c_str(), sizeof(scheduleMode) - 1);
+    }
     initHttpLock();
     snprintf(bootId, sizeof(bootId), "%08lx%08lx%08lx%08lx",
         static_cast<unsigned long>(esp_random()), static_cast<unsigned long>(esp_random()),
@@ -111,3 +155,25 @@ void serviceDoorStatus(bool touchArmed) {
     lastAttemptFailed = !postState(pendingUnlocked, touchArmed);
     if (!lastAttemptFailed) sendNow = false;
 }
+
+bool takeDoorCommand(int32_t &commandId, bool &unlock) {
+    if (!commandFresh) return false;
+    commandFresh = false;
+    commandId = pendingCommandId;
+    unlock = pendingUnlock;
+    return true;
+}
+
+void confirmDoorCommand(int32_t commandId) {
+    lastRunCommandId = commandId;
+    lastDoneCommandId = commandId;
+    sendNow = true;            // confirm on the next report, right away
+    lastAttemptFailed = false;
+}
+
+bool offlineFingerEntryAllowed() {
+    // Auto: scheduling is off only while offline. Off: always. On: never.
+    return strcmp(scheduleMode, "on") != 0;
+}
+
+const char *doorScheduleMode() { return scheduleMode; }

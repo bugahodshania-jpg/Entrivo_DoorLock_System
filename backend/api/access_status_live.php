@@ -39,6 +39,7 @@ require_once dirname(__DIR__) . '/services/ScheduleAccessPolicy.php';
 require_once dirname(__DIR__) . '/services/FailedAccessStreak.php';
 require_once dirname(__DIR__) . '/services/AccessEventType.php';
 require_once dirname(__DIR__) . '/services/CombinedDoorAccessService.php';
+require_once dirname(__DIR__) . '/services/EmergencyCards.php';
 
 $actorId = filter_input(INPUT_GET, 'actor_id', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 $afterId = filter_input(INPUT_GET, 'after_id', FILTER_VALIDATE_INT, ['options' => ['default' => 0, 'min_range' => 0]]);
@@ -160,7 +161,8 @@ try {
             'date' => $row['access_date'],
             'time' => $row['access_time'],
             'userId' => $row['user_id'] !== null ? (int) $row['user_id'] : null,
-            'userName' => $row['user_name'],
+            // A card with no account: its emergency card name, when it is one.
+            'userName' => $row['user_name'] ?? ($row['method_access'] === 'RFID' ? EmergencyCards::nameFor($row['rfid_uid'] ?? null) : null),
             'userRole' => $row['user_role'],
             'userIdentifier' => $row['user_identifier'],
             'rfidUid' => $row['method_access'] === 'RFID' ? ($row['rfid_uid'] ?: null) : null,

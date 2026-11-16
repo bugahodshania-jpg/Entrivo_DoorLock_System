@@ -653,7 +653,7 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     return isExplicitTrue(response["access_granted"]);
 }
 
-bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, long ageSeconds, bool &rejected)
+bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, long ageSeconds, bool &rejected, bool isEntry)
 {
     rejected = false;
     DynamicJsonDocument payload(512);
@@ -662,7 +662,7 @@ bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, 
     payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
     if (slot) payload["matched_slot"] = slot;
     else payload["rfid_uid"] = rfidUid;
-    payload["direction"] = "exit";
+    payload["direction"] = isEntry ? "entry" : "exit";
     payload["event_id"] = eventId;
     if (ageSeconds >= 0) payload["age_seconds"] = ageSeconds;
     DynamicJsonDocument response(JSON_BUFFER_SIZE);

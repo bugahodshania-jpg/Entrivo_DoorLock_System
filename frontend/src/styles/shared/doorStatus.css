@@ -36,3 +36,67 @@ button.door-status-card:focus-visible { outline: 2px solid #a25712; outline-offs
   .door-status-card small, .door-status-dot { display: none; }
   .door-status-card > svg { height: 14px; width: 14px; }
 }
+
+/* Connection lost: the door controller is not reporting. */
+.door-status-card.is-unknown { color: #8a6d1f; border-color: #ead9a6; background: #fffcf1; }
+.door-control-offline {
+  align-items: flex-start;
+  background: #fffcf1;
+  border: 1px solid #ead9a6;
+  border-radius: 4px;
+  color: #5b4a17;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
+}
+.door-control-offline svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* Administrator door controls: scheduling mode and (Super Admin) remote lock. */
+.door-controls { border-top: 1px solid #e3e8ec; display: grid; gap: 14px; padding-top: 14px; }
+.door-control-group { display: grid; gap: 7px; }
+.door-control-group > small { color: #5c6b76; font-size: 12px; line-height: 1.4; }
+.door-control-label { align-items: center; color: #202622; display: flex; font-size: 13px; font-weight: 700; gap: 6px; }
+.door-mode-switch { border: 1px solid #c8dfd2; border-radius: 4px; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; }
+.door-mode-switch button {
+  background: #fff;
+  border: 0;
+  border-left: 1px solid #c8dfd2;
+  color: #0c4b2d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  min-height: 38px;
+}
+.door-mode-switch button:first-child { border-left: 0; }
+.door-mode-switch button.is-active { background: #0c4b2d; color: #fff; }
+.door-mode-switch button:disabled { cursor: wait; opacity: 0.7; }
+.door-mode-switch button:focus-visible, .door-lock-switch:focus-visible { outline: 2px solid #0c4b2d; outline-offset: 2px; }
+
+.door-lock-switch {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d7dee4;
+  border-radius: 4px;
+  color: #202622;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 12px;
+  text-align: left;
+}
+.door-lock-switch:disabled { cursor: not-allowed; opacity: 0.65; }
+.door-lock-switch-track { background: #c9d2d9; border-radius: 999px; flex: 0 0 auto; height: 20px; position: relative; width: 36px; }
+.door-lock-switch-track span { background: #fff; border-radius: 50%; height: 16px; left: 2px; position: absolute; top: 2px; transition: left 0.15s ease; width: 16px; }
+.door-lock-switch.is-locked .door-lock-switch-track { background: #0c4b2d; }
+.door-lock-switch.is-locked .door-lock-switch-track span { left: 18px; }
+.door-lock-switch.is-unlocked .door-lock-switch-track { background: #a25712; }
+.door-control-notice { background: #f4fbf7; border: 1px solid #c8dfd2; border-radius: 4px; color: #0c4b2d; font-size: 12px; margin: 0; padding: 8px 10px; }
+.door-control-notice.is-error { background: #fdf3f2; border-color: #efc7c2; color: #9b2c1f; }

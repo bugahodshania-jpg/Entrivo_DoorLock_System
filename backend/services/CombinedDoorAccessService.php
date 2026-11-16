@@ -5,6 +5,7 @@ require_once __DIR__ . '/AccessLogSchema.php';
 require_once __DIR__ . '/ScheduleAccessPolicy.php';
 require_once __DIR__ . '/DoorEventLog.php';
 require_once __DIR__ . '/OfflineExitService.php';
+require_once __DIR__ . '/EmergencyCards.php';
 
 /**
  * Door decisions for the combined door/enrollment controller. Entry needs a
@@ -101,7 +102,7 @@ final class CombinedDoorAccessService
         $unlinked = $cards === [] || (count($cards) === 1 && $cards[0]['username'] === null);
         if ($unlinked && in_array($uid, self::emergencyCardUids(), true)) {
             $standalone = [...$scan, 'card_id' => $cards === [] ? null : (int) $cards[0]['card_id']];
-            return $this->decision(true, 'access_granted', 'Access granted: emergency access card (permanent override).', [
+            return $this->decision(true, 'access_granted', 'Access granted: ' . EmergencyCards::nameFor($uid) . ' (emergency card, permanent override).', [
                 ...$standalone,
                 'schedule_id' => null,
                 'override_id' => null,
@@ -133,12 +134,12 @@ final class CombinedDoorAccessService
         $policy = new ScheduleAccessPolicy($this->pdo);
         // Entry by role: faculty/staff need a regular or override schedule,
         // students an approved override only, admins have a permanent override.
-        $schedule = $policy->evaluateEntry($identity['user_id'], $hasRole ? (string) ($card['role'] ?? '') : null, $now);
+        $schedule = $policy->evaluateEntry($identity['user_id'], $hasRole ? (string) ($card['role'] ?? '') : null, $now, (int) $deviceId);
         // An emergency access card (DOOR_EMERGENCY_RFID_UIDS) has a permanent
         // override for entry, like an admin, whatever its owner's role. The
         // card and its account must still be registered and active (above).
         if (!$schedule['granted'] && in_array($uid, self::emergencyCardUids(), true)) {
-            $schedule = ['granted' => true, 'message' => 'Access granted: emergency access card (permanent override).',
+            $schedule = ['granted' => true, 'message' => 'Access granted: ' . EmergencyCards::nameFor($uid) . ' (emergency card, permanent override).',
                 'schedule_id' => null, 'override_id' => null, 'schedule_kind' => 'permanent_override', 'time_end' => null];
         }
         if (!$schedule['granted']) {
@@ -166,14 +167,16 @@ final class CombinedDoorAccessService
         // The controller only opens the door for an emergency card at the exit;
         // the person leaving locks with touch + their fingerprint (logged by name).
         $scan['emergency_card'] = in_array($scan['rfid_uid'], self::emergencyCardUids(), true);
+        if ($scan['emergency_card']) $scan['card_name'] = EmergencyCards::nameFor($scan['rfid_uid']);
         $card = count($cards) === 1 ? $cards[0] : null;
         if ($card === null || $card['username'] === null) {
             // Unregistered, unlinked or conflicting card: logged by its UID only.
             $standalone = [...$scan, 'card_id' => $card !== null ? (int) $card['card_id'] : null,
                 'schedule_id' => null, 'override_id' => null];
-            $message = $card === null && $cards !== []
+            $message = $scan['emergency_card'] ? 'Exit granted: ' . $scan['card_name'] . ' (emergency card, logged by UID).'
+                : ($card === null && $cards !== []
                 ? 'Exit granted: this card UID has conflicting registrations (logged by UID).'
-                : 'Exit granted: this card is not linked to an account (logged by UID).';
+                : 'Exit granted: this card is not linked to an account (logged by UID).');
             return $this->decision(true, 'access_granted', $message, $standalone);
         }
 
@@ -183,17 +186,14 @@ final class CombinedDoorAccessService
     }
 
     /**
-     * Emergency access cards from DOOR_EMERGENCY_RFID_UIDS (comma-separated
-     * 10-digit hex UIDs, e.g. "0A1B2C3D4E"). Unset or empty = none.
+     * Emergency access card UIDs from DOOR_EMERGENCY_RFID_UIDS (see
+     * EmergencyCards; each UID may carry a name, "UID=Name").
      *
      * @return list<string>
      */
     public static function emergencyCardUids(): array
     {
-        $configured = getenv('DOOR_EMERGENCY_RFID_UIDS');
-        if (!is_string($configured)) return [];
-        $uids = array_map(static fn (string $uid): string => strtoupper(trim($uid)), explode(',', $configured));
-        return array_values(array_filter($uids, static fn (string $uid): bool => preg_match('/^[A-F0-9]{10}$/D', $uid) === 1));
+        return EmergencyCards::uids();
     }
 
     private function decision(bool $granted, string $reason, string $message, array $identity = [], bool $success = true): array

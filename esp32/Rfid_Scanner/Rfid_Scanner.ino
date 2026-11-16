@@ -598,14 +598,37 @@ void acceptUid(const String &uid) {
   lastFrameMs = now;
   cardPresent = true;
   lastUid = uid;
-  if (stillHolding || scanBusy || screenMode != SCREEN_READY) {
+  if (stillHolding || scanBusy || screenMode == SCREEN_BOOT) {
     return;
   }
   submitCard(uid);
 }
 
+// Reader diagnostics on Serial, so a silent reader can be told apart from a
+// wiring or card problem.
+unsigned long rfidBytesSeen = 0;
+unsigned long rfidBadFrames = 0;
+unsigned long lastRfidHealthMs = 0;
+uint8_t rfidSilentWarnings = 0;
+
+// Until the reader has sent anything at all, warn every 30 s (3 times).
+void reportRfidHealth() {
+  if (rfidBytesSeen > 0 || rfidSilentWarnings >= 3 || millis() - lastRfidHealthMs < 30000) {
+    return;
+  }
+  lastRfidHealthMs = millis();
+  rfidSilentWarnings++;
+  {
+    Serial.println("[RFID] No data from the RDM6300 in the last 30 s. If a card was tapped: check 5V power, "
+                   "the TX -> GPIO 16 wire and its divider, and that the card is 125 kHz (EM4100). "
+                   "13.56 MHz cards (MIFARE / most NFC IDs) cannot be read by the RDM6300.");
+  }
+}
+
 void takeRfidFrame() {
   if (rfidFrame[0] != 0x02 || rfidFrame[13] != 0x03) {
+    rfidBadFrames++;
+    Serial.printf("[RFID] Incomplete card frame (%lu so far). Check the TX wire and divider.\n", rfidBadFrames);
     return;
   }
   uint8_t data[5];
@@ -624,6 +647,8 @@ void takeRfidFrame() {
   uid[10] = 0;
   int received = hexByte(rfidFrame[11], rfidFrame[12]);
   if (received < 0 || (uint8_t)received != checksum) {
+    rfidBadFrames++;
+    Serial.printf("[RFID] Card frame with a wrong checksum (%lu so far). Hold the card still; check the divider.\n", rfidBadFrames);
     return;
   }
   for (uint8_t i = 0; i < 10; i++) {
@@ -631,12 +656,14 @@ void takeRfidFrame() {
       uid[i] = uid[i] - 'a' + 'A';
     }
   }
+  Serial.printf("[RFID] Card read: %s\n", uid);
   acceptUid(String(uid));
 }
 
 void pollRfid() {
   while (Serial2.available()) {
     char byteIn = (char)Serial2.read();
+    rfidBytesSeen++;
     if (byteIn == 0x02) {
       rfidFrame[0] = byteIn;
       rfidLen = 1;
@@ -682,7 +709,12 @@ void setup() {
   Serial2.begin(9600, SERIAL_8N1, RFID_RX, RFID_TX);
   showBoot("Connecting WiFi...");
   if (!connectWifi()) {
-    showBoot("WiFi failed. Check SSID.");
+    // Keep the WiFi message readable, then show the scan screen anyway: cards
+    // are still read (and reported as not saved) while WiFi is retried in the
+    // background. Before, the scanner stayed on this screen and ignored taps.
+    delay(2500);
+    showReady(true);
+    lastWifiTryMs = millis();
   } else {
     showBoot("Syncing with Entrivo...");
     syncClock();
@@ -701,22 +733,24 @@ void loop() {
         drawFooter();
       }
     }
-    if (!scanBusy && screenMode != SCREEN_RESULT && millis() - lastWifiTryMs > 12000) {
-      connectWifi();
+    // Retry in the background: WiFi.begin() does not block and the screen
+    // stays on scanning, so a card tapped while WiFi is down is still read.
+    if (!scanBusy && millis() - lastWifiTryMs > 15000) {
       lastWifiTryMs = millis();
-      if (wifiReady) {
-        syncClock();
-        showReady(true);
-        lastPollMs = millis();
-      }
+      WiFi.disconnect(false, false);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
     }
   } else if (!wifiReady) {
     wifiReady = true;
+    Serial.println("[WiFi] Connected again.");
+    syncClock();
+    lastPollMs = millis();
     if (screenMode == SCREEN_READY) {
       drawHeader();
       drawFooter();
     }
   }
+  reportRfidHealth();
 
   if (cardPresent && millis() - lastFrameMs > 500) {
     cardPresent = false;

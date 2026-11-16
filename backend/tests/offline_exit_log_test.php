@@ -87,16 +87,33 @@ try {
     expectOfflineExit(($replay['duplicate'] ?? false) === true && $count() === $before + 1,
         'An exit logged online must not be logged again from the offline queue. Got ' . json_encode($replay));
 
+    // An offline emergency card entry is stored as a granted IN at the time it happened.
+    $entry = $service->verify($card($id(8), ['direction' => 'entry', 'rfid_uid' => 'CC00000003', 'age_seconds' => 120]), $now);
+    $row = $log($entry['log_id']);
+    expectOfflineExit($entry['recorded'] === true && $row['access_type'] === 'IN' && $row['access_status'] === 'granted'
+        && $row['rfid_uid'] === 'CC00000003' && $row['access_timestamp'] === '2026-11-12 10:28:00',
+        'An offline card entry must be a granted RFID IN at the time it happened. Got ' . json_encode($row));
+    $again = $service->verify($card($id(8), ['direction' => 'entry', 'rfid_uid' => 'CC00000003']), $now);
+    expectOfflineExit(($again['duplicate'] ?? false) === true, 'A repeated entry upload must not log twice.');
+
+    // An enrolled finger let in offline (scheduling Auto or Off) is an IN for the slot owner.
+    $fingerIn = $service->verify(['offline_exit' => true, 'method' => 'fingerprint', 'enrollment_device_id' => 1, 'matched_slot' => 7,
+        'direction' => 'entry', 'event_id' => $id(9), 'age_seconds' => 60], $now);
+    $row = $log($fingerIn['log_id']);
+    expectOfflineExit($fingerIn['recorded'] === true && $row['access_type'] === 'IN' && (int) $row['user_id'] === 2
+        && $row['method_access'] === 'Fingerprint' && $row['access_timestamp'] === '2026-11-12 10:29:00',
+        'An offline fingerprint entry must be a granted IN for the slot owner. Got ' . json_encode($row));
+
     // Malformed uploads are refused (so the controller can drop them) and log nothing.
     $before = $count();
-    foreach ([$card('nothex'), $card($id(5), ['rfid_uid' => 'XYZ']), $card($id(6), ['direction' => 'entry']),
+    foreach ([$card('nothex'), $card($id(5), ['rfid_uid' => 'XYZ']), $card($id(6), ['direction' => 'sideways']),
         ['offline_exit' => true, 'method' => 'fingerprint', 'enrollment_device_id' => 1, 'direction' => 'exit', 'event_id' => $id(7)]] as $bad) {
         $result = $service->verify($bad, $now);
         expectOfflineExit($result['success'] === false && $result['reason'] === 'invalid_request', 'A malformed upload must be refused. Got ' . json_encode($result));
     }
     expectOfflineExit($count() === $before, 'Refused uploads must not log anything.');
 
-    echo "PASS: offline exits are logged as granted OUT at the time they happened (card, unknown card, fingerprint slot linked to its schedule), once per event even when retried or already logged online, and malformed uploads are refused.\n";
+    echo "PASS: offline card and fingerprint entries are logged as granted IN and offline exits as granted OUT at the time they happened (card, unknown card, fingerprint slot linked to its schedule), once per event even when retried or already logged online, and malformed uploads are refused.\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     foreach ($tables as $table) $pdo->exec('DROP TEMPORARY TABLE IF EXISTS ' . $table);

@@ -11,5 +11,7 @@
 
 // Emergency card used only when the backend is unreachable (10 hex digits). "" disables it.
 #define SECRET_OFFLINE_ACCESS_CARD_UID ""
+// Name shown for that card on the Serial Monitor, e.g. "Dean's Office Card".
+#define SECRET_OFFLINE_ACCESS_CARD_NAME "Emergency card"
 
 #endif

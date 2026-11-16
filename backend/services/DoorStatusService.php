@@ -40,6 +40,11 @@ final class DoorStatusService
         }
         $ids = $this->pdo->query("SELECT device_id FROM fingerprint_devices WHERE device_type='enrollment' ORDER BY (status='active') DESC,device_id")->fetchAll(PDO::FETCH_COLUMN);
         $doors = array_map(fn($id) => $this->snapshot((int) $id), $ids);
+        // Scheduling mode and remote lock state, for the header door card.
+        require_once __DIR__ . '/DoorControlService.php';
+        $controls = new DoorControlService($this->pdo);
+        foreach ($doors as &$door) $door['controls'] = $controls->controls((int) $door['device_id']);
+        unset($door);
         // While a door is unlocked, say who unlocked it (the header card's modal).
         $occupant = null;
         foreach ($doors as &$door) {
@@ -151,6 +156,13 @@ final class DoorStatusService
             }
             $this->pdo->commit();
             $reply = ['success' => true];
+            // Scheduling mode and any remote lock/unlock waiting for this door.
+            try {
+                require_once __DIR__ . '/DoorControlService.php';
+                $reply += (new DoorControlService($this->pdo))->forController($deviceId, $input['command_done'] ?? null);
+            } catch (Throwable $error) {
+                error_log('Door status controls: ' . $error->getMessage());
+            }
             if ($state === 'unlocked') {
                 // The current end of the schedule the room was opened on, so the
                 // controller re-plans its 15-minute reminder after an edit.

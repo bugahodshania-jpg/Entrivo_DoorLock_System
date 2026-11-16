@@ -80,7 +80,7 @@ void newDoorEventId(char out[33]) {
         static_cast<unsigned long>(esp_random()), static_cast<unsigned long>(esp_random()));
 }
 
-void queueOfflineExit(const char *eventId, const String &rfidUid, uint16_t slot) {
+void queueOfflineExit(const char *eventId, const String &rfidUid, uint16_t slot, bool isEntry) {
     if (count == MAX_EXITS) {
         Serial.println("[OFFLINE EXITS] Queue full: the oldest waiting exit was dropped.");
         for (size_t i = 1; i < count; ++i) exits[i - 1] = exits[i];
@@ -91,11 +91,12 @@ void queueOfflineExit(const char *eventId, const String &rfidUid, uint16_t slot)
     strncpy(exit.eventId, eventId, sizeof(exit.eventId) - 1);
     strncpy(exit.rfidUid, rfidUid.c_str(), sizeof(exit.rfidUid) - 1);
     exit.slot = slot;
+    exit.isEntry = isEntry ? 1 : 0;
     exit.bootTag = bootTag;
     exit.millisAt = millis();
     exit.rtcAt = saneRtc();
     save();
-    Serial.print("[OFFLINE EXITS] Exit saved; it will be added to the access log when the connection returns (");
+    Serial.print(isEntry ? "[OFFLINE EXITS] Entry saved; it will be added" : "[OFFLINE EXITS] Exit saved; it will be added to the access log when the connection returns (");
     Serial.print(count);
     Serial.println(" waiting).");
 }
@@ -108,9 +109,9 @@ void serviceOfflineExits() {
     lastUploadAt = millis();
     const OfflineExit &exit = exits[0];
     bool rejected = false;
-    if (uploadOfflineExit(exit.eventId, exit.rfidUid, exit.slot, ageSeconds(exit), rejected)) {
+    if (uploadOfflineExit(exit.eventId, exit.rfidUid, exit.slot, ageSeconds(exit), rejected, exit.isEntry != 0)) {
         dropOldest();
-        Serial.print("[OFFLINE EXITS] Exit added to the access log (");
+        Serial.print("[OFFLINE EXITS] Saved record added to the access log (");
         Serial.print(count);
         Serial.println(" still waiting).");
     } else if (rejected) {

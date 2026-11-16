@@ -203,6 +203,7 @@ namespace {
         SerialLog::kv("Relay pin", relayPinIsActive() ? "ON (unlock level)" : "OFF (lock level)");
         SerialLog::kv("EXIT touch armed", isExitAuthorized() ? "yes" : "no");
         SerialLog::kv("15-min reminder", reminderStatus());
+        SerialLog::kv("Scheduling (portal)", String(doorScheduleMode()) + (offlineFingerEntryAllowed() ? " (enrolled fingers may enter while offline)" : " (offline: emergency card only)"));
         SerialLog::kv("Clock", clockValid() ? "set (backend / internet time)" : "not set yet (waiting for internet)");
         SerialLog::kv("Offline exits waiting", String(offlineExitCount()));
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
@@ -262,19 +263,20 @@ namespace {
         String message;
         DoorDecision decision;
         bool backendUnreachable = false;
-        // Every exit is numbered, so it reaches the access log exactly once:
-        // online now, or later from the offline queue if the reply is lost.
+        // Every card scan is numbered, so a door use reaches the access log
+        // exactly once: online now, or later from the offline queue.
         char exitEventId[33] = {};
-        if (isExit) newDoorEventId(exitEventId);
-        bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable, isExit ? exitEventId : nullptr);
+        newDoorEventId(exitEventId);
+        bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable, exitEventId);
         bool grantedOffline = false;
         if (!granted && backendUnreachable && isOfflineAccessCard(uid)) {
             // Connection lost: the emergency card works locally, same in/out process.
             granted = grantedOffline = true;
             decision = DoorDecision{};
-            message = isExit ? "Backend unreachable: emergency access card accepted locally (exit saved for the access log)."
-                : "Backend unreachable: emergency access card accepted locally (entry not logged).";
-            SerialLog::warn("[OFFLINE] Emergency access card " + uid + " used without the backend.");
+            message = String("Backend unreachable: ") + OFFLINE_ACCESS_CARD_NAME + (isExit
+                ? " (emergency card) accepted locally (exit saved for the access log)."
+                : " (emergency card) accepted locally (entry saved for the access log).");
+            SerialLog::warn(String("[OFFLINE] ") + OFFLINE_ACCESS_CARD_NAME + " (emergency card " + uid + ") used without the backend.");
         }
         else if (!granted && backendUnreachable && isExit) {
             // Nobody may be trapped by an outage. The exit reader is inside the
@@ -285,8 +287,8 @@ namespace {
             message = "Backend unreachable: exit allowed locally (saved for the access log).";
             SerialLog::warn("[OFFLINE] Exit reader used without the backend. Card " + uid + ".");
         }
-        // The OUT the backend could not record is kept and uploaded later.
-        if (grantedOffline && isExit) queueOfflineExit(exitEventId, uid, 0);
+        // The IN or OUT the backend could not record is kept and uploaded later.
+        if (grantedOffline) queueOfflineExit(exitEventId, uid, 0, !isExit);
         // An emergency card at the exit reader opens the door and, like any exit
         // card, arms touch-only locking: touching the sensor locks it, no
         // fingerprint is needed. The exit is logged by the card UID.
@@ -294,7 +296,8 @@ namespace {
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
-            ? (emergencyExit ? "Emergency card: door unlocked. Touch the sensor to lock"
+            ? (emergencyExit ? (isOfflineAccessCard(uid) ? String(OFFLINE_ACCESS_CARD_NAME) : String("Emergency card"))
+                    + ": door unlocked. Touch the sensor to lock"
                 : lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
                 : isExit ? "Exit approved, touch to lock"
                 : alreadyOpen ? "Entry recorded, the door is already unlocked"
@@ -412,9 +415,21 @@ namespace {
         DoorDecision decision;
         bool backendUnreachable = false;
         char exitEventId[33] = {};
-        if (isExit) newDoorEventId(exitEventId);
+        newDoorEventId(exitEventId);
         bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId,
-            &backendUnreachable, isExit ? exitEventId : nullptr);
+            &backendUnreachable, exitEventId);
+        bool offlineFingerEntry = false;
+        if (!granted && backendUnreachable && !isExit && offlineFingerEntryAllowed()) {
+            // Connection lost and scheduling is Auto or Off in the portal: the
+            // matched slot proves an enrolled finger, so it may enter without a
+            // schedule check. Saved and added to the access log later.
+            granted = offlineFingerEntry = true;
+            decision = DoorDecision{};
+            message = String("Backend unreachable: enrolled finger (slot ") + match.matchedSlot
+                + ") let in with scheduling " + doorScheduleMode() + " (entry saved for the access log).";
+            SerialLog::warn("[OFFLINE] Enrolled finger entered without the backend (scheduling disabled while offline).");
+            queueOfflineExit(exitEventId, "", match.matchedSlot, true);
+        }
         if (!granted && backendUnreachable && isExit && (unlockedByFingerSlot != 0 || unlockedByUserId == 0)) {
             // Connection lost: the slot check above already proved this is the
             // finger that unlocked the door, or nobody is known to have unlocked
@@ -445,7 +460,7 @@ namespace {
                 rememberUnlocker(0, decision.userId);
             }
             else {
-                openDoorRelay(entryTrack(decision));
+                openDoorRelay(offlineFingerEntry ? AUDIO_ACCESS_GRANTED : entryTrack(decision));
                 rememberUnlocker(match.matchedSlot, decision.userId);
                 armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
                 armSessionEnd(decision.secondsRemaining);
@@ -505,6 +520,21 @@ void loop() {
         uint32_t endEpoch = 0;
         long secondsLeft = -1;
         if (takeSessionEnd(endEpoch, secondsLeft)) replanFromSessionEnd(endEpoch, secondsLeft);
+        // Remote lock / unlock from a Super Admin in the portal.
+        int32_t commandId = 0;
+        bool unlock = false;
+        if (takeDoorCommand(commandId, unlock)) {
+            SerialLog::section(unlock ? "REMOTE UNLOCK (portal)" : "REMOTE LOCK (portal)");
+            if (unlock && !isDoorUnlocked()) {
+                openDoorRelay(AUDIO_DOOR_UNLOCK);
+                rememberUnlocker(0, 0); // Unlocker unknown: touch, then any registered finger, or the portal, locks.
+            } else if (!unlock && isDoorUnlocked()) {
+                lockDoorRelay(AUDIO_DOOR_LOCKED);
+            } else {
+                SerialLog::step(unlock ? "The door is already unlocked." : "The door is already locked.");
+            }
+            confirmDoorCommand(commandId);
+        }
     }
     readSerialCommands();
     if (previousDoorState != isDoorUnlocked()) {

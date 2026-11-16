@@ -36,9 +36,25 @@ final class ScheduleAccessPolicy
      * @return array{granted: bool, reason: string, message: string,
      *     schedule_id: ?int, override_id: ?int, schedule_kind: ?string}
      */
-    public function evaluateEntry(int $userId, ?string $role, DateTimeImmutable $now): array
+    public function evaluateEntry(int $userId, ?string $role, DateTimeImmutable $now, ?int $deviceId = null): array
     {
         $role = strtolower(trim((string) $role));
+        // Scheduling turned Off in the portal: any active registered account
+        // enters (the caller has already checked the credential and account).
+        if ($deviceId !== null) {
+            require_once __DIR__ . '/DoorControlService.php';
+            if (DoorControlService::scheduleMode($this->pdo, $deviceId) === 'off') {
+                return [
+                    'time_end' => null,
+                    'granted' => true,
+                    'reason' => 'access_granted',
+                    'message' => 'Access granted: scheduling is turned off.',
+                    'schedule_id' => null,
+                    'override_id' => null,
+                    'schedule_kind' => 'schedule_off',
+                ];
+            }
+        }
         if ($role === 'student') {
             return $this->evaluate($userId, $now, true);
         }

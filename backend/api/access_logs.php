@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/EmergencyCards.php';
 
 $limit = filter_input(INPUT_GET, 'limit', FILTER_VALIDATE_INT, [
     'options' => [
@@ -135,7 +136,8 @@ try {
             'dateValue' => $log['access_date_value'],
             'date' => $log['access_date'],
             'time' => $log['access_time'],
-            'userName' => $log['user_name'],
+            // A card with no account: its emergency card name, when it is one.
+            'userName' => $log['user_name'] === 'Unknown User' ? (EmergencyCards::nameFor($log['rfid_uid']) ?? 'Unknown User') : $log['user_name'],
             'userEmail' => $log['user_email'] ?: '',
             'userRole' => $log['user_role'] ?: '',
             'userIdentifier' => $log['user_identifier'],

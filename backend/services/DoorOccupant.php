@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/AccessEventType.php';
+require_once __DIR__ . '/EmergencyCards.php';
 
 /**
  * Who is using the door while it is unlocked: the person behind the latest
@@ -63,7 +64,7 @@ final class DoorOccupant
 
         $type = AccessEventType::classify($row, $emergencyUids);
         $name = $row['user_name'];
-        if ($name === null && $type === 'emergency_card') $name = 'Emergency card';
+        if ($row['user_id'] === null && $type === 'emergency_card') $name = EmergencyCards::nameFor($row['rfid_uid']) ?? EmergencyCards::DEFAULT_NAME;
         return [
             'log_id' => (int) $row['log_id'],
             'user_id' => $row['user_id'] !== null ? (int) $row['user_id'] : null,

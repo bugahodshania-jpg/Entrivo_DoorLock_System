@@ -129,8 +129,9 @@ Every new credential decision requires a reachable backend and an active,
 approved account with completed setup. RFID cards must be uniquely registered,
 active, and linked to that account. The one offline exception is the emergency
 card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cannot be
-reached (no answer at all, not a refusal), it is accepted locally. Offline
-entries are printed on Serial but not logged in the backend.
+reached (no answer at all, not a refusal), it is accepted locally. Its offline
+entries, like offline exits, are saved on the controller (NVS, up to 32) and
+added to the access log as IN when the backend is reachable again.
 
 The exit reader lets any card out, online or offline, and logs it by UID. An
 emergency card (the `Secrets.h` card, or any UID in the backend's

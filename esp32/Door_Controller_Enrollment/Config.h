@@ -52,9 +52,17 @@
 // down, backend or database offline). Same process as any card: the entrance
 // reader unlocks; the exit reader (unlocking a locked door) arms touch-to-lock,
 // then touch locks. While the backend is reachable the card is checked and
-// logged online like every other card. Offline uses are not logged. The UID is in
+// logged online like every other card. Offline uses are saved and logged later. The UID is in
 // Secrets.h (SECRET_OFFLINE_ACCESS_CARD_UID); set it to "" to disable.
 #define OFFLINE_ACCESS_CARD_UID SECRET_OFFLINE_ACCESS_CARD_UID
+// Its name (Secrets.h SECRET_OFFLINE_ACCESS_CARD_NAME), shown on the Serial
+// Monitor. For the portal's logs, give the same UID the same name in the
+// backend's DOOR_EMERGENCY_RFID_UIDS ("UID=Name").
+#ifdef SECRET_OFFLINE_ACCESS_CARD_NAME
+#define OFFLINE_ACCESS_CARD_NAME SECRET_OFFLINE_ACCESS_CARD_NAME
+#else
+#define OFFLINE_ACCESS_CARD_NAME "Emergency card"
+#endif
 
 // IN2 controls the solenoid; IN1 is held OFF. No automatic locking timer.
 // Confirmed on the door: HIGH energizes the relay and opens the solenoid.

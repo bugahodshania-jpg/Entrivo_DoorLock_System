@@ -35,7 +35,7 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     bool *backendUnreachable = nullptr, const char *eventId = nullptr);
 // Sends one exit that was allowed offline. True once it is in the access log
 // (or was already). rejected = the backend called the record malformed.
-bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, long ageSeconds, bool &rejected);
+bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, long ageSeconds, bool &rejected, bool isEntry = false);
 // Logs a finger the sensor did not recognize, so the admin's live Access Status
 // shows the unregistered attempt. Never grants access.
 void reportUnrecognizedFingerprint(bool isExit);

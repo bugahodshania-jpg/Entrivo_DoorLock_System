@@ -235,7 +235,7 @@ final class DirectFingerprintAccessService
 
         // Entry by role: faculty/staff need a regular or override schedule,
         // students an approved override only, admins have a permanent override.
-        $schedule = $policy->evaluateEntry($identity['user_id'], $role, $now);
+        $schedule = $policy->evaluateEntry($identity['user_id'], $role, $now, $deviceId);
         if (!$schedule['granted']) {
             // The fingerprint sensor is inside the room. On the combined
             // controller, a user who entered and has not exited yet (open

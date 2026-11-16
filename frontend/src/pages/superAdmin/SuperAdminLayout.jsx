@@ -459,7 +459,7 @@ export default function SuperAdminLayout({ children, user, onLogout }) {
                 setIsSidebarProfileOpen(false);
               }}
             />
-            <DoorStatusCard />
+            <DoorStatusCard user={user} />
             <div className="super-admin-date-card" aria-label={`${headerDate}, ${headerMetaLabel} Asia/Manila`}>
               <div>
                 <strong>{headerDate}</strong>

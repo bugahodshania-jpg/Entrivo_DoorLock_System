@@ -20,6 +20,10 @@ export function doorStatusView(report, elapsedMs = 0) {
     // Who unlocked the door (latest granted entry); only while it is unlocked.
     occupant: state === 'unlocked' && report.occupant && typeof report.occupant === 'object' ? report.occupant : null,
     canReadSensor: state === 'locked' && report.can_read_sensor === true,
+    // Portal controls: scheduling mode (auto | on | off) and a remote
+    // lock/unlock still waiting for the controller.
+    scheduleMode: ['auto', 'on', 'off'].includes(report?.controls?.schedule_mode) ? report.controls.schedule_mode : 'auto',
+    pendingCommand: report?.controls?.pending_command?.action || null,
     readBlockedReason: state === 'unlocked'
       ? 'The door is unlocked. Lock the door before reading sensor memory.'
       : state === 'unknown' ? 'Waiting for the controller to confirm the door is locked. Sensor reads are unavailable until then.' : '',
