@@ -150,7 +150,23 @@ final class DoorStatusService
                 }
             }
             $this->pdo->commit();
-            return ['success' => true];
+            $reply = ['success' => true];
+            if ($state === 'unlocked') {
+                // The current end of the schedule the room was opened on, so the
+                // controller re-plans its 15-minute reminder after an edit.
+                try {
+                    require_once __DIR__ . '/ScheduleAccessPolicy.php';
+                    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
+                    $end = (new ScheduleAccessPolicy($this->pdo))->currentDoorSessionEnd($now);
+                    $fields = ScheduleAccessPolicy::reminderFields($end, $now);
+                    $reply['session_end_epoch'] = $fields['schedule_end_epoch'];
+                    $reply['session_seconds_remaining'] = $fields['seconds_remaining'];
+                    $reply['server_time_epoch'] = $fields['server_time_epoch'];
+                } catch (Throwable $error) {
+                    error_log('Door status session end: ' . $error->getMessage());
+                }
+            }
+            return $reply;
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $error;

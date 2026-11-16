@@ -15,6 +15,7 @@ import {
   schoolEmailDomain,
   temporaryPassword,
 } from '../../utils/schoolProfileOptions';
+import { buildUsername } from '../../utils/registrationValidation';
 import { portalHref } from '../../utils/privileges';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/registerUser.css';
@@ -191,6 +192,14 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
 
   function updateField(field, value) {
     setForm((current) => {
+      if (field === 'first_name' || field === 'last_name') {
+        const next = { ...current, [field]: value };
+        // The username is created from the name (firstname.lastname) and kept in
+        // step with it, until the admin types a different username by hand.
+        const wasAuto = !current.username || current.username === buildUsername(current.first_name, current.last_name);
+        if (wasAuto) next.username = buildUsername(next.first_name, next.last_name);
+        return next;
+      }
       if (field !== 'role') {
         return { ...current, [field]: value };
       }
@@ -762,7 +771,7 @@ export default function RegisterUser({ user: currentUser, initialRole: selectedR
             <label className="is-span">
               <span>Username<i>*</i></span>
               <input
-                placeholder="firstname.lastname"
+                placeholder="Created from the first and last name"
                 aria-invalid={Boolean(fieldError('username'))}
                 value={form.username}
                 onBlur={() => setTouched((current) => ({ ...current, username: true }))}

@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0011.mp3.
+// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0022.mp3.
 enum AudioTrack : uint16_t {
     AUDIO_ACCESS_GRANTED = 1,   // "Access granted. Door unlocked. You may now enter."
     AUDIO_ACCESS_DENIED = 2,    // "...not authorized to access this room at the current time."
@@ -16,6 +16,17 @@ enum AudioTrack : uint16_t {
     AUDIO_DOOR_LOCKED = 9,      // "Door is now locked"
     AUDIO_DOOR_UNLOCK = 10,     // "Door unlock"
     AUDIO_EXIT_VERIFIED = 11,   // Exit RFID verified; touch sensor to lock
+    AUDIO_EMERGENCY_CARD = 12,  // "Emergency card accepted. The door is unlocked. Please activate the touch sensor to lock the door."
+    AUDIO_OFFLINE = 13,         // "The system is offline. Please use the emergency access card to open the door."
+    AUDIO_SESSION_ENDED = 14,   // "Your scheduled access period has successfully ended. Please don't forget to lock the door before you leave."
+    AUDIO_ENROLL_START = 15,        // "Fingerprint enrollment has started. Please place your finger on the sensor."
+    AUDIO_ENROLL_FIRST_DONE = 16,   // "First scan complete. Please remove your finger."
+    AUDIO_ENROLL_SAME_AGAIN = 17,   // "Please place the same finger again."
+    AUDIO_ENROLL_SECOND_DONE = 18,  // "Second scan complete. Please remove your finger."
+    AUDIO_ENROLL_VERIFY = 19,       // "Please re-scan the same finger to complete the final verification."
+    AUDIO_ENROLL_SUCCESS = 20,      // "Fingerprint enrolled successfully."
+    AUDIO_ENROLL_FAILED = 21,       // "Enrollment failed. The fingerprints did not match. Please try again."
+    AUDIO_ENROLL_CANCELLED = 22,    // "Enrollment cancelled."
 };
 
 void initDoorHardware();

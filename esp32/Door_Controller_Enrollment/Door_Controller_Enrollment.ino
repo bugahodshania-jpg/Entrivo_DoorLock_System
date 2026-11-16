@@ -69,10 +69,15 @@ namespace {
     constexpr uint32_t CLOCK_VALID_AFTER = 1700000000UL; // Nov 2023: below = clock not set
     uint32_t reminderEpoch = 0;        // reminder moment as Unix time, 0 = unknown
     uint32_t pendingRestoreEpoch = 0;  // after a restart, waiting for the clock
+    uint32_t reminderEndEpoch = 0;     // schedule end the reminder is planned for, 0 = unknown
+    // Second play of the reminder (it plays twice).
+    bool reminderRepeatPending = false;
+    unsigned long reminderRepeatAt = 0;
 
     bool clockValid() { return time(nullptr) >= static_cast<time_t>(CLOCK_VALID_AFTER); }
 
     void armReminder(long secondsRemaining, uint32_t scheduleEndEpoch) {
+        if (scheduleEndEpoch > reminderEndEpoch) reminderEndEpoch = scheduleEndEpoch;
         if (secondsRemaining <= REMINDER_LEAD_S) return;
         const long untilReminder = secondsRemaining - REMINDER_LEAD_S;
         const unsigned long at = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
@@ -94,10 +99,43 @@ namespace {
         saveReminderAt(0);
     }
 
+    // End of the session: when the schedule ends and the door is still
+    // unlocked, the user hears a prompt to lock the door before leaving. The
+    // countdown runs on millis(), so WiFi loss never affects it. With several
+    // entries the latest end wins, and locking the door cancels it.
+    bool sessionEndArmed = false;
+    unsigned long sessionEndAt = 0;
+
+    void armSessionEnd(long secondsRemaining) {
+        if (secondsRemaining <= 0) return;
+        const unsigned long at = millis() + static_cast<unsigned long>(secondsRemaining) * 1000UL;
+        if (!sessionEndArmed || static_cast<long>(at - sessionEndAt) > 0) {
+            sessionEndAt = at;
+            sessionEndArmed = true;
+            SerialLog::step("End-of-session prompt in " + String(secondsRemaining / 60) + " min.");
+        }
+    }
+
+    void serviceSessionEnd() {
+        if (!sessionEndArmed || static_cast<long>(millis() - sessionEndAt) < 0) return;
+        sessionEndArmed = false;
+        if (!isDoorUnlocked()) return;
+        SerialLog::step("The schedule has ended and the door is still unlocked: lock-the-door prompt.");
+        playTrack(AUDIO_SESSION_ENDED);
+    }
+
     void playReminder() {
         cancelReminder();
-        SerialLog::step("Reminder: 15 minutes left in the scheduled session.");
+        SerialLog::step("Reminder: 15 minutes left in the scheduled session (plays twice).");
         playTrack(AUDIO_REMINDER);
+        reminderRepeatPending = true;
+        reminderRepeatAt = millis() + REMINDER_REPEAT_DELAY_MS;
+    }
+
+    void serviceReminderRepeat() {
+        if (!reminderRepeatPending || static_cast<long>(millis() - reminderRepeatAt) < 0) return;
+        reminderRepeatPending = false;
+        if (isDoorUnlocked()) playTrack(AUDIO_REMINDER);
     }
 
     // After a restart: re-arm the saved reminder once the clock is known. If
@@ -122,6 +160,32 @@ namespace {
     void serviceReminder() {
         if (pendingRestoreEpoch && clockValid()) restoreReminderFromClock();
         if (reminderArmed && static_cast<long>(millis() - reminderAt) >= 0) playReminder();
+        serviceReminderRepeat();
+    }
+
+    // The schedule's end can be edited while the room is in use. Each door
+    // status reply carries its current end; when it changed, the reminder (and
+    // the end-of-session prompt) is planned again from the new end, even if the
+    // reminder already played for the old end.
+    void replanFromSessionEnd(uint32_t endEpoch, long secondsLeft) {
+        if (!isDoorUnlocked() || endEpoch < CLOCK_VALID_AFTER || secondsLeft <= 0 || endEpoch == reminderEndEpoch) return;
+        const bool endWasKnown = reminderEndEpoch != 0;
+        reminderEndEpoch = endEpoch;
+        sessionEndAt = millis() + static_cast<unsigned long>(secondsLeft) * 1000UL;
+        sessionEndArmed = true;
+        if (secondsLeft > REMINDER_LEAD_S) {
+            const long untilReminder = secondsLeft - REMINDER_LEAD_S;
+            reminderAt = millis() + static_cast<unsigned long>(untilReminder) * 1000UL;
+            reminderArmed = true;
+            pendingRestoreEpoch = 0;
+            reminderEpoch = endEpoch - static_cast<uint32_t>(REMINDER_LEAD_S);
+            saveReminderAt(reminderEpoch);
+            SerialLog::step("Schedule end changed: 15-minute reminder re-planned, in " + String(untilReminder / 60) + " min.");
+        } else if (endWasKnown) {
+            // Moved to under 15 minutes from now: remind right away.
+            SerialLog::step("Schedule end changed to under 15 minutes from now.");
+            playReminder();
+        }
     }
 
     String reminderStatus() {
@@ -223,28 +287,37 @@ namespace {
         }
         // The OUT the backend could not record is kept and uploaded later.
         if (grantedOffline && isExit) queueOfflineExit(exitEventId, uid, 0);
-        // An emergency card at the exit reader only opens the door. It does not
-        // arm touch-only locking: whoever leaves locks the usual way (touch, then
-        // their own fingerprint), so the access log shows who left.
+        // An emergency card at the exit reader opens the door and, like any exit
+        // card, arms touch-only locking: touching the sensor locks it, no
+        // fingerprint is needed. The exit is logged by the card UID.
         const bool emergencyExit = isExit && granted && (decision.emergencyCard || isOfflineAccessCard(uid));
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
-            ? (emergencyExit ? "Emergency card: door unlocked. To lock, touch the sensor, then scan your finger"
+            ? (emergencyExit ? "Emergency card: door unlocked. Touch the sensor to lock"
                 : lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
                 : isExit ? "Exit approved, touch to lock"
                 : alreadyOpen ? "Entry recorded, the door is already unlocked"
                 : "Access granted, door unlocked")
             : "Access denied", message);
-        if (!granted) playDeniedFeedback(deniedTrack(decision.reason));
+        // 0013 (offline) plays only when the backend gave no answer; a refusal
+        // from the backend keeps its own track (0002, 0003, 0004, 0006).
+        // 0012 (emergency card) plays only at the EXIT reader, and only when the
+        // emergency card was accepted locally because the backend is offline.
+        // Online (the backend answered), the emergency card plays 0011 like any
+        // exit card. At the entrance it never plays.
+        const bool offlineEmergencyExit = isExit && granted && grantedOffline && isOfflineAccessCard(uid);
+        const uint16_t exitTrack = offlineEmergencyExit ? AUDIO_EMERGENCY_CARD : AUDIO_EXIT_VERIFIED;
+        if (!granted) playDeniedFeedback(backendUnreachable ? AUDIO_OFFLINE : deniedTrack(decision.reason));
         else if (emergencyExit) {
             if (lockedIn) {
-                openDoorRelay(AUDIO_EXIT_VERIFIED);
+                openDoorRelay(exitTrack);
                 // Unlocker unknown: any registered finger may lock (touch first).
                 rememberUnlocker(0, 0);
             }
-            else playTrack(AUDIO_EXIT_VERIFIED);
-            SerialLog::step("To lock: touch the sensor, then scan your finger.");
+            else playTrack(exitTrack);
+            authorizeExit(); // Touch alone locks now, as after any exit card.
+            SerialLog::step("To lock: touch the sensor.");
         }
         else if (isExit) {
             // The exit reader is inside: a locked door is opened only to let
@@ -262,12 +335,15 @@ namespace {
             // logged by the backend; the lock state and locking finger stay as they are.
             playTrack(entryTrack(decision));
             armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
+            armSessionEnd(decision.secondsRemaining);
         }
         else {
+            // 0012 is an exit prompt only; an entry keeps the normal entry track.
             openDoorRelay(entryTrack(decision));
             // Card entry: touch + any finger of this same user locks.
             rememberUnlocker(0, decision.userId);
             armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
+            armSessionEnd(decision.secondsRemaining);
         }
         discardBufferedScans();
         return true;
@@ -372,10 +448,11 @@ namespace {
                 openDoorRelay(entryTrack(decision));
                 rememberUnlocker(match.matchedSlot, decision.userId);
                 armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
+                armSessionEnd(decision.secondsRemaining);
                 SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
             }
             discardBufferedScans();
-        } else playDeniedFeedback(deniedTrack(decision.reason));
+        } else playDeniedFeedback(backendUnreachable ? AUDIO_OFFLINE : deniedTrack(decision.reason));
     }
 }
 
@@ -423,12 +500,21 @@ void setup() {
 void loop() {
     updateDoorHardware();
     serviceReminder();
+    serviceSessionEnd();
+    {
+        uint32_t endEpoch = 0;
+        long secondsLeft = -1;
+        if (takeSessionEnd(endEpoch, secondsLeft)) replanFromSessionEnd(endEpoch, secondsLeft);
+    }
     readSerialCommands();
     if (previousDoorState != isDoorUnlocked()) {
         previousDoorState = isDoorUnlocked();
         if (!previousDoorState) {
             rememberUnlocker(0, 0); // Locked: clear the current occupant.
             cancelReminder(); // The room was locked: the session is over.
+            reminderEndEpoch = 0;
+            reminderRepeatPending = false;
+            sessionEndArmed = false;
         }
         if (previousDoorState) interruptSensorMemoryRead();
         discardBufferedScans();

@@ -77,6 +77,17 @@ namespace {
             case AUDIO_DOOR_LOCKED: return "door locked";
             case AUDIO_DOOR_UNLOCK: return "door unlock";
             case AUDIO_EXIT_VERIFIED: return "exit RFID verified";
+            case AUDIO_EMERGENCY_CARD: return "emergency card accepted";
+            case AUDIO_OFFLINE: return "system offline";
+            case AUDIO_SESSION_ENDED: return "schedule ended, lock the door";
+            case AUDIO_ENROLL_START: return "enrollment started";
+            case AUDIO_ENROLL_FIRST_DONE: return "enrollment first scan done";
+            case AUDIO_ENROLL_SAME_AGAIN: return "enrollment same finger again";
+            case AUDIO_ENROLL_SECOND_DONE: return "enrollment second scan done";
+            case AUDIO_ENROLL_VERIFY: return "enrollment final verification";
+            case AUDIO_ENROLL_SUCCESS: return "enrollment successful";
+            case AUDIO_ENROLL_FAILED: return "enrollment failed";
+            case AUDIO_ENROLL_CANCELLED: return "enrollment cancelled";
             default: return "unknown";
         }
     }

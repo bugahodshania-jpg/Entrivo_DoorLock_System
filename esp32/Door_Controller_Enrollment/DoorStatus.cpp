@@ -24,6 +24,19 @@ namespace {
     bool sendNow = false;
     bool lastAttemptFailed = false;
     unsigned long lastAttemptAt = 0;
+    // Latest schedule end reported back while the door is unlocked.
+    bool sessionEndFresh = false;
+    uint32_t sessionEndEpoch = 0;
+    long sessionSecondsLeft = -1;
+
+    void readSessionEnd(const String &body) {
+        DynamicJsonDocument reply(512);
+        if (deserializeJson(reply, body) != DeserializationError::Ok) return;
+        if (!reply["session_end_epoch"].is<uint32_t>() || !reply["session_seconds_remaining"].is<long>()) return;
+        sessionEndEpoch = reply["session_end_epoch"].as<uint32_t>();
+        sessionSecondsLeft = reply["session_seconds_remaining"].as<long>();
+        sessionEndFresh = true;
+    }
 
     bool postState(bool unlocked, bool touchArmed) {
         if (WiFi.status() != WL_CONNECTED || String(DOOR_DEVICE_TOKEN).length() == 0) return false;
@@ -48,7 +61,8 @@ namespace {
         http.addHeader("Content-Type", "application/json");
         http.addHeader("X-Device-Token", DOOR_DEVICE_TOKEN);
         const int code = http.POST(body);
-        if (code > 0) http.getString(); // drain so the connection can be reused
+        String reply;
+        if (code > 0) reply = http.getString(); // also drains so the connection can be reused
         endBackendRequest(http, code);
         if (code != HTTP_CODE_OK) {
             Serial.print("[DOOR STATUS] Report failed HTTP ");
@@ -56,8 +70,17 @@ namespace {
             if (code < 0) Serial.println("[DOOR STATUS] Connection failed. Check SERVER_URL in Config.h, that WiFi has internet access, and that the backend is running.");
             return false;
         }
+        if (unlocked) readSessionEnd(reply);
         return true;
     }
+}
+
+bool takeSessionEnd(uint32_t &endEpoch, long &secondsLeft) {
+    if (!sessionEndFresh) return false;
+    sessionEndFresh = false;
+    endEpoch = sessionEndEpoch;
+    secondsLeft = sessionSecondsLeft;
+    return true;
 }
 
 void initDoorStatus(bool unlocked) {

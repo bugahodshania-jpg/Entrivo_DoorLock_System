@@ -315,7 +315,36 @@ final class ScheduleAccessPolicy
         return $overrideId ? (int) $overrideId : null;
     }
 
-    /** Whole seconds from $now until today's $timeEnd (HH:MM:SS); null when unknown or already past. */
+    /**
+     * End time (HH:MM:SS) of the schedule the door was last opened on today,
+     * read fresh from the schedule, so an edited end time reaches the door
+     * controller's 15-minute reminder. Null when the latest entry has no
+     * schedule (e.g. permanent override) or that schedule no longer applies today.
+     */
+    public function currentDoorSessionEnd(DateTimeImmutable $now): ?string
+    {
+        if (!$this->hasAccessType()) return null;
+        $now = $now->setTimezone(new DateTimeZone('Asia/Manila'));
+        $statement = $this->pdo->prepare(
+            "SELECT schedule_id FROM access_log
+             WHERE access_status = 'granted' AND (access_type IS NULL OR access_type <> 'OUT')
+               AND access_timestamp >= ? AND access_timestamp <= ?
+             ORDER BY access_timestamp DESC, log_id DESC LIMIT 1"
+        );
+        $statement->execute([$now->format('Y-m-d 00:00:00'), $now->format('Y-m-d H:i:s')]);
+        $scheduleId = (int) ($statement->fetchColumn() ?: 0);
+        if ($scheduleId <= 0) return null;
+        $statement = $this->pdo->prepare('SELECT * FROM schedules WHERE schedule_id = ?');
+        $statement->execute([$scheduleId]);
+        $schedule = $statement->fetch(PDO::FETCH_ASSOC);
+        $end = $schedule ? (string) $schedule['time_end'] : '';
+        if (!$schedule || ScheduleStatusService::normalizeStatus($schedule['status'] ?? null) !== 'approved'
+            || !self::occursOn($schedule, $now->format('Y-m-d')) || !preg_match('/^\d{2}:\d{2}:\d{2}$/', $end)) {
+            return null;
+        }
+        return $end;
+    }
+
     /**
      * Fields the door controller needs to plan the 15-minute reminder from the
      * schedule itself: the end as a Unix time (null when unknown or past) and

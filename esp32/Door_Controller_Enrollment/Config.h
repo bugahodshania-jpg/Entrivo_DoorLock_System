@@ -63,4 +63,8 @@
 #define DOOR_RELAY_ACTIVE_LEVEL HIGH
 #define DOOR_RELAY_IDLE_LEVEL LOW
 
+// The 15-minute reminder (0005.mp3) plays twice. The second play starts this
+// long after the first; set it to the length of 0005.mp3 plus about 2 s.
+#define REMINDER_REPEAT_DELAY_MS 12000UL
+
 #endif

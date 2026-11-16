@@ -3,6 +3,7 @@
 #include "Enrollment.h"
 
 #include "API.h"
+#include "DoorHardware.h"
 #include "Fingerprint.h"
 #include "SensorTransfer.h"
 #include "EnrollmentProof.h"
@@ -324,6 +325,7 @@ struct EnrollmentOperations {
             // remove finger, getImage -> image2Tz(2), then createModel ->
             // storeModel, with nothing else sent to the sensor in between.
             SerialLog::subsection("STEP 1/4  FIRST SCAN");
+            playTrack(AUDIO_ENROLL_START); // "Fingerprint enrollment has started. Please place your finger..."
             if (!updateProgress(job, 10, "Place finger for first scan", error) ||
                 !waitForFingerPlacement(1, error, job, 10)) return false;
             // No sensor command between scan 1 and RegModel: on this R307S any
@@ -331,11 +333,14 @@ struct EnrollmentOperations {
             // no later scan could match. Duplicates are checked after Store,
             // on the verification scan (verifyEnrolledFingerprint).
             SerialLog::ok("First scan accepted.");
+            playTrack(AUDIO_ENROLL_FIRST_DONE); // "First scan complete. Please remove your finger."
             if (!updateProgress(job, 35, "First scan captured. Remove finger", error) ||
                 !waitForFingerRemoval(error)) return false;
             SerialLog::subsection("STEP 2/4  SECOND SCAN");
+            playTrack(AUDIO_ENROLL_SAME_AGAIN); // "Please place the same finger again."
             if (!updateProgress(job, 60, "Place the same finger for second scan", error) ||
                 !waitForFingerPlacement(2, error, job, 60)) return false;
+            playTrack(AUDIO_ENROLL_SECOND_DONE); // "Second scan complete. Please remove your finger."
             return updateProgress(job, 72, "Second scan accepted. Building fingerprint model", error);
         }
 
@@ -362,6 +367,7 @@ struct EnrollmentOperations {
                 Serial.println("  [ENROLL] The two scans differed. Place the same finger flat for the second scan again.");
                 if (!updateProgress(job, 60, "Scans differed. Remove finger", error) ||
                     !waitForFingerRemoval(error) ||
+                    (playTrack(AUDIO_ENROLL_SAME_AGAIN), false) ||
                     !updateProgress(job, 60, "Place the same finger flat again for second scan", error) ||
                     !waitForFingerPlacement(2, error, job, 60)) return false;
             }
@@ -609,6 +615,7 @@ struct EnrollmentOperations {
                 return false;
             }
 
+            playTrack(AUDIO_ENROLL_VERIFY); // "Please re-scan the same finger to complete the final verification."
             noteProgress(job, PROGRESS_VERIFY_PLACE, "Place the enrolled finger for the verification scan" + attemptText);
             if (!waitForFingerPlacement(1, errorMessage, job, PROGRESS_VERIFY_PLACE, "verification scan")) {
                 Serial.println("  [ENROLL] Third scan: fresh capture failed.");

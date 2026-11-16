@@ -272,6 +272,15 @@ bool checkPendingEnrollment()
                 ? "Could not read the stored slot for download. Start enrollment again."
                 : "Enrollment failed before download. Start enrollment again.";
         }
+        // Voice feedback for the super admin: a cancelled job, or scans that did
+        // not match. Other failures (timeouts, sensor or network errors) stay
+        // silent here because the dashboard shows their specific message.
+        String lowered = errorMessage;
+        lowered.toLowerCase();
+        if (lowered.indexOf("cancel") >= 0) playTrack(AUDIO_ENROLL_CANCELLED);
+        else if (lowered.indexOf("did not match") >= 0 || lowered.indexOf("differ") >= 0
+            || lowered.indexOf("identified slot") >= 0 || lowered.indexOf("already enrolled") >= 0
+            || lowered.indexOf("same finger") >= 0) playTrack(AUDIO_ENROLL_FAILED);
         const bool reported = failEnrollmentJob(job.jobId, errorMessage);
         SerialLog::result(false, "Enrollment job #" + String(job.jobId) + " rolled back", errorMessage);
         if (!reported) SerialLog::warn("The backend did not confirm the failure. The dashboard may need a refresh.");
@@ -292,6 +301,10 @@ bool checkPendingEnrollment()
         SerialLog::result(false, "Enrollment job #" + String(job.jobId) + " rolled back", rollbackError);
         return true;
     }
+
+    // The third scan matched the stored slot and the template was read back:
+    // the fingerprint is enrolled on the sensor.
+    playTrack(AUDIO_ENROLL_SUCCESS);
 
     String reportError;
     if (!reportIdentifyMatch(job, templateDataBase64, reportError))

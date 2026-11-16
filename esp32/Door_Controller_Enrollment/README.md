@@ -92,10 +92,38 @@ function's output. This sketch drives GPIO17 and keeps GPIO4 idle.
 5. Once exit is authorized, network requests and sensor work stop until touch
    locks the door. Enrollment and imports only run while locked.
 
-Audio uses the reference's `/MP3/0001.mp3` (unlock), `0003.mp3` (denied),
-`0009.mp3` (locked), and `0011.mp3` (exit authorized), at volume 25. RTC time is
-printed locally; backend time supplies access log timestamps. Missing RTC or
-fingerprint hardware does not disable RFID verification.
+Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0022.mp3`, at volume 25:
+
+| Track | Plays when |
+|---|---|
+| 0001 | Access granted |
+| 0002 | Access denied (no more specific reason) |
+| 0003 | Credentials not registered |
+| 0004 | Outside the schedule (not started, or no schedule) |
+| 0005 | 15 minutes remain in the session |
+| 0006 | Schedule expired: a new entry is refused (people inside may still exit) |
+| 0007 | Override access approved |
+| 0008 | Room locked by the leaving user |
+| 0009 | "Door is now locked": the door is locked by the controller itself (Serial `L`, or before an enrollment or import job starts), not by the leaving user |
+| 0010 | Door unlock (relay test and exit-only unlock) |
+| 0011 | Exit card verified (online, including the emergency card): touch the sensor to lock |
+| 0012 | Emergency card accepted at the EXIT reader while offline: touch the sensor to lock |
+| 0013 | The backend does not answer: use the emergency access card |
+| 0014 | The schedule ended and the door is still unlocked: lock the door before leaving |
+| 0015 | Enrollment started: place the finger |
+| 0016 | Enrollment: first scan complete, remove the finger |
+| 0017 | Enrollment: place the same finger again |
+| 0018 | Enrollment: second scan complete, remove the finger |
+| 0019 | Enrollment: re-scan the same finger for the final verification |
+| 0020 | Enrollment succeeded (third scan matched the stored slot) |
+| 0021 | Enrollment failed: the scans did not match |
+| 0022 | Enrollment cancelled |
+
+The 0014 prompt runs on a `millis()` countdown armed at each granted entry (the
+latest schedule end wins) and is cancelled when the door is locked; it is not
+restored after a restart. RTC time is printed locally; backend time supplies
+access log timestamps. Missing RTC or fingerprint hardware does not disable RFID
+verification.
 
 Every new credential decision requires a reachable backend and an active,
 approved account with completed setup. RFID cards must be uniquely registered,
@@ -107,10 +135,9 @@ entries are printed on Serial but not logged in the backend.
 The exit reader lets any card out, online or offline, and logs it by UID. An
 emergency card (the `Secrets.h` card, or any UID in the backend's
 `DOOR_EMERGENCY_RFID_UIDS`, which the backend flags as `emergency_card`) only
-opens the door at the exit reader: it does not arm touch-only locking. Whoever
-leaves (e.g. a faculty member locked inside) locks the usual way, touch then
-their own registered finger, so the access log shows who left. Offline, any
-registered finger may lock a door the emergency card opened.
+opens the door at the exit reader and, like any exit card, arms touch-only
+locking: touching the sensor locks the door, with no fingerprint step. The exit
+is logged by the card UID.
 
 Every exit reaches the access log. Each exit request carries a 32-hex
 `event_id`; an exit allowed offline (exit reader, same-finger lock, emergency
