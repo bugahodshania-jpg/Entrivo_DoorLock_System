@@ -10,7 +10,7 @@
 namespace {
     // Oldest first. When full, the oldest exit is dropped (with a warning) so
     // the newest exits are always kept.
-    constexpr size_t MAX_EXITS = 32;
+    constexpr size_t MAX_EXITS = 50; // 50 x 60 bytes = 3 KB of NVS
     constexpr unsigned long UPLOAD_INTERVAL_MS = 3000UL;
     // RTC seconds below this mean the clock was never set (it reads 2000-01-01).
     constexpr uint32_t RTC_SANE_AFTER = 1700000000UL;

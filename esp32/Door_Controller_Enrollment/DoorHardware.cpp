@@ -157,7 +157,7 @@ void initDoorFeedback() {
     mp3.begin(DFPLAYER_BAUDRATE, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
     delay(700);
     audioReady = true;
-    mp3Command(0x06, 25);
+    mp3Command(0x06, DFPLAYER_VOLUME);
 }
 
 void printDeviceTime() {

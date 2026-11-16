@@ -92,7 +92,7 @@ function's output. This sketch drives GPIO17 and keeps GPIO4 idle.
 5. Once exit is authorized, network requests and sensor work stop until touch
    locks the door. Enrollment and imports only run while locked.
 
-Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0022.mp3`, at volume 25:
+Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0022.mp3`, at volume `DFPLAYER_VOLUME` (Config.h, 30 = loudest):
 
 | Track | Plays when |
 |---|---|
@@ -130,7 +130,7 @@ approved account with completed setup. RFID cards must be uniquely registered,
 active, and linked to that account. The one offline exception is the emergency
 card `SECRET_OFFLINE_ACCESS_CARD_UID` in `Secrets.h`: only when the backend cannot be
 reached (no answer at all, not a refusal), it is accepted locally. Its offline
-entries, like offline exits, are saved on the controller (NVS, up to 32) and
+entries, like offline exits, are saved on the controller (NVS, up to 50) and
 added to the access log as IN when the backend is reachable again.
 
 The exit reader lets any card out, online or offline, and logs it by UID. An
@@ -142,7 +142,7 @@ is logged by the card UID.
 
 Every exit reaches the access log. Each exit request carries a 32-hex
 `event_id`; an exit allowed offline (exit reader, same-finger lock, emergency
-card) is saved in NVS (`exitq`, up to 32, kept through restarts) and uploaded
+card) is saved in NVS (`exitq`, up to 50, kept through restarts) and uploaded
 with `offline_exit: true` every 3 s once the backend answers. The backend logs
 it as a granted OUT at the time it happened and records the `event_id` in
 `door_event_log`, so a retried upload or an exit already logged online is
