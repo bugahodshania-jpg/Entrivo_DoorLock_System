@@ -151,6 +151,24 @@ try {
     putenv($previousEmergency === false ? 'DOOR_EMERGENCY_RFID_UIDS' : 'DOOR_EMERGENCY_RFID_UIDS=' . $previousEmergency);
 }
 
+// The controller's own emergency card (Secrets.h), flagged by the controller:
+// works online with no backend setting, logged and named like any emergency card.
+$pdo->exec('CREATE TEMPORARY TABLE IF NOT EXISTS door_emergency_cards (rfid_uid VARCHAR(10) PRIMARY KEY, card_name VARCHAR(60), device_id INT NULL, reported_at DATETIME) ENGINE=InnoDB');
+$localCard = static fn (string $direction) => ['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'DD0000AA01',
+    'direction' => $direction, 'emergency_card' => true, 'card_name' => 'Emergency card'];
+$localEntry = $service->verify($localCard('entry'), $at('23:30:00'));
+expectAnyRole($localEntry['access_granted'] === true && $localEntry['schedule_kind'] === 'permanent_override',
+    "The controller's own emergency card must open the door online. Got " . json_encode($localEntry));
+expectAnyRole($lastLog()['access_type'] === 'IN' && $lastLog()['rfid_uid'] === 'DD0000AA01' && $lastLog()['access_status'] === 'granted',
+    "The controller's emergency card entry must be logged IN.");
+expectAnyRole(EmergencyCards::nameFor('DD0000AA01') === 'Emergency card', 'The remembered card is named in the logs.');
+$localExit = $service->verify($localCard('exit'), $at('23:35:00'));
+expectAnyRole($localExit['access_granted'] === true && $localExit['emergency_card'] === true && $lastLog()['access_type'] === 'OUT',
+    "The controller's emergency card exit must be logged OUT. Got " . json_encode($localExit));
+$notFlagged = $service->verify(['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => 'EE0000AA02', 'direction' => 'entry'], $at('23:40:00'));
+expectAnyRole($notFlagged['access_granted'] === false, 'A card the controller does not flag is not an emergency card.');
+$pdo->exec('DROP TEMPORARY TABLE IF EXISTS door_emergency_cards');
+
 // The exit reader lets ANY card out online (as offline), and every exit is saved as a granted OUT with the card UID.
 $exitScan = static fn (string $uid) => ['method' => 'rfid', 'enrollment_device_id' => 1, 'rfid_uid' => $uid, 'direction' => 'exit'];
 $expectExitLogged = static function (string $uid, ?int $userId, ?int $cardId, string $label) use ($service, $exitScan, $lastLog, $at): void {
@@ -186,5 +204,5 @@ expectAnyRole($service->verify(['method' => 'rfid', 'enrollment_device_id' => 1,
     'An unregistered card is still refused at the entrance.');
 expectAnyRole($lastLog()['access_status'] === 'denied' && $lastLog()['access_type'] === 'IN', 'The refused entry is logged as a denied IN.');
 
-echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), emergency access cards (permanent override on entry), inactive accounts refused, exit always allowed for any card (unregistered, unlinked, conflicting, lost, inactive or incomplete account) and saved to the access log.
+echo "PASS: RFID entry by role (faculty/staff: regular or approved override; students: approved override only, never a regular schedule or a faculty member inside; admin/super admin: permanent override without a schedule), emergency access cards (permanent override on entry, including the controller's own card online), inactive accounts refused, exit always allowed for any card (unregistered, unlinked, conflicting, lost, inactive or incomplete account) and saved to the access log.
 ";

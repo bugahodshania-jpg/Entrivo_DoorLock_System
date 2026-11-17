@@ -627,6 +627,16 @@ bool authorizeMatchedFingerprint(uint16_t matchedSlot, String &message, bool isE
     return granted;
 }
 
+// The controller's own emergency card (Secrets.h): flagged with its name so
+// the backend grants and logs it as an emergency card online too.
+static void flagLocalEmergencyCard(JsonDocument &payload, const char *uid)
+{
+    const String card(OFFLINE_ACCESS_CARD_UID);
+    if (card.length() != 10 || uid == nullptr || !card.equalsIgnoreCase(uid)) return;
+    payload["emergency_card"] = true;
+    payload["card_name"] = OFFLINE_ACCESS_CARD_NAME;
+}
+
 bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision *decision, bool *backendUnreachable,
     const char *eventId)
 {
@@ -640,6 +650,7 @@ bool authorizeRfid(const String &uid, bool isExit, String &message, DoorDecision
     payload["rfid_uid"] = uid;
     payload["direction"] = isExit ? "exit" : "entry";
     if (eventId) payload["event_id"] = eventId;
+    flagLocalEmergencyCard(payload, uid.c_str());
     DynamicJsonDocument response(JSON_BUFFER_SIZE);
     // Card checks run while unlocked too: the inside reader for exits, the
     // outside reader to record an arrival through an already open door.
@@ -661,7 +672,10 @@ bool uploadOfflineExit(const char *eventId, const char *rfidUid, uint16_t slot, 
     payload["method"] = slot ? "fingerprint" : "rfid";
     payload["enrollment_device_id"] = ENROLLMENT_DEVICE_ID;
     if (slot) payload["matched_slot"] = slot;
-    else payload["rfid_uid"] = rfidUid;
+    else {
+        payload["rfid_uid"] = rfidUid;
+        flagLocalEmergencyCard(payload, rfidUid);
+    }
     payload["direction"] = isEntry ? "entry" : "exit";
     payload["event_id"] = eventId;
     if (ageSeconds >= 0) payload["age_seconds"] = ageSeconds;

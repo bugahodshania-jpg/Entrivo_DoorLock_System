@@ -48,16 +48,16 @@
 #define TOUCH_DEBOUNCE_MS 300UL
 #define FINGERPRINT_EXIT_WINDOW_MS 15000UL
 
-// Emergency access card, used ONLY when the backend cannot be reached (WiFi
-// down, backend or database offline). Same process as any card: the entrance
+// Emergency access card: works online AND when the backend cannot be reached
+// (WiFi down, backend or database offline). Same process as any card: the entrance
 // reader unlocks; the exit reader (unlocking a locked door) arms touch-to-lock,
-// then touch locks. While the backend is reachable the card is checked and
-// logged online like every other card. Offline uses are saved and logged later. The UID is in
+// then touch locks. Online, the controller flags it to the backend, which always
+// grants it as an emergency card (no Railway setting needed) and logs it; the
+// offline uses are saved and logged later. The UID is in
 // Secrets.h (SECRET_OFFLINE_ACCESS_CARD_UID); set it to "" to disable.
 #define OFFLINE_ACCESS_CARD_UID SECRET_OFFLINE_ACCESS_CARD_UID
 // Its name (Secrets.h SECRET_OFFLINE_ACCESS_CARD_NAME), shown on the Serial
-// Monitor. For the portal's logs, give the same UID the same name in the
-// backend's DOOR_EMERGENCY_RFID_UIDS ("UID=Name").
+// Monitor and sent to the backend, which shows it in the portal's logs.
 #ifdef SECRET_OFFLINE_ACCESS_CARD_NAME
 #define OFFLINE_ACCESS_CARD_NAME SECRET_OFFLINE_ACCESS_CARD_NAME
 #else

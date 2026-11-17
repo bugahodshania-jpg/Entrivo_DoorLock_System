@@ -31,6 +31,12 @@ final class CombinedDoorAccessService
 
     public function verify(array $input, ?DateTimeImmutable $now = null): array
     {
+        // The controller's own emergency card, flagged by the authenticated
+        // controller: remembered so it is an emergency card online too.
+        if (($input['emergency_card'] ?? null) === true && ($input['method'] ?? null) === 'rfid' && is_string($input['rfid_uid'] ?? null)) {
+            $device = filter_var($input['enrollment_device_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($device !== false) EmergencyCards::remember($this->pdo, $input['rfid_uid'], $input['card_name'] ?? null, $device);
+        }
         // An exit the controller already allowed offline: record it, never re-decide it.
         if (($input['offline_exit'] ?? null) === true) {
             return (new OfflineExitService($this->pdo))->record($input, $now);
