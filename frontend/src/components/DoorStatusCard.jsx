@@ -60,18 +60,33 @@ function DoorModal({ door, user, canControl, onClose }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState({ text: '', error: false });
   const isSuperAdmin = user?.role === 'super_admin';
+  // The door status refreshes every few seconds and passes a new onClose each
+  // time. Keep it in a ref so the focus below runs once, not on every refresh
+  // (that stole focus from the security password box).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const confirmingRef = useRef(false);
 
   useEffect(() => {
     closeRef.current?.focus();
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && !busy) onClose();
+      // Escape in the confirmation/password dialog closes only that dialog.
+      if (event.key === 'Escape' && !busyRef.current && !confirmingRef.current) onCloseRef.current();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [busy, onClose]);
+  }, []);
 
   async function send(payload, confirm) {
-    const password = await confirmAction({ ...confirm, returnPassword: true });
+    confirmingRef.current = true;
+    let password;
+    try {
+      password = await confirmAction({ ...confirm, returnPassword: true });
+    } finally {
+      confirmingRef.current = false;
+    }
     if (!password) return;
     setBusy(true);
     setNotice({ text: '', error: false });
