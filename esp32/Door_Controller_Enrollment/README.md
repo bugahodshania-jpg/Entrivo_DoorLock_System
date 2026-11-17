@@ -92,7 +92,7 @@ function's output. This sketch drives GPIO17 and keeps GPIO4 idle.
 5. Once exit is authorized, network requests and sensor work stop until touch
    locks the door. Enrollment and imports only run while locked.
 
-Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0022.mp3`, at volume `DFPLAYER_VOLUME` (Config.h, 30 = loudest):
+Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0024.mp3`, at volume `DFPLAYER_VOLUME` (Config.h, 30 = loudest):
 
 | Track | Plays when |
 |---|---|
@@ -118,6 +118,8 @@ Voice prompts are the DFPlayer files `/MP3/0001.mp3` to `0022.mp3`, at volume `D
 | 0020 | Enrollment succeeded (third scan matched the stored slot) |
 | 0021 | Enrollment failed: the scans did not match |
 | 0022 | Enrollment cancelled |
+| 0023 | Let in while offline (enrolled finger or emergency card): "The system is offline. Access granted. Your entry is saved and will be recorded when the connection returns." |
+| 0024 | Once per outage, 60 s after the backend stops answering: "Attention: the door system has lost its connection. Door access is limited until it returns. Entries and exits are still saved." |
 
 The 0014 prompt runs on a `millis()` countdown armed at each granted entry (the
 latest schedule end wins) and is cancelled when the door is locked; it is not

@@ -19,5 +19,8 @@ void confirmDoorCommand(int32_t commandId);
 // an enrolled finger may enter while the backend is unreachable.
 bool offlineFingerEntryAllowed();
 const char *doorScheduleMode();
+// Milliseconds since the backend last accepted a status report (since boot
+// when none has); used to announce a lost connection.
+unsigned long backendSilentMs();
 
 #endif

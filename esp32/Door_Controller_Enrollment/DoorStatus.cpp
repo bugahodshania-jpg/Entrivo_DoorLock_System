@@ -25,6 +25,7 @@ namespace {
     bool sendNow = false;
     bool lastAttemptFailed = false;
     unsigned long lastAttemptAt = 0;
+    unsigned long lastReportOkAt = 0; // 0 = no report has succeeded since boot
     // Latest schedule end reported back while the door is unlocked.
     bool sessionEndFresh = false;
     uint32_t sessionEndEpoch = 0;
@@ -153,6 +154,7 @@ void serviceDoorStatus(bool touchArmed) {
     if (lastAttemptAt != 0 && now - lastAttemptAt < wait) return;
     lastAttemptAt = now;
     lastAttemptFailed = !postState(pendingUnlocked, touchArmed);
+    if (!lastAttemptFailed) lastReportOkAt = now;
     if (!lastAttemptFailed) sendNow = false;
 }
 
@@ -177,3 +179,7 @@ bool offlineFingerEntryAllowed() {
 }
 
 const char *doorScheduleMode() { return scheduleMode; }
+
+unsigned long backendSilentMs() {
+    return lastReportOkAt == 0 ? millis() : millis() - lastReportOkAt;
+}

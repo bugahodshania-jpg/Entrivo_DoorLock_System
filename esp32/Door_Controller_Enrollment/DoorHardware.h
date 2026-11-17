@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0022.mp3.
+// DFPlayer tracks: SD card folder /mp3, files 0001.mp3 ... 0024.mp3.
 enum AudioTrack : uint16_t {
     AUDIO_ACCESS_GRANTED = 1,   // "Access granted. Door unlocked. You may now enter."
     AUDIO_ACCESS_DENIED = 2,    // "...not authorized to access this room at the current time."
@@ -27,6 +27,8 @@ enum AudioTrack : uint16_t {
     AUDIO_ENROLL_SUCCESS = 20,      // "Fingerprint enrolled successfully."
     AUDIO_ENROLL_FAILED = 21,       // "Enrollment failed. The fingerprints did not match. Please try again."
     AUDIO_ENROLL_CANCELLED = 22,    // "Enrollment cancelled."
+    AUDIO_OFFLINE_ENTRY_SAVED = 23, // "The system is offline. Access granted. Your entry is saved and will be recorded when the connection returns."
+    AUDIO_CONNECTION_LOST = 24,     // "Attention: the door system has lost its connection. Door access is limited until it returns. Entries and exits are still saved."
 };
 
 void initDoorHardware();

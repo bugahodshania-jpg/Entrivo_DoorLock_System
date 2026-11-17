@@ -88,6 +88,8 @@ namespace {
             case AUDIO_ENROLL_SUCCESS: return "enrollment successful";
             case AUDIO_ENROLL_FAILED: return "enrollment failed";
             case AUDIO_ENROLL_CANCELLED: return "enrollment cancelled";
+            case AUDIO_OFFLINE_ENTRY_SAVED: return "offline: entry saved";
+            case AUDIO_CONNECTION_LOST: return "connection lost";
             default: return "unknown";
         }
     }

@@ -31,6 +31,25 @@ namespace {
     // Backend user who unlocked the door (0 = unknown). A locking fingerprint
     // from anyone else is refused by the backend, even after a card entry.
     uint32_t unlockedByUserId = 0;
+    // 0024 once per outage: the backend has not answered for 60 s. Reset when
+    // a status report succeeds again.
+    constexpr unsigned long CONNECTION_LOST_ANNOUNCE_MS = 60000UL;
+    bool connectionLostAnnounced = false;
+
+    void serviceConnectionAnnouncement() {
+        const unsigned long silent = backendSilentMs();
+        if (silent < CONNECTION_LOST_ANNOUNCE_MS) {
+            if (connectionLostAnnounced) SerialLog::ok("Connection to the backend is back.");
+            connectionLostAnnounced = false;
+            return;
+        }
+        if (connectionLostAnnounced) return;
+        connectionLostAnnounced = true;
+        SerialLog::warn(String("Connection lost for 60 s: offline mode (scheduling ") + doorScheduleMode()
+            + (offlineFingerEntryAllowed() ? ", enrolled fingers may enter)." : ", emergency card only)."));
+        playTrack(AUDIO_CONNECTION_LOST);
+    }
+
     // 15-minute reminder (track 5) for the schedule the room was opened on.
     bool reminderArmed = false;
     unsigned long reminderAt = 0;
@@ -341,8 +360,9 @@ namespace {
             armSessionEnd(decision.secondsRemaining);
         }
         else {
-            // 0012 is an exit prompt only; an entry keeps the normal entry track.
-            openDoorRelay(entryTrack(decision));
+            // 0012 is an exit prompt only. An entry let in offline hears 0023
+            // (saved for the access log); online, the normal entry track.
+            openDoorRelay(grantedOffline ? AUDIO_OFFLINE_ENTRY_SAVED : entryTrack(decision));
             // Card entry: touch + any finger of this same user locks.
             rememberUnlocker(0, decision.userId);
             armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
@@ -460,7 +480,7 @@ namespace {
                 rememberUnlocker(0, decision.userId);
             }
             else {
-                openDoorRelay(offlineFingerEntry ? AUDIO_ACCESS_GRANTED : entryTrack(decision));
+                openDoorRelay(offlineFingerEntry ? AUDIO_OFFLINE_ENTRY_SAVED : entryTrack(decision));
                 rememberUnlocker(match.matchedSlot, decision.userId);
                 armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
                 armSessionEnd(decision.secondsRemaining);
@@ -516,6 +536,7 @@ void loop() {
     updateDoorHardware();
     serviceReminder();
     serviceSessionEnd();
+    serviceConnectionAnnouncement();
     {
         uint32_t endEpoch = 0;
         long secondsLeft = -1;
