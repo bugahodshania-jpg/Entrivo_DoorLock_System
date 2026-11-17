@@ -100,3 +100,7 @@ button.door-status-card:focus-visible { outline: 2px solid #a25712; outline-offs
 .door-lock-switch.is-unlocked .door-lock-switch-track { background: #a25712; }
 .door-control-notice { background: #f4fbf7; border: 1px solid #c8dfd2; border-radius: 4px; color: #0c4b2d; font-size: 12px; margin: 0; padding: 8px 10px; }
 .door-control-notice.is-error { background: #fdf3f2; border-color: #efc7c2; color: #9b2c1f; }
+
+/* The door panel sits just below the confirmation / password dialog (10050),
+   which it opens, so that dialog always shows on top of it. */
+.action-confirm-backdrop.door-panel-backdrop { z-index: 10040; }

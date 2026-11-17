@@ -125,7 +125,7 @@ function DoorModal({ door, user, canControl, onClose }) {
   const pending = door.pendingCommand;
 
   return (
-    <div className="action-confirm-backdrop access-status-backdrop" role="presentation"
+    <div className="action-confirm-backdrop door-panel-backdrop" role="presentation"
       onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
       <section className="action-confirm-modal access-status-modal is-granted door-occupant-modal" role="dialog"
         aria-modal="true" aria-labelledby="door-occupant-title">
