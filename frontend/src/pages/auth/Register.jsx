@@ -652,8 +652,15 @@ export default function Register() {
       return;
     }
 
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
-      setIdPhotoError('Please choose a JPG or PNG image.');
+    // Any picture the browser can open is accepted (JPG, PNG, WEBP, and HEIC on
+    // iPhones): it is converted to a small JPG below. Phones often label
+    // gallery photos as HEIC or give no type at all, which used to be refused.
+    if (file.type && !file.type.startsWith('image/')) {
+      setIdPhotoError('Please choose a photo (image file) of your school ID.');
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setIdPhotoError('This photo is too large. Choose one under 25MB.');
       return;
     }
 
@@ -682,7 +689,11 @@ export default function Register() {
       };
 
       image.onerror = () => {
-        setIdPhotoError('Please choose a JPG or PNG image.');
+        setIdPhotoError(
+          /hei[cf]/i.test(`${file.type} ${file.name}`)
+            ? 'This phone saved the photo as HEIC, which this browser cannot open. Use Open Camera instead, or set your camera to save JPG (Most compatible) and retake it.'
+            : 'This image could not be opened. Choose a JPG or PNG photo, or use Open Camera.',
+        );
       };
       image.src = source;
     };
@@ -1299,7 +1310,7 @@ export default function Register() {
                         ref={uploadInputRef}
                         className="public-register-hidden-file"
                         type="file"
-                        accept="image/jpeg,image/png"
+                        accept="image/*"
                         onChange={handleSchoolIdUpload}
                       />
                       {idPhotoError ? <p className="public-register-id-error">{idPhotoError}</p> : <FieldError field="school_id_photo" />}
