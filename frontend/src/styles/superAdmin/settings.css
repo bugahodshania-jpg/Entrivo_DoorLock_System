@@ -1662,9 +1662,27 @@
 .door-status-line.is-unknown .door-status-icon { background: #fbf2cc; color: #7a5d10; }
 .door-status-line.is-unknown strong { color: #7a5d10; }
 
-.door-section { display: grid; gap: 8px; }
-.settings-card .door-section h4 { align-items: center; color: #10251d; display: flex; font-size: 14px; gap: 6px; margin: 0; }
-.door-section .door-lock-switch { width: 100%; }
+.door-split { align-items: stretch; }
+.door-split-main { align-content: start; }
+.door-section { background: #fff; border: 1px solid #e3ebe6; border-radius: 8px; display: grid; gap: 12px; padding: 14px 16px; }
+.door-section-head { align-items: center; display: flex; gap: 10px; }
+.door-section-head > div { flex: 1; min-width: 0; }
+.settings-card .door-section-head h4 { color: #10251d; font-size: 14px; margin: 0; }
+.door-section-head p { color: #5c6b76; font-size: 12px; margin: 1px 0 0; }
+.door-section-icon { align-items: center; background: #e3f1e9; border-radius: 8px; color: #0c4b2d; display: inline-flex; flex: 0 0 auto; height: 32px; justify-content: center; width: 32px; }
+.door-section-chip { background: #e3f1e9; border-radius: 999px; color: #0c4b2d; font-size: 11.5px; font-weight: 700; padding: 3px 10px; white-space: nowrap; }
+.door-section-chip.is-unlocked { background: #fbeee0; color: #8a4510; }
+.door-section-chip.is-unknown { background: #fbf2cc; color: #7a5d10; }
+
+/* Segmented scheduling switch */
+.door-split .door-mode-switch { background: #f1f5f3; border: 1px solid #e3ebe6; border-radius: 8px; gap: 4px; padding: 4px; }
+.door-split .door-mode-switch button { background: transparent; border: 0; border-radius: 6px; color: #3e4f47; font-weight: 600; min-height: 36px; transition: background 0.15s ease, color 0.15s ease; }
+.door-split .door-mode-switch button:hover:not(.is-active):not(:disabled) { background: #e4ece7; color: #10251d; }
+.door-split .door-mode-switch button.is-active { background: #0c4b2d; box-shadow: 0 1px 3px rgba(12, 75, 45, 0.3); color: #fff; }
+
+/* Remote lock switch */
+.door-split .door-lock-switch { background: #f7faf8; border-color: #e3ebe6; border-radius: 8px; min-height: 46px; width: 100%; }
+.door-split .door-lock-switch:not(:disabled):hover { border-color: #8fb8a2; }
 
 .door-info { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 6px; display: grid; gap: 14px; padding: 16px; }
 .settings-card .door-info h4 { color: #10251d; font-size: 14px; margin: 0; }

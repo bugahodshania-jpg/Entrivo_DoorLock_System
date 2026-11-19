@@ -218,7 +218,14 @@ export function DoorControlPanel({
 
           {canControl ? (
             <section className="door-section" aria-labelledby="door-section-mode-title">
-              <h4 id="door-section-mode-title"><CalendarClock size={16} aria-hidden="true" /> Scheduling</h4>
+              <header className="door-section-head">
+                <span className="door-section-icon"><CalendarClock size={16} aria-hidden="true" /></span>
+                <div>
+                  <h4 id="door-section-mode-title">Scheduling</h4>
+                  <p>Who the door lets in</p>
+                </div>
+                <span className="door-section-chip">{SCHEDULE_MODES.find((option) => option.value === door.scheduleMode)?.label || '—'}</span>
+              </header>
               <div className="door-mode-switch" role="radiogroup" aria-label="Scheduling mode">
                 {SCHEDULE_MODES.map((option) => (
                   <button key={option.value} type="button" role="radio" aria-checked={door.scheduleMode === option.value}
@@ -233,7 +240,14 @@ export function DoorControlPanel({
 
           {showLock ? (
             <section className="door-section" aria-labelledby="door-section-lock-title">
-              <h4 id="door-section-lock-title"><LockKeyhole size={16} aria-hidden="true" /> Remote lock</h4>
+              <header className="door-section-head">
+                <span className="door-section-icon"><LockKeyhole size={16} aria-hidden="true" /></span>
+                <div>
+                  <h4 id="door-section-lock-title">Remote lock</h4>
+                  <p>Super Admin only</p>
+                </div>
+                <span className={`door-section-chip is-${door.state}`}>{offline ? 'Offline' : door.label}</span>
+              </header>
               <button type="button" role="switch" aria-checked={door.state === 'locked'}
                 className={`door-lock-switch is-${door.state}`} disabled={busy || offline || Boolean(pending)} onClick={toggleLock}>
                 <span className="door-lock-switch-track" aria-hidden="true"><span /></span>
