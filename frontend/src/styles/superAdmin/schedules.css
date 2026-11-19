@@ -2288,3 +2288,32 @@
 .schedules-reminder-hint { align-items: center; background: #fbf7ec; border: 1px solid #efe1bd; border-radius: 4px; color: #5d4a1c; display: flex; font-size: 12px; gap: 6px; line-height: 1.4; margin: 0; padding: 7px 10px; }
 .schedules-reminder-hint svg { color: #8a5a10; flex: 0 0 auto; }
 .schedules-reminder-hint strong { color: #3f300c; }
+
+/* Import schedules from Excel. */
+.schedules-modal.schedules-import-modal { max-width: 980px; width: 100%; }
+.schedules-import-guide { background: #f7faf8; border: 1px solid #dfe9e3; border-radius: 6px; display: grid; gap: 10px; padding: 12px 14px; }
+.schedules-import-guide-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.schedules-import-guide-head h3 { color: #10251d; font-size: 14px; margin: 0; }
+.schedules-import-rules { color: #33443d; display: grid; font-size: 12px; gap: 3px; line-height: 1.45; margin: 0; padding-left: 18px; }
+.schedules-import-columns-wrap, .schedules-import-table-wrap { border: 1px solid #e3ebe6; border-radius: 4px; overflow-x: auto; }
+.schedules-import-columns, .schedules-import-table { background: #fff; border-collapse: collapse; font-size: 12px; width: 100%; }
+.schedules-import-columns th, .schedules-import-table th { background: #eef4f0; color: #10251d; font-weight: 700; padding: 7px 9px; text-align: left; white-space: nowrap; }
+.schedules-import-columns td, .schedules-import-table td { border-top: 1px solid #edf2ef; color: #33443d; line-height: 1.4; padding: 7px 9px; vertical-align: top; }
+.schedules-import-columns td:first-child, .schedules-import-columns td:last-child { white-space: nowrap; }
+.schedules-import-required { background: #e3f1e9; border-radius: 999px; color: #0c4b2d; font-size: 11px; font-weight: 700; padding: 2px 8px; }
+.schedules-import-note { color: #5c6b76; font-size: 12px; margin: 0; }
+.schedules-import-file { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.schedules-import-file span { color: #4f5f58; font-size: 13px; overflow-wrap: anywhere; }
+.schedules-import-error { align-items: flex-start; background: #fdf3f2; border: 1px solid #efc7c2; border-radius: 4px; color: #9b2c1f; display: flex; font-size: 13px; gap: 6px; margin: 12px 0 0; padding: 8px 10px; }
+.schedules-import-error svg { flex: 0 0 auto; margin-top: 2px; }
+.schedules-import-preview { display: grid; gap: 8px; margin-top: 14px; }
+.schedules-import-summary { color: #33443d; font-size: 13px; margin: 0; }
+.schedules-import-summary .is-error { color: #9b2c1f; }
+.schedules-import-table-wrap { max-height: 320px; overflow-y: auto; }
+.schedules-import-table th { position: sticky; top: 0; }
+.schedules-import-table td small { color: #5c6b76; display: block; }
+.schedules-import-table tr.is-error td { background: #fdf6f5; }
+.schedules-import-table tr.is-error td:last-child { color: #9b2c1f; }
+.schedules-import-table tr.is-done td:last-child { color: #0c4b2d; font-weight: 600; }
+.schedules-import-ok { align-items: center; color: #0c4b2d; display: inline-flex; font-weight: 600; gap: 4px; }
+.schedules-import-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }

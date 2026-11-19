@@ -1,4 +1,4 @@
-import { BellRing, CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
+import { BellRing, CalendarDays, FileUp, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import ExportFormatModal from '../../components/ExportFormatModal';
@@ -47,6 +47,7 @@ import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
 import DateInput from '../../components/DateInput';
 import { getScheduleReminder } from '../../utils/scheduleReminder';
+import ScheduleImportModal from '../../components/ScheduleImportModal';
 
 /** Statuses used by regular (non-override) schedules. */
 const regularScheduleStatusOptions = [
@@ -447,6 +448,17 @@ export default function Schedules({ user }) {
       isActive = false;
     };
   }, [canViewOverrideRequests]);
+
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
+  async function reloadSchedules() {
+    try {
+      const response = await axiosClient.get('/api/schedules.php');
+      setSchedules(response.data.schedules || []);
+    } catch {
+      // The list refreshes on the next page load.
+    }
+  }
 
   const userSelectGroups = useMemo(() => {
     return [
@@ -1668,6 +1680,9 @@ export default function Schedules({ user }) {
 
   return (
     <main className="admin-dashboard schedules-page" aria-label="Schedules">
+      {isImportOpen ? (
+        <ScheduleImportModal users={allUsers} actor={user} onClose={() => setIsImportOpen(false)} onImported={reloadSchedules} />
+      ) : null}
       <div className={`schedules-layout${isCalendarExpanded ? ' is-calendar-expanded' : ''}`}>
       <section className="dashboard-recent-card schedules-card">
         <div className="dashboard-panel-header">
@@ -1679,6 +1694,10 @@ export default function Schedules({ user }) {
             <button type="button" className="dashboard-export-button" onClick={() => setExportTarget('table')}>
               <Download size={15} aria-hidden="true" />
               Export
+            </button>
+            <button type="button" className="dashboard-export-button" onClick={() => setIsImportOpen(true)}>
+              <FileUp size={15} aria-hidden="true" />
+              Import
             </button>
             <button type="button" className="dashboard-schedule-button schedules-add-button" onClick={() => openModal()}>
               <CalendarPlus size={16} aria-hidden="true" />
