@@ -2282,3 +2282,9 @@
     animation: none;
   }
 }
+
+/* When the door's 15-minute reminder plays. */
+.schedules-window-cell .schedules-reminder-time { align-items: center; color: #8a5a10; display: inline-flex; font-size: 11px; font-weight: 600; gap: 4px; }
+.schedules-reminder-hint { align-items: center; background: #fbf7ec; border: 1px solid #efe1bd; border-radius: 4px; color: #5d4a1c; display: flex; font-size: 12px; gap: 6px; line-height: 1.4; margin: 0; padding: 7px 10px; }
+.schedules-reminder-hint svg { color: #8a5a10; flex: 0 0 auto; }
+.schedules-reminder-hint strong { color: #3f300c; }

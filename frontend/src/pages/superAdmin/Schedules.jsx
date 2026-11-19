@@ -1,4 +1,4 @@
-import { CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
+import { BellRing, CalendarDays, CalendarPlus, CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, History, Maximize2, Minimize2, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import ExportFormatModal from '../../components/ExportFormatModal';
@@ -46,6 +46,7 @@ import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/schedules.css';
 import '../../styles/superAdmin/rfid.css';
 import DateInput from '../../components/DateInput';
+import { getScheduleReminder } from '../../utils/scheduleReminder';
 
 /** Statuses used by regular (non-override) schedules. */
 const regularScheduleStatusOptions = [
@@ -246,6 +247,19 @@ function getScheduleWindowLabel(schedule) {
   const timeLabel = getScheduleTimeLabel(schedule);
 
   return [dateLabel, timeLabel].filter(Boolean).join(' | ');
+}
+
+function ReminderHint({ timeStart, timeEnd }) {
+  const reminder = getScheduleReminder(timeStart, timeEnd);
+  if (!timeStart || !timeEnd || reminder.label === '—') return null;
+  return (
+    <p className="schedules-reminder-hint" role="note">
+      <BellRing size={14} aria-hidden="true" />
+      {reminder.time
+        ? <span>The door plays the 15-minute reminder (twice) at <strong>{reminder.time}</strong> while the room is in use.</span>
+        : <span>No 15-minute reminder: the schedule is 15 minutes or shorter.</span>}
+    </p>
+  );
 }
 
 function getScheduleWindowParts(schedule) {
@@ -1899,6 +1913,12 @@ export default function Schedules({ user }) {
                           <>
                             <strong>{scheduleWindow.timeStartLabel}</strong>
                             <span>{scheduleWindow.timeEndLabel}</span>
+                            {getScheduleReminder(schedule.timeStart, schedule.timeEnd).time ? (
+                              <span className="schedules-reminder-time" title="The door plays the 15-minute reminder (twice) at this time while the room is in use.">
+                                <BellRing size={12} aria-hidden="true" />
+                                {getScheduleReminder(schedule.timeStart, schedule.timeEnd).time}
+                              </span>
+                            ) : null}
                           </>
                         ) : (
                           <strong>{scheduleWindow.timeLabel || '—'}</strong>
@@ -2548,6 +2568,7 @@ export default function Schedules({ user }) {
                     </div>
                   </div>
                 )}
+                <ReminderHint timeStart={formState.timeStart} timeEnd={formState.timeEnd} />
 
                 {lockOverrideCreate || formState.scheduleKind === 'override' ? (
                   <div className="schedules-field">
@@ -2656,6 +2677,10 @@ export default function Schedules({ user }) {
                     </dd>
                   </div>
                   <div className="is-wide schedules-edit-field">
+                    <dt>15-min reminder</dt>
+                    <dd><ReminderHint timeStart={formState.timeStart} timeEnd={formState.timeEnd} /></dd>
+                  </div>
+                  <div className="is-wide schedules-edit-field">
                     <dt>Status</dt>
                     <dd>
                       <select
@@ -2753,6 +2778,10 @@ export default function Schedules({ user }) {
                   <div>
                     <dt>Schedule time</dt>
                     <dd>{getScheduleWindowParts(viewSchedule).timeLabel || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>15-min reminder</dt>
+                    <dd>{getScheduleReminder(viewSchedule.timeStart, viewSchedule.timeEnd).label}</dd>
                   </div>
                 </dl>
               </section>

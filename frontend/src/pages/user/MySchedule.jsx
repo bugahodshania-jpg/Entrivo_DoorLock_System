@@ -48,6 +48,7 @@ import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/rfid.css';
 import '../../styles/user/userPortal.css';
 import DateInput from '../../components/DateInput';
+import { getScheduleReminder } from '../../utils/scheduleReminder';
 
 const monthNames = [
   'January',
@@ -1557,6 +1558,10 @@ export default function MySchedule({ user }) {
                   <div>
                     <dt>Schedule time</dt>
                     <dd>{getScheduleViewWindow(viewSchedule).timeLabel || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>15-min reminder</dt>
+                    <dd>{getScheduleReminder(viewSchedule.timeStart, viewSchedule.timeEnd).label}</dd>
                   </div>
                 </dl>
               </section>
