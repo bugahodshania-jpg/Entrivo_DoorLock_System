@@ -19,156 +19,6 @@ const statusFilterOptions = [
   { value: 'approved', label: 'Approved' },
 ];
 
-// Temporary preview data — set to false to use live API results only.
-const USE_TEMP_OVERRIDE_PREVIEW = true;
-
-const tempPendingOverrides = [
-  {
-    id: -101,
-    name: 'Maria Santos',
-    username: 'msantos',
-    email: 'maria.santos@example.com',
-    roleLabel: 'Faculty',
-    schoolId: 'EMP-1042',
-    reason: 'Make-up class for Midterm coverage',
-    overrideStart: '2026-10-17 13:00:00',
-    dateLabel: 'Oct 17, 2026',
-    timeLabel: '01:00 PM - 03:00 PM',
-    createdDateLabel: 'Oct 15, 2026',
-    createdTimeLabel: '09:24 AM',
-    state: 'pending',
-    stateLabel: 'Pending',
-    canReviewActions: true,
-  },
-  {
-    id: -102,
-    name: 'Jose Ramirez',
-    username: 'jramirez',
-    email: 'jose.ramirez@example.com',
-    roleLabel: 'Staff',
-    schoolId: 'EMP-2218',
-    reason: 'Lab equipment inventory after hours',
-    overrideStart: '2026-10-18 17:00:00',
-    dateLabel: 'Oct 18, 2026',
-    timeLabel: '05:00 PM - 07:00 PM',
-    createdDateLabel: 'Oct 16, 2026',
-    createdTimeLabel: '02:11 PM',
-    state: 'pending',
-    stateLabel: 'Pending',
-    canReviewActions: true,
-  },
-  {
-    id: -103,
-    name: 'Ana Villanueva',
-    username: 'avillanueva',
-    email: 'ana.villanueva@example.com',
-    roleLabel: 'Admin',
-    schoolId: 'EMP-0901',
-    reason: 'Campus maintenance walkthrough',
-    overrideStart: '2026-10-19 08:00:00',
-    dateLabel: 'Oct 19, 2026',
-    timeLabel: '08:00 AM - 10:00 AM',
-    createdDateLabel: 'Oct 16, 2026',
-    createdTimeLabel: '04:45 PM',
-    state: 'pending',
-    stateLabel: 'Pending',
-    canReviewActions: true,
-  },
-];
-
-const tempApprovedOverrides = [
-  {
-    id: -201,
-    name: 'Carlo Dela Cruz',
-    username: 'cdelacruz',
-    email: 'carlo.delacruz@example.com',
-    roleLabel: 'Faculty',
-    schoolId: 'EMP-1188',
-    reason: 'Thesis defense panel',
-    overrideStart: '2026-10-13 09:00:00',
-    dateLabel: 'Oct 13, 2026',
-    timeLabel: '09:00 AM - 11:00 AM',
-    createdDateLabel: 'Oct 12, 2026',
-    createdTimeLabel: '11:05 AM',
-    state: 'approved',
-    stateLabel: 'Approved',
-    canReviewActions: false,
-    approvedByName: 'Super Admin',
-  },
-  {
-    id: -202,
-    name: 'Liza Mendoza',
-    username: 'lmendoza',
-    email: 'liza.mendoza@example.com',
-    roleLabel: 'Staff',
-    schoolId: 'EMP-3055',
-    reason: 'Library stock transfer',
-    overrideStart: '2026-10-14 14:00:00',
-    dateLabel: 'Oct 14, 2026',
-    timeLabel: '02:00 PM - 04:00 PM',
-    createdDateLabel: 'Oct 13, 2026',
-    createdTimeLabel: '08:40 AM',
-    state: 'approved',
-    stateLabel: 'Approved',
-    canReviewActions: false,
-    approvedByName: 'Super Admin',
-  },
-  {
-    id: -203,
-    name: 'Paolo Reyes',
-    username: 'preyes',
-    email: 'paolo.reyes@example.com',
-    roleLabel: 'Faculty',
-    schoolId: 'EMP-1420',
-    reason: 'Extra consultation hours',
-    overrideStart: '2026-10-15 16:00:00',
-    dateLabel: 'Oct 15, 2026',
-    timeLabel: '04:00 PM - 06:00 PM',
-    createdDateLabel: 'Oct 14, 2026',
-    createdTimeLabel: '01:18 PM',
-    state: 'approved',
-    stateLabel: 'Approved',
-    canReviewActions: false,
-    approvedByName: 'Super Admin',
-  },
-  {
-    id: -204,
-    name: 'Grace Tan',
-    username: 'gtan',
-    email: 'grace.tan@example.com',
-    roleLabel: 'Admin',
-    schoolId: 'EMP-0777',
-    reason: 'Event setup for orientation',
-    overrideStart: '2026-10-16 07:00:00',
-    dateLabel: 'Oct 16, 2026',
-    timeLabel: '07:00 AM - 09:00 AM',
-    createdDateLabel: 'Oct 15, 2026',
-    createdTimeLabel: '03:22 PM',
-    state: 'approved',
-    stateLabel: 'Approved',
-    canReviewActions: false,
-    approvedByName: 'Super Admin',
-  },
-  {
-    id: -205,
-    name: 'Mark Aquino',
-    username: 'maquino',
-    email: 'mark.aquino@example.com',
-    roleLabel: 'Staff',
-    schoolId: 'EMP-2604',
-    reason: 'Server room inspection',
-    overrideStart: '2026-10-17 10:00:00',
-    dateLabel: 'Oct 17, 2026',
-    timeLabel: '10:00 AM - 12:00 PM',
-    createdDateLabel: 'Oct 16, 2026',
-    createdTimeLabel: '10:09 AM',
-    state: 'approved',
-    stateLabel: 'Approved',
-    canReviewActions: false,
-    approvedByName: 'Super Admin',
-  },
-];
-
 function getRequestedWindowDate(override) {
   const raw = String(override?.overrideStart || override?.dateValue || '');
   return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
@@ -219,25 +69,12 @@ export default function PendingOverrides() {
     'Action',
   ];
 
-  function applyOverridesPayload(data, preferredStatus = statusFilter) {
+  function applyOverridesPayload(data) {
     const apiOverrides = data.overrides || [];
     const apiOldest = data.oldestPending || null;
     const apiRecent = (data.recentApprovedThisWeek || []).slice(0, 5);
     const apiPending = Number(data.counts?.pending || 0);
     const apiApproved = Number(data.counts?.approved || 0);
-
-    if (USE_TEMP_OVERRIDE_PREVIEW) {
-      const tableRows =
-        preferredStatus === 'approved' ? tempApprovedOverrides : tempPendingOverrides;
-      setOverrides(apiOverrides.length ? apiOverrides : tableRows);
-      setCounts({
-        pending: Math.max(apiPending, tempPendingOverrides.length),
-        approved: Math.max(apiApproved, tempApprovedOverrides.length),
-      });
-      setOldestPending(apiOldest || tempPendingOverrides[0]);
-      setRecentApprovedThisWeek(apiRecent.length ? apiRecent : tempApprovedOverrides.slice(0, 5));
-      return;
-    }
 
     setOverrides(apiOverrides);
     setCounts({ pending: apiPending, approved: apiApproved });
@@ -267,15 +104,10 @@ export default function PendingOverrides() {
           return;
         }
 
-        if (USE_TEMP_OVERRIDE_PREVIEW) {
-          applyOverridesPayload({ overrides: [], counts: {}, oldestPending: null, recentApprovedThisWeek: [] }, statusFilter);
-          setErrorMessage('');
-        } else {
-          setOverrides([]);
-          setOldestPending(null);
-          setRecentApprovedThisWeek([]);
-          setErrorMessage('Unable to load pending override requests right now.');
-        }
+        setOverrides([]);
+        setOldestPending(null);
+        setRecentApprovedThisWeek([]);
+        setErrorMessage('Unable to load pending override requests right now.');
       } finally {
         if (isActive) {
           setIsLoading(false);
