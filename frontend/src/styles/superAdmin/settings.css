@@ -1597,25 +1597,11 @@
 }
 
 /* Door control tab: the same panel as the header door popup. */
-.settings-door-panel { display: grid; gap: 12px; max-width: 620px; }
-.settings-door-panel .access-status-door { margin: 0; }
-.settings-door-layout { align-items: start; display: grid; gap: 20px; grid-template-columns: minmax(0, 620px) minmax(0, 1fr); }
-@media (max-width: 1080px) { .settings-door-layout { grid-template-columns: minmax(0, 1fr); } }
-.settings-door-guide { background: #f7faf8; border: 1px solid #dfe9e3; border-radius: 6px; display: grid; gap: 12px; padding: 14px; }
-.settings-door-guide-head { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
-.settings-door-guide-head h3 { color: #10251d; font-size: 15px; margin: 0; }
-.settings-door-guide ul { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.settings-door-guide li { align-items: start; background: #fff; border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 10px; grid-template-columns: 64px minmax(0, 1fr); padding: 9px 10px; }
-.settings-door-guide li.is-current { border-color: #0c4b2d; box-shadow: inset 3px 0 0 #0c4b2d; }
-.settings-door-guide li strong { color: #10251d; display: block; font-size: 13px; }
-.settings-door-guide li em { color: #0c4b2d; font-style: normal; font-weight: 700; }
-.settings-door-guide li p { color: #4f5f58; font-size: 12px; line-height: 1.45; margin: 3px 0 0; }
 .settings-door-tag { border-radius: 999px; font-size: 11px; font-weight: 700; padding: 3px 0; text-align: center; }
 .settings-door-tag.is-auto, .settings-door-tag.is-lock { background: #e3f1e9; color: #0c4b2d; }
 .settings-door-tag.is-on { background: #e4ecf7; color: #1d4479; }
 .settings-door-tag.is-off, .settings-door-tag.is-unlock { background: #fbeee0; color: #8a4510; }
 .settings-door-tag.is-offline { background: #fbf5dc; color: #7a5d10; }
-.settings-door-guide-note { color: #5c6b76; font-size: 12px; margin: 0; }
 .settings-door-logs-modal { max-width: 640px; }
 .settings-door-logs-actions { display: flex; gap: 4px; }
 .settings-door-logs-intro { color: #5c6b76; font-size: 12px; margin: 6px 0 10px; }
@@ -1656,3 +1642,58 @@
 .settings-policy-grace { align-items: start; display: grid; gap: 16px; grid-template-columns: 180px minmax(0, 1fr); padding: 12px 14px; }
 @media (max-width: 640px) { .settings-policy-grace { grid-template-columns: minmax(0, 1fr); } }
 .settings-policy-note { color: #4f5f58; display: grid; font-size: 12px; gap: 4px; line-height: 1.45; margin: 0; padding-left: 16px; }
+
+/* Door control tab: status, then numbered sections, each explained in place. */
+.settings-door-card .dashboard-panel-header { align-items: flex-start; gap: 12px; }
+.settings-door-guide-note { color: #5c6b76; font-size: 12px; margin: 14px 0 0; }
+.door-sections { display: grid; gap: 14px; }
+.door-section { background: #fff; border: 1px solid #e0e8e3; border-radius: 6px; display: grid; gap: 12px; padding: 14px 16px; }
+.settings-card .door-section h4 { align-items: center; color: #10251d; display: flex; font-size: 15px; gap: 6px; margin: 0; }
+.door-section-head { align-items: flex-start; display: flex; gap: 10px; }
+.door-section-head p { color: #5c6b76; font-size: 12.5px; margin: 2px 0 0; }
+.door-section-step { align-items: center; background: #0c4b2d; border-radius: 50%; color: #fff; display: inline-flex; flex: 0 0 auto; font-size: 12px; font-weight: 700; height: 22px; justify-content: center; width: 22px; }
+
+.door-section-status { align-items: center; grid-template-columns: auto minmax(0, 1fr); gap: 16px; }
+.door-section-status-main { align-items: center; display: flex; gap: 10px; min-width: 180px; }
+.door-section-status-main small { color: #5c6b76; font-size: 12px; }
+.door-section-status-icon { align-items: center; border-radius: 50%; display: inline-flex; height: 38px; justify-content: center; width: 38px; }
+.door-section-status-text { border-left: 1px solid currentColor; color: #4f5f58; font-size: 13px; line-height: 1.45; margin: 0; padding-left: 16px; }
+.door-section-status.is-locked { background: #f4fbf7; border-color: #c8dfd2; }
+.door-section-status.is-locked .door-section-status-icon { background: #e3f1e9; color: #0c4b2d; }
+.door-section-status.is-unlocked { background: #fdf7f0; border-color: #f0d6bb; }
+.door-section-status.is-unlocked .door-section-status-icon { background: #fbeee0; color: #8a4510; }
+.door-section-status.is-unknown { background: #fffbeb; border-color: #f0e2a8; }
+.door-section-status.is-unknown .door-section-status-icon { background: #fbf2cc; color: #7a5d10; }
+.door-section-status.is-unknown h4 { color: #7a5d10; }
+.door-section-status .door-section-status-text { border-left-color: rgba(0, 0, 0, 0.1); }
+
+.door-mode-cards { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.door-mode-card { align-content: start; background: #fff; border: 1px solid #d7e4de; border-radius: 6px; color: #10251d; cursor: pointer; display: grid; font: inherit; gap: 6px; padding: 12px; text-align: left; transition: border-color 0.15s ease, background 0.15s ease; }
+.door-mode-card:hover { border-color: #8fb8a2; }
+.door-mode-card:focus-visible { outline: 2px solid #0c4b2d; outline-offset: 2px; }
+.door-mode-card:disabled { cursor: wait; opacity: 0.7; }
+.door-mode-card.is-active { background: #f4fbf7; border-color: #0c4b2d; box-shadow: inset 0 0 0 1px #0c4b2d; }
+.door-mode-card-head { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.door-mode-card-head strong { font-size: 14px; }
+.door-mode-card-head small { background: #eef3f0; border-radius: 999px; color: #4f5f58; font-size: 10.5px; font-weight: 600; padding: 2px 7px; }
+.door-mode-card-head em { background: #0c4b2d; border-radius: 999px; color: #fff; font-size: 10.5px; font-style: normal; font-weight: 700; margin-left: auto; padding: 2px 8px; }
+.door-mode-card-radio { border: 2px solid #9fb5aa; border-radius: 50%; flex: 0 0 auto; height: 14px; width: 14px; }
+.door-mode-card.is-active .door-mode-card-radio { border: 4px solid #0c4b2d; }
+.door-mode-card-text { color: #4f5f58; font-size: 12.5px; line-height: 1.45; }
+
+.door-lock-layout { align-items: start; display: grid; gap: 14px; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+.door-lock-guide { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.door-lock-guide > div { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 4px; padding: 9px 10px; }
+.door-lock-guide > div.is-current { background: #fff; border-color: #0c4b2d; box-shadow: inset 3px 0 0 #0c4b2d; }
+.door-lock-guide dt { color: #10251d; font-size: 13px; font-weight: 700; }
+.door-lock-guide dt em { color: #0c4b2d; font-style: normal; }
+.door-lock-guide dd { color: #4f5f58; font-size: 12px; line-height: 1.45; margin: 3px 0 0; }
+
+@media (max-width: 1100px) {
+  .door-lock-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 820px) {
+  .door-mode-cards, .door-lock-guide { grid-template-columns: minmax(0, 1fr); }
+  .door-section-status { grid-template-columns: minmax(0, 1fr); }
+  .door-section-status-text { border-left: 0; padding-left: 0; }
+}

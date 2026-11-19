@@ -1,5 +1,4 @@
 import {
-  DoorClosed,
   Eye,
   EyeOff,
   Fingerprint,
@@ -1374,62 +1373,18 @@ function AccessPolicyRules({ onOpenDoorControl }) {
   );
 }
 
-const DOOR_GUIDE = [
-  {
-    key: 'auto', tag: 'Auto', title: 'Scheduling Auto (recommended)',
-    text: 'Online, a person enters only during their approved schedule or override. If the door loses internet, scheduling turns off by itself: any finger enrolled on the door sensor can enter, and the entries and exits are saved on the controller (up to 50) and sent to the access logs once it is back online.',
-  },
-  {
-    key: 'on', tag: 'On', title: 'Scheduling On',
-    text: 'Schedules always apply, even offline. Without internet the door cannot check schedules, so only the emergency card opens it.',
-  },
-  {
-    key: 'off', tag: 'Off', title: 'Scheduling Off',
-    text: 'No schedule is needed: every active registered user can enter with their fingerprint or RFID card. Every entry is still logged.',
-  },
-  {
-    key: 'unlock', tag: 'Unlock', title: 'Remote unlock (Super Admin)',
-    text: 'The solenoid opens within a few seconds and the door announces it. The room stays unlocked until someone locks it (touch, then a registered finger) or you lock it here.',
-  },
-  {
-    key: 'lock', tag: 'Lock', title: 'Remote lock (Super Admin)',
-    text: 'The solenoid locks the room within a few seconds. Anyone still inside can leave with the exit reader.',
-  },
-  {
-    key: 'offline', tag: 'Offline', title: 'While the door is offline',
-    text: 'Remote lock and unlock are unavailable, because the door cannot receive commands. A scheduling change is saved now and reaches the door when it reconnects.',
-  },
-];
+// Longer explanations shown on the Door control tab.
+const DOOR_MODE_DETAILS = {
+  auto: 'Online, a person enters only during their approved schedule or override. If the door loses internet, scheduling turns off by itself: enrolled fingers can enter, and entries and exits are saved on the controller (up to 50) and sent to the access logs once it is back online.',
+  on: 'Schedules always apply, even offline. Without internet the door cannot check schedules, so only the emergency card opens it.',
+  off: 'No schedule is needed: every active registered user can enter with their fingerprint or RFID card. Every entry is still logged.',
+};
 
-function DoorGuide({ door, onShowLogs }) {
-  const offline = door.state === 'unknown';
-  const isCurrent = (key) => key === door.scheduleMode || (key === 'offline' && offline);
-  return (
-    <aside className="settings-door-guide" aria-label="What each door control does">
-      <div className="settings-door-guide-head">
-        <h3>What happens</h3>
-        <button type="button" className="settings-secondary-button" onClick={onShowLogs}>
-          <History size={16} aria-hidden="true" />
-          View logs
-        </button>
-      </div>
-      <ul>
-        {DOOR_GUIDE.map((item) => (
-          <li key={item.key} className={isCurrent(item.key) ? 'is-current' : ''}>
-            <span className={`settings-door-tag is-${item.key}`}>{item.tag}</span>
-            <div>
-              <strong>{item.title}{isCurrent(item.key) ? <em> · now</em> : null}</strong>
-              <p>{item.text}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <p className="settings-door-guide-note">
-        Every change asks for your confirmation and your security password, and is saved in the door control logs.
-      </p>
-    </aside>
-  );
-}
+const DOOR_LOCK_GUIDE = [
+  { key: 'unlock', title: 'Unlock', text: 'The solenoid opens within a few seconds and the door announces it. It stays unlocked until someone locks it (touch, then a registered finger) or you lock it here.' },
+  { key: 'lock', title: 'Lock', text: 'The solenoid locks the room within a few seconds. Anyone still inside can leave with the exit reader.' },
+  { key: 'offline', title: 'While offline', text: 'Lock and unlock are unavailable because the door cannot receive commands. A scheduling change is saved now and reaches the door when it reconnects.' },
+];
 
 function DoorLogsModal({ user, deviceId, onClose }) {
   const [state, setState] = useState({ loading: true, logs: [], error: '' });
@@ -1493,14 +1448,15 @@ function DoorControlCard({ user }) {
           <span>Door control</span>
           <p>{door.deviceName}: the door's connection, the scheduling mode and, for the Super Admin, the remote lock.</p>
         </div>
-        <DoorClosed size={18} aria-hidden="true" className="settings-card-icon" />
+        <button type="button" className="settings-secondary-button" onClick={() => setShowLogs(true)}>
+          <History size={16} aria-hidden="true" />
+          View logs
+        </button>
       </div>
-      <div className="settings-door-layout">
-        <div className="settings-door-panel">
-          <DoorControlPanel door={door} user={user} />
-        </div>
-        <DoorGuide door={door} onShowLogs={() => setShowLogs(true)} />
-      </div>
+      <DoorControlPanel door={door} user={user} variant="sections" modeDetails={DOOR_MODE_DETAILS} lockGuide={DOOR_LOCK_GUIDE} />
+      <p className="settings-door-guide-note">
+        Every change asks for your confirmation and your security password, and is saved in the door control logs.
+      </p>
       {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
   );
