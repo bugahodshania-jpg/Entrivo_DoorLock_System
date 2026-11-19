@@ -128,8 +128,16 @@ final class DoorControlService
     {
         try {
             if (is_int($doneId) && $doneId > 0) {
-                $this->pdo->prepare('UPDATE door_controller_controls SET command = NULL, command_done_id = ?, command_done_at = NOW()
-                    WHERE device_id = ? AND command_id = ? AND command IS NOT NULL')->execute([$doneId, $deviceId, $doneId]);
+                $before = $this->row($deviceId);
+                $done = $this->pdo->prepare('UPDATE door_controller_controls SET command = NULL, command_done_id = ?, command_done_at = NOW()
+                    WHERE device_id = ? AND command_id = ? AND command IS NOT NULL');
+                $done->execute([$doneId, $deviceId, $doneId]);
+                if ($done->rowCount() > 0 && $before) {
+                    // For the Door control logs: the door really carried it out.
+                    (new ActivityLogService($this->pdo))->record((int) $before['command_by'] ?: null, 'Update',
+                        'The door confirmed the remote ' . ($before['command'] === 'lock' ? 'lock' : 'unlock') . '.',
+                        'Success', null, 'door', (string) $deviceId);
+                }
             }
             $controls = $this->controls($deviceId);
         } catch (PDOException) {
@@ -140,6 +148,61 @@ final class DoorControlService
             $reply['command'] = ['id' => $controls['pending_command']['id'], 'action' => $controls['pending_command']['action']];
         }
         return $reply;
+    }
+
+    /**
+     * Door control logs: scheduling changes, remote lock/unlock requests, the
+     * door's confirmations and refused attempts, newest first.
+     */
+    public function history(array $input): array
+    {
+        $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $query = $this->pdo->prepare('SELECT role, is_active FROM users WHERE id = ?');
+        $query->execute([$actorId === false ? 0 : $actorId]);
+        $actor = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$actor || (int) $actor['is_active'] !== 1 || !in_array($actor['role'], ['admin', 'super_admin'], true)) {
+            throw new DoorStatusException('Only an administrator can view the door control logs.', 403);
+        }
+        $deviceId = $this->deviceId($input);
+        (new ActivityLogService($this->pdo))->ensureTable();
+        $names = $this->hasInfoTables() ? "COALESCE(
+                NULLIF(TRIM(CONCAT_WS(' ', ai.first_name, ai.last_name)), ''),
+                NULLIF(TRIM(CONCAT_WS(' ', fi.first_name, fi.last_name)), ''),
+                NULLIF(TRIM(CONCAT_WS(' ', st.first_name, st.last_name)), ''),
+                u.username)" : 'u.username';
+        $joins = $this->hasInfoTables() ? 'LEFT JOIN admin_info ai ON ai.user_id = u.id
+            LEFT JOIN faculty_info fi ON fi.user_id = u.id LEFT JOIN staff_info st ON st.user_id = u.id' : '';
+        $query = $this->pdo->prepare("SELECT t.transaction_id, t.description, t.status, t.created_at, u.role,
+                {$names} AS actor_name
+            FROM activity_transactions t LEFT JOIN users u ON u.id = t.actor_user_id {$joins}
+            WHERE t.entity_type = 'door' AND t.entity_id = ?
+            ORDER BY t.created_at DESC, t.transaction_id DESC LIMIT 100");
+        $query->execute([(string) $deviceId]);
+        $logs = array_map(static fn (array $row): array => [
+            'id' => (int) $row['transaction_id'],
+            'description' => $row['description'],
+            'status' => $row['status'],
+            'created_at' => $row['created_at'],
+            'actor_name' => $row['actor_name'] ?: 'System',
+            'actor_role' => $row['role'],
+        ], $query->fetchAll(PDO::FETCH_ASSOC));
+        return ['success' => true, 'logs' => $logs];
+    }
+
+    private function hasInfoTables(): bool
+    {
+        static $has = null;
+        if ($has === null) {
+            try {
+                $this->pdo->query('SELECT 1 FROM admin_info LIMIT 0');
+                $this->pdo->query('SELECT 1 FROM faculty_info LIMIT 0');
+                $this->pdo->query('SELECT 1 FROM staff_info LIMIT 0');
+                $has = true;
+            } catch (PDOException) {
+                $has = false;
+            }
+        }
+        return $has;
     }
 
     private function row(int $deviceId): array|false
@@ -182,6 +245,11 @@ final class DoorControlService
                 : 'Only a Super Admin can lock or unlock the door remotely.', 403);
         }
         if (!password_verify($password, (string) $user['password_hash'])) {
+            $what = ($input['action'] ?? '') === 'schedule_mode'
+                ? 'change door scheduling' : 'remotely ' . (($input['action'] ?? '') === 'lock' ? 'lock' : 'unlock') . ' the door';
+            (new ActivityLogService($this->pdo))->record((int) $user['id'], 'Update',
+                'Refused an attempt to ' . $what . ': incorrect security password.', 'Failed', null, 'door',
+                (string) $this->deviceId($input));
             throw new DoorStatusException('The security password is incorrect.', 422);
         }
         return ['id' => (int) $user['id'], 'role' => $user['role']];

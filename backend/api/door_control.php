@@ -7,10 +7,15 @@ $allowedOrigins = require __DIR__ . '/../config/allowed_origins.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? $allowedOrigins[0];
 header('Access-Control-Allow-Origin: ' . (in_array($origin, $allowedOrigins, true) ? $origin : $allowedOrigins[0]));
 header('Vary: Origin');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204); exit; }
 try {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+        // Door control logs (GET ?actor_id=&device_id=).
+        echo json_encode((new DoorControlService())->history($_GET), JSON_THROW_ON_ERROR);
+        exit;
+    }
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new DoorStatusException('Use POST to control the door.', 405);
     $input = json_decode(file_get_contents('php://input'), true, 16, JSON_THROW_ON_ERROR);
     if (!is_array($input)) throw new DoorStatusException('A JSON object is required.', 422);

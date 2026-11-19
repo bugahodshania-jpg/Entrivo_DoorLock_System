@@ -3,6 +3,7 @@ import {
   Eye,
   EyeOff,
   Fingerprint,
+  History,
   IdCard,
   Pencil,
   RefreshCcw,
@@ -1295,9 +1296,118 @@ export default function Settings({ user }) {
   );
 }
 
+const DOOR_GUIDE = [
+  {
+    key: 'auto', tag: 'Auto', title: 'Scheduling Auto (recommended)',
+    text: 'Online, a person enters only during their approved schedule or override. If the door loses internet, scheduling turns off by itself: any finger enrolled on the door sensor can enter, and the entries and exits are saved on the controller (up to 50) and sent to the access logs once it is back online.',
+  },
+  {
+    key: 'on', tag: 'On', title: 'Scheduling On',
+    text: 'Schedules always apply, even offline. Without internet the door cannot check schedules, so only the emergency card opens it.',
+  },
+  {
+    key: 'off', tag: 'Off', title: 'Scheduling Off',
+    text: 'No schedule is needed: every active registered user can enter with their fingerprint or RFID card. Every entry is still logged.',
+  },
+  {
+    key: 'unlock', tag: 'Unlock', title: 'Remote unlock (Super Admin)',
+    text: 'The solenoid opens within a few seconds and the door announces it. The room stays unlocked until someone locks it (touch, then a registered finger) or you lock it here.',
+  },
+  {
+    key: 'lock', tag: 'Lock', title: 'Remote lock (Super Admin)',
+    text: 'The solenoid locks the room within a few seconds. Anyone still inside can leave with the exit reader.',
+  },
+  {
+    key: 'offline', tag: 'Offline', title: 'While the door is offline',
+    text: 'Remote lock and unlock are unavailable, because the door cannot receive commands. A scheduling change is saved now and reaches the door when it reconnects.',
+  },
+];
+
+function DoorGuide({ door, onShowLogs }) {
+  const offline = door.state === 'unknown';
+  const isCurrent = (key) => key === door.scheduleMode || (key === 'offline' && offline);
+  return (
+    <aside className="settings-door-guide" aria-label="What each door control does">
+      <div className="settings-door-guide-head">
+        <h3>What happens</h3>
+        <button type="button" className="settings-secondary-button" onClick={onShowLogs}>
+          <History size={16} aria-hidden="true" />
+          View logs
+        </button>
+      </div>
+      <ul>
+        {DOOR_GUIDE.map((item) => (
+          <li key={item.key} className={isCurrent(item.key) ? 'is-current' : ''}>
+            <span className={`settings-door-tag is-${item.key}`}>{item.tag}</span>
+            <div>
+              <strong>{item.title}{isCurrent(item.key) ? <em> · now</em> : null}</strong>
+              <p>{item.text}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="settings-door-guide-note">
+        Every change asks for your confirmation and your security password, and is saved in the door control logs.
+      </p>
+    </aside>
+  );
+}
+
+function DoorLogsModal({ user, deviceId, onClose }) {
+  const [state, setState] = useState({ loading: true, logs: [], error: '' });
+  const load = () => {
+    setState((current) => ({ ...current, loading: true, error: '' }));
+    axiosClient.get('/api/door_control.php', { params: { actor_id: user?.id, device_id: deviceId || 1 } })
+      .then((response) => setState({ loading: false, logs: response.data?.logs || [], error: '' }))
+      .catch((error) => setState({ loading: false, logs: [], error: error.response?.data?.message || 'The door control logs could not be loaded.' }));
+  };
+  useEffect(() => {
+    load();
+    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="settings-modal-overlay" role="presentation" onClick={onClose}>
+      <div className="settings-modal settings-door-logs-modal" role="dialog" aria-modal="true"
+        aria-labelledby="settings-door-logs-title" onClick={(event) => event.stopPropagation()}>
+        <div className="settings-modal-header">
+          <h3 id="settings-door-logs-title">Door control logs</h3>
+          <div className="settings-door-logs-actions">
+            <button type="button" className="settings-modal-close" onClick={load} aria-label="Refresh logs" disabled={state.loading}>
+              <RefreshCcw size={16} aria-hidden="true" />
+            </button>
+            <button type="button" className="settings-modal-close" onClick={onClose} aria-label="Close dialog">
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <p className="settings-door-logs-intro">Scheduling changes, remote lock and unlock, the door&apos;s confirmations, and refused attempts. Newest first.</p>
+        {state.loading ? <p className="settings-door-logs-empty">Loading…</p>
+          : state.error ? <p className="settings-door-logs-empty is-error">{state.error}</p>
+          : state.logs.length === 0 ? <p className="settings-door-logs-empty">No door control changes yet.</p>
+          : (
+            <ol className="settings-door-logs">
+              {state.logs.map((log) => (
+                <li key={log.id} className={log.status === 'Failed' ? 'is-failed' : ''}>
+                  <time dateTime={log.created_at}>{formatDateTimeInManila(log.created_at)}</time>
+                  <span>{log.description}</span>
+                  <small>{log.actor_name}{log.status === 'Failed' ? ' · Refused' : ''}</small>
+                </li>
+              ))}
+            </ol>
+          )}
+      </div>
+    </div>
+  );
+}
+
 /** Same as the header door popup: connection, scheduling mode and remote lock. */
 function DoorControlCard({ user }) {
   const door = useDoorStatus();
+  const [showLogs, setShowLogs] = useState(false);
   return (
     <article className="settings-card settings-door-card" role="tabpanel" aria-label="Door control">
       <div className="dashboard-panel-header">
@@ -1307,9 +1417,13 @@ function DoorControlCard({ user }) {
         </div>
         <DoorClosed size={18} aria-hidden="true" className="settings-card-icon" />
       </div>
-      <div className="settings-door-panel">
-        <DoorControlPanel door={door} user={user} />
+      <div className="settings-door-layout">
+        <div className="settings-door-panel">
+          <DoorControlPanel door={door} user={user} />
+        </div>
+        <DoorGuide door={door} onShowLogs={() => setShowLogs(true)} />
       </div>
+      {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
   );
 }

@@ -20,10 +20,10 @@ function expectDoorControlError(callable $call, int $status, string $message): v
 }
 
 $pdo = entrivo_pdo();
-$tables = ['users', 'fingerprint_devices', 'door_controller_status', 'door_controller_controls', 'schedules', 'access_overrides', 'activity_logs'];
+$tables = ['users', 'fingerprint_devices', 'door_controller_status', 'door_controller_controls', 'schedules', 'access_overrides', 'activity_logs', 'activity_transactions'];
 try {
     // Connection-local shadow tables: real accounts and door rows are never touched.
-    $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY, role VARCHAR(20), is_active INT, password_hash VARCHAR(255)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY, role VARCHAR(20), is_active INT, password_hash VARCHAR(255), username VARCHAR(60) NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY, device_name VARCHAR(50), device_type VARCHAR(20), status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE door_controller_status (device_id INT PRIMARY KEY, door_state VARCHAR(10), boot_id CHAR(32), report_sequence INT, received_at DATETIME(6), wifi_rssi SMALLINT NULL) ENGINE=InnoDB');
     $pdo->exec("CREATE TEMPORARY TABLE door_controller_controls (
@@ -33,8 +33,12 @@ try {
     $pdo->exec('CREATE TEMPORARY TABLE schedules (schedule_id INT PRIMARY KEY, user_id INT, status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE access_overrides (override_id INT PRIMARY KEY) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE activity_logs (id INT PRIMARY KEY AUTO_INCREMENT) ENGINE=InnoDB');
+    $pdo->exec("CREATE TEMPORARY TABLE activity_transactions (transaction_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        actor_user_id INT UNSIGNED NULL, target_user_id INT UNSIGNED NULL, activity_type VARCHAR(32) NOT NULL, entity_type VARCHAR(64) NULL,
+        entity_id VARCHAR(64) NULL, description VARCHAR(512) NOT NULL, status VARCHAR(32) NOT NULL DEFAULT 'Success',
+        ip_address VARCHAR(45) NULL, user_agent VARCHAR(512) NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB");
     $hash = password_hash('secret-pass', PASSWORD_DEFAULT);
-    $users = $pdo->prepare('INSERT INTO users VALUES (?, ?, ?, ?)');
+    $users = $pdo->prepare('INSERT INTO users (id, role, is_active, password_hash) VALUES (?, ?, ?, ?)');
     foreach ([[1, 'super_admin', 1, $hash], [2, 'admin', 1, $hash], [3, 'faculty', 1, $hash]] as $row) $users->execute($row);
     $pdo->exec("INSERT INTO fingerprint_devices VALUES (1, 'Door', 'enrollment', 'active')");
     $pdo->exec("INSERT INTO door_controller_status VALUES (1, 'locked', REPEAT('a', 32), 5, NOW(6), -60)");
@@ -63,6 +67,14 @@ try {
     $id = $reply['command']['id'];
     $reply = $service->forController(1, $id);
     expectDoorControl(!isset($reply['command']) && $service->controls(1)['last_command']['id'] === $id, 'A confirmed command is cleared.');
+
+    // The Door control logs list every change, the door's confirmation and the refused password.
+    $logs = $service->history(['actor_id' => 2, 'device_id' => 1])['logs'];
+    $text = implode(' | ', array_column($logs, 'description'));
+    expectDoorControl(str_contains($text, 'The door confirmed the remote unlock.') && str_contains($text, 'Unlocked the door remotely')
+        && str_contains($text, 'Set door scheduling to Off') && str_contains($text, 'incorrect security password'), 'Door control logs are missing events: ' . $text);
+    expectDoorControl($logs[0]['description'] === 'The door confirmed the remote unlock.', 'Door control logs are newest first.');
+    expectDoorControlError(fn () => $service->history(['actor_id' => 3, 'device_id' => 1]), 403, 'Faculty cannot read the door control logs.');
 
     // An offline controller cannot be sent a command.
     $pdo->exec('UPDATE door_controller_status SET received_at = NOW(6) - INTERVAL 10 MINUTE');
