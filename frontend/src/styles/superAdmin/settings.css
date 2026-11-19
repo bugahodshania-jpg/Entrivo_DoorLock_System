@@ -1628,3 +1628,22 @@
 .settings-door-logs li.is-failed small { color: #9b2c1f; }
 .settings-door-logs-empty { color: #5c6b76; font-size: 13px; margin: 8px 0; }
 .settings-door-logs-empty.is-error { color: #9b2c1f; }
+
+/* Access policy tab: the rules the door enforces. */
+.settings-policy { display: grid; gap: 16px; margin-bottom: 18px; }
+.settings-policy-heading { color: #10251d; font-size: 14px; margin: 0 0 8px; }
+.settings-policy-roles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.settings-policy-roles li { align-items: start; border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 10px; grid-template-columns: 96px minmax(0, 1fr); padding: 10px; }
+.settings-policy-roles strong { color: #10251d; display: block; font-size: 13px; }
+.settings-policy-roles p { color: #4f5f58; font-size: 12px; line-height: 1.45; margin: 3px 0 0; }
+.settings-policy-list { border: 1px solid #e3ebe6; border-radius: 4px; margin: 0; }
+.settings-policy-list div { display: grid; gap: 12px; grid-template-columns: 170px minmax(0, 1fr); padding: 9px 12px; }
+.settings-policy-list div + div { border-top: 1px solid #edf2ef; }
+.settings-policy-list dt { color: #10251d; font-size: 13px; font-weight: 700; }
+.settings-policy-list dd { color: #4f5f58; font-size: 13px; line-height: 1.45; margin: 0; }
+@media (max-width: 640px) { .settings-policy-list div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.settings-policy-mode { align-items: center; background: #f7faf8; border: 1px solid #dfe9e3; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 12px; }
+.settings-policy-mode .settings-door-tag { min-width: 56px; }
+.settings-policy-mode p { color: #4f5f58; flex: 1 1 280px; font-size: 13px; line-height: 1.45; margin: 0; }
+.settings-policy-mode strong { color: #10251d; }
+.settings-policy-note { color: #5c6b76; font-size: 12px; grid-column: 1 / -1; line-height: 1.45; margin: 0; }

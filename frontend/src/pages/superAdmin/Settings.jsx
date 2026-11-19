@@ -739,10 +739,10 @@ export default function Settings({ user }) {
       <section className="settings-hero" aria-label="Settings overview">
         <div>
           <p className="admin-dashboard-eyebrow">System settings</p>
-          <h2>Account details and the default grace period for new schedules.</h2>
+          <h2>Account details, the door&apos;s access rules, and door control.</h2>
           <p>
-            Update the signed-in administrator profile, change the password, and set the grace
-            period applied when a schedule is created.
+            Update the signed-in administrator profile and password, review who can enter and when,
+            set the default grace period for new schedules, and control the door&apos;s scheduling and lock.
           </p>
         </div>
         <div className="settings-hero-actions">
@@ -1246,11 +1246,14 @@ export default function Settings({ user }) {
           <div className="dashboard-panel-header">
             <div>
               <span>Access policy</span>
-              <p>Applied to each new schedule. An existing schedule keeps its own grace period when it is edited.</p>
+              <p>The rules the door applies to every fingerprint and RFID scan, and the default grace period for new schedules.</p>
             </div>
             <ShieldCheck size={18} aria-hidden="true" className="settings-card-icon" />
           </div>
 
+          <AccessPolicyRules onOpenDoorControl={() => handleSelectTab('door')} />
+
+          <h3 className="settings-policy-heading">Default for new schedules</h3>
           <div className="settings-form-grid">
             <label className="settings-field">
               <span>Default grace period</span>
@@ -1280,6 +1283,11 @@ export default function Settings({ user }) {
                 <small>minutes</small>
               </div>
             </label>
+            <p className="settings-policy-note">
+              Filled in on each new schedule and override, and shown in schedules and reports. An existing schedule
+              keeps its own grace period when edited. The grace period does not extend door access: the door opens
+              only between the schedule&apos;s start and end. This default is saved in this browser.
+            </p>
           </div>
 
         </article>
@@ -1293,6 +1301,63 @@ export default function Settings({ user }) {
         onClose={() => setAdminProfileError('')}
       />
     </main>
+  );
+}
+
+const ROLE_RULES = [
+  { role: 'Student', tag: 'Override only', tone: 'is-on', text: 'Enters only during an approved override schedule. A regular schedule or a registered credential alone never opens the room.' },
+  { role: 'Faculty and staff', tag: 'Schedule', tone: 'is-auto', text: 'Enters during an approved regular or override schedule.' },
+  { role: 'Admin and Super Admin', tag: 'Any time', tone: 'is-lock', text: 'Permanent override: no schedule needed. A schedule that is running is still linked in the logs.' },
+  { role: 'Emergency card', tag: 'Any time', tone: 'is-off', text: 'Opens the door online and offline, logged under the card’s name (default “Emergency card”).' },
+];
+
+const SCHEDULE_RULES = [
+  ['Who can scan', 'An approved, active account with a registered fingerprint or RFID card. Unregistered fingers and cards are denied and logged.'],
+  ['Entry window', 'From the schedule’s start time up to its end time, on its date or repeat days. Before the start or after the end, entry is denied.'],
+  ['Regular and override', 'A running regular schedule is used first. An override does not cancel the regular schedule; it adds its own window.'],
+  ['Exit', 'Never refused. Leaving after the schedule ends is logged as Extended, with the minutes over.'],
+  ['End reminder', 'The door plays a reminder 15 minutes before the schedule ends, twice. If the end time is edited, it plans the reminder again.'],
+  ['New schedules', 'Only fully active accounts (approved, active, password changed, sign-up finished) can be given a schedule.'],
+];
+
+function AccessPolicyRules({ onOpenDoorControl }) {
+  const door = useDoorStatus();
+  const modeLabel = { auto: 'Auto', on: 'On', off: 'Off' }[door.scheduleMode] || 'Auto';
+  return (
+    <div className="settings-policy">
+      <section className="settings-policy-section" aria-labelledby="settings-policy-roles">
+        <h3 id="settings-policy-roles" className="settings-policy-heading">Who can enter</h3>
+        <ul className="settings-policy-roles">
+          {ROLE_RULES.map((rule) => (
+            <li key={rule.role}>
+              <span className={`settings-door-tag ${rule.tone}`}>{rule.tag}</span>
+              <div><strong>{rule.role}</strong><p>{rule.text}</p></div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="settings-policy-section" aria-labelledby="settings-policy-schedules">
+        <h3 id="settings-policy-schedules" className="settings-policy-heading">Schedule rules</h3>
+        <dl className="settings-policy-list">
+          {SCHEDULE_RULES.map(([term, text]) => <div key={term}><dt>{term}</dt><dd>{text}</dd></div>)}
+        </dl>
+      </section>
+
+      <section className="settings-policy-mode" aria-label="Current scheduling mode">
+        <span className={`settings-door-tag is-${door.scheduleMode || 'auto'}`}>{modeLabel}</span>
+        <p>
+          <strong>Scheduling is {modeLabel} on {door.deviceName}.</strong>{' '}
+          {door.scheduleMode === 'off'
+            ? 'The rules above are paused: every active registered user can enter.'
+            : door.scheduleMode === 'on'
+              ? 'The rules above always apply. Offline, only the emergency card opens the door.'
+              : 'The rules above apply while the door is online. Offline, enrolled fingers can enter and the logs upload later.'}
+          {door.state === 'unknown' ? ' The door is offline right now.' : ''}
+        </p>
+        <button type="button" className="settings-secondary-button" onClick={onOpenDoorControl}>Door control</button>
+      </section>
+    </div>
   );
 }
 
