@@ -50,8 +50,15 @@ export default function ScheduleImportModal({ users, actor, onClose, onImported 
   }
 
   async function runImport() {
-    const valid = (parsed || []).filter((row) => row.payload);
-    if (!valid.length) return;
+    if (!parsed) {
+      setReadError(readError || 'Choose an Excel or CSV file first. Nothing is imported until a file is chosen.');
+      return;
+    }
+    const valid = parsed.filter((row) => row.payload);
+    if (!valid.length) {
+      setReadError('No rows can be imported. Fix the rows marked with errors, then choose the file again.');
+      return;
+    }
     setBusy(true);
     setResults(null);
     const outcome = [];
@@ -182,7 +189,9 @@ export default function ScheduleImportModal({ users, actor, onClose, onImported 
             {results ? 'Done' : 'Cancel'}
           </button>
           {!results ? (
-            <button type="button" className="dashboard-schedule-button" onClick={runImport} disabled={busy || validCount === 0}>
+            <button type="button" className={`dashboard-schedule-button schedules-import-run${validCount === 0 ? ' is-blocked' : ''}`}
+              onClick={runImport} disabled={busy} aria-disabled={validCount === 0}
+              title={!parsed ? 'Choose an Excel file first' : validCount === 0 ? 'No valid rows to import' : undefined}>
               <Upload size={16} aria-hidden="true" />
               {progress ? `Importing ${progress.done + 1} of ${progress.total}…` : `Import ${validCount || ''} ${validCount === 1 ? 'row' : 'rows'}`.replace('  ', ' ')}
             </button>

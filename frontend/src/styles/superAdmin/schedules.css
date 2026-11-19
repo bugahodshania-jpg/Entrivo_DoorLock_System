@@ -2317,3 +2317,7 @@
 .schedules-import-table tr.is-done td:last-child { color: #0c4b2d; font-weight: 600; }
 .schedules-import-ok { align-items: center; color: #0c4b2d; display: inline-flex; font-weight: 600; gap: 4px; }
 .schedules-import-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.schedules-import-run.is-blocked,
+.schedules-import-run.is-blocked:hover,
+.schedules-import-actions button:disabled { background: #c9d3cd; border-color: #c9d3cd; color: #5f6b64; cursor: not-allowed; }
+.schedules-import-actions .dashboard-export-button:disabled { background: transparent; }
