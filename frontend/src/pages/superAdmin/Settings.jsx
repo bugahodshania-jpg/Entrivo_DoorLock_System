@@ -1446,7 +1446,7 @@ function DoorControlCard({ user }) {
       <div className="dashboard-panel-header">
         <div>
           <span>Door control</span>
-          <p>{door.deviceName}: the door's connection, the scheduling mode and, for the Super Admin, the remote lock.</p>
+          <p>{door.deviceName} · connection, scheduling and remote lock.</p>
         </div>
         <button type="button" className="settings-secondary-button" onClick={() => setShowLogs(true)}>
           <History size={16} aria-hidden="true" />
@@ -1455,7 +1455,7 @@ function DoorControlCard({ user }) {
       </div>
       <DoorControlPanel door={door} user={user} variant="sections" modeDetails={DOOR_MODE_DETAILS} lockGuide={DOOR_LOCK_GUIDE} />
       <p className="settings-door-guide-note">
-        Every change asks for your confirmation and your security password, and is saved in the door control logs.
+        Every change needs your password and is saved in the logs.
       </p>
       {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
