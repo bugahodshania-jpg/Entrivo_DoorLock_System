@@ -198,88 +198,90 @@ export function DoorControlPanel({
 
   if (variant === 'sections') {
     const lockState = door.state === 'locked' ? 'lock' : door.state === 'unlocked' ? 'unlock' : '';
-    const activeMode = SCHEDULE_MODES.find((option) => option.value === door.scheduleMode);
     const statusLine = offline
       ? (door.scheduleMode === 'on' ? 'No internet. Only the emergency card opens the door.' : 'No internet. Enrolled fingers can enter; entries sync later.')
       : 'Online. Changes reach the door within a few seconds.';
-    const lockLine = offline ? 'Lock and unlock work again once the door reconnects.'
-      : door.state === 'locked' ? 'The door is locked. Unlocking opens it until someone locks it again.'
-        : 'The door is unlocked. Locking secures it; people inside can still exit.';
+    const showLock = canControl && isSuperAdmin;
     return (
-      <div className="door-sections">
-        <div className={`door-status-line is-${door.state}`} role="status" aria-live="polite">
-          <span className="door-status-icon"><DoorIcon size={18} aria-hidden="true" /></span>
-          <div>
-            <strong>Door {offline ? 'offline' : door.label.toLowerCase()}</strong>
-            <span>{statusLine}</span>
-          </div>
-          <small>{door.updatedAt ? `Updated ${door.updatedAt}` : 'Live'}</small>
-        </div>
-
-        {notice.text ? <p className={`door-control-notice${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
-
-        <div className="door-section-grid">
-        {canControl ? (
-          <section className="door-section" aria-labelledby="door-section-mode-title">
-            <h4 id="door-section-mode-title"><CalendarClock size={16} aria-hidden="true" /> Scheduling</h4>
-            <div className="door-mode-switch" role="radiogroup" aria-label="Scheduling mode">
-              {SCHEDULE_MODES.map((option) => (
-                <button key={option.value} type="button" role="radio" aria-checked={door.scheduleMode === option.value}
-                  className={door.scheduleMode === option.value ? 'is-active' : ''} disabled={busy}
-                  onClick={() => setMode(option.value)}>
-                  {option.label}
-                </button>
-              ))}
+      <div className="door-split">
+        <div className="door-split-main">
+          <div className={`door-status-line is-${door.state}`} role="status" aria-live="polite">
+            <span className="door-status-icon"><DoorIcon size={18} aria-hidden="true" /></span>
+            <div>
+              <strong>Door {offline ? 'offline' : door.label.toLowerCase()}</strong>
+              <span>{statusLine}</span>
             </div>
-            <p className="door-section-hint">{activeMode?.hint}</p>
-            {modeDetails ? (
-              <details className="door-section-more">
-                <summary>What each mode does</summary>
-                <dl>
-                  {SCHEDULE_MODES.map((option) => (
-                    <div key={option.value} className={door.scheduleMode === option.value ? 'is-current' : ''}>
-                      <dt>{option.label}{option.value === 'auto' ? ' (recommended)' : ''}</dt>
-                      <dd>{modeDetails[option.value]}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </details>
-            ) : null}
-          </section>
-        ) : null}
+            <small>{door.updatedAt ? `Updated ${door.updatedAt}` : 'Live'}</small>
+          </div>
 
-        {canControl && isSuperAdmin ? (
-          <section className="door-section" aria-labelledby="door-section-lock-title">
-            <h4 id="door-section-lock-title"><LockKeyhole size={16} aria-hidden="true" /> Remote lock</h4>
-            <button type="button" role="switch" aria-checked={door.state === 'locked'}
-              className={`door-lock-switch is-${door.state}`} disabled={busy || offline || Boolean(pending)} onClick={toggleLock}>
-              <span className="door-lock-switch-track" aria-hidden="true"><span /></span>
-              <span>{lockLabel}</span>
-            </button>
-            <p className="door-section-hint">{lockLine}</p>
-            {lockGuide ? (
-              <details className="door-section-more">
-                <summary>What lock and unlock do</summary>
-                <dl>
-                  {lockGuide.map((item) => {
-                    const current = item.key === 'offline' ? offline : !offline && item.key === lockState;
-                    return (
-                      <div key={item.key} className={current ? 'is-current' : ''}>
-                        <dt>{item.title}</dt>
-                        <dd>{item.text}</dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </details>
-            ) : null}
-          </section>
-        ) : null}
+          {notice.text ? <p className={`door-control-notice${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
+
+          {canControl ? (
+            <section className="door-section" aria-labelledby="door-section-mode-title">
+              <h4 id="door-section-mode-title"><CalendarClock size={16} aria-hidden="true" /> Scheduling</h4>
+              <div className="door-mode-switch" role="radiogroup" aria-label="Scheduling mode">
+                {SCHEDULE_MODES.map((option) => (
+                  <button key={option.value} type="button" role="radio" aria-checked={door.scheduleMode === option.value}
+                    className={door.scheduleMode === option.value ? 'is-active' : ''} disabled={busy}
+                    onClick={() => setMode(option.value)}>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {showLock ? (
+            <section className="door-section" aria-labelledby="door-section-lock-title">
+              <h4 id="door-section-lock-title"><LockKeyhole size={16} aria-hidden="true" /> Remote lock</h4>
+              <button type="button" role="switch" aria-checked={door.state === 'locked'}
+                className={`door-lock-switch is-${door.state}`} disabled={busy || offline || Boolean(pending)} onClick={toggleLock}>
+                <span className="door-lock-switch-track" aria-hidden="true"><span /></span>
+                <span>{lockLabel}</span>
+              </button>
+            </section>
+          ) : null}
         </div>
+
+        <aside className="door-info" aria-label="How door control works">
+          <h4>How it works</h4>
+          {modeDetails ? (
+            <div className="door-info-group">
+              <h5>Scheduling modes</h5>
+              <ul>
+                {SCHEDULE_MODES.map((option) => {
+                  const current = door.scheduleMode === option.value;
+                  return (
+                    <li key={option.value} className={current ? 'is-current' : ''}>
+                      <strong>{option.label}{current ? <em>Current</em> : null}</strong>
+                      <span>{modeDetails[option.value]}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+          {showLock && lockGuide ? (
+            <div className="door-info-group">
+              <h5>Remote lock</h5>
+              <ul>
+                {lockGuide.map((item) => {
+                  const current = item.key === 'offline' ? offline : !offline && item.key === lockState;
+                  return (
+                    <li key={item.key} className={current ? 'is-current' : ''}>
+                      <strong>{item.title}{current ? <em>Now</em> : null}</strong>
+                      <span>{item.text}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+          <p className="door-info-note">Every change needs your password and is saved in the logs.</p>
+        </aside>
       </div>
     );
   }
-
   return (
     <>
         {offline ? (

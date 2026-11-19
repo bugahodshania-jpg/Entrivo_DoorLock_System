@@ -1375,15 +1375,15 @@ function AccessPolicyRules({ onOpenDoorControl }) {
 
 // Longer explanations shown on the Door control tab.
 const DOOR_MODE_DETAILS = {
-  auto: 'Online, a person enters only during their approved schedule or override. If the door loses internet, scheduling turns off by itself: enrolled fingers can enter, and entries and exits are saved on the controller (up to 50) and sent to the access logs once it is back online.',
-  on: 'Schedules always apply, even offline. Without internet the door cannot check schedules, so only the emergency card opens it.',
-  off: 'No schedule is needed: every active registered user can enter with their fingerprint or RFID card. Every entry is still logged.',
+  auto: 'Recommended. Schedules apply while online. If the internet drops, enrolled fingers can enter and the entries sync later.',
+  on: 'Schedules always apply. When offline, only the emergency card opens the door.',
+  off: 'No schedule needed. Any active registered user can enter; every entry is still logged.',
 };
 
 const DOOR_LOCK_GUIDE = [
-  { key: 'unlock', title: 'Unlock', text: 'The solenoid opens within a few seconds and the door announces it. It stays unlocked until someone locks it (touch, then a registered finger) or you lock it here.' },
-  { key: 'lock', title: 'Lock', text: 'The solenoid locks the room within a few seconds. Anyone still inside can leave with the exit reader.' },
-  { key: 'offline', title: 'While offline', text: 'Lock and unlock are unavailable because the door cannot receive commands. A scheduling change is saved now and reaches the door when it reconnects.' },
+  { key: 'unlock', title: 'Unlock', text: 'Opens within seconds and stays open until someone locks it.' },
+  { key: 'lock', title: 'Lock', text: 'Locks within seconds. People inside can still exit.' },
+  { key: 'offline', title: 'While offline', text: 'Lock and unlock wait for the connection. Scheduling changes are sent when it reconnects.' },
 ];
 
 function DoorLogsModal({ user, deviceId, onClose }) {
@@ -1454,9 +1454,6 @@ function DoorControlCard({ user }) {
         </button>
       </div>
       <DoorControlPanel door={door} user={user} variant="sections" modeDetails={DOOR_MODE_DETAILS} lockGuide={DOOR_LOCK_GUIDE} />
-      <p className="settings-door-guide-note">
-        Every change needs your password and is saved in the logs.
-      </p>
       {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
   );
