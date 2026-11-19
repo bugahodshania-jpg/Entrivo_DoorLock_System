@@ -202,7 +202,7 @@ export function DoorControlPanel({
     const statusLine = offline
       ? (door.scheduleMode === 'on' ? 'No internet. Only the emergency card opens the door.' : 'No internet. Enrolled fingers can enter; entries sync later.')
       : 'Online. Changes reach the door within a few seconds.';
-    const lockLine = offline ? 'Unavailable until the door is back online.'
+    const lockLine = offline ? 'Lock and unlock work again once the door reconnects.'
       : door.state === 'locked' ? 'The door is locked. Unlocking opens it until someone locks it again.'
         : 'The door is unlocked. Locking secures it; people inside can still exit.';
     return (
@@ -218,6 +218,7 @@ export function DoorControlPanel({
 
         {notice.text ? <p className={`door-control-notice${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
 
+        <div className="door-section-grid">
         {canControl ? (
           <section className="door-section" aria-labelledby="door-section-mode-title">
             <h4 id="door-section-mode-title"><CalendarClock size={16} aria-hidden="true" /> Scheduling</h4>
@@ -274,6 +275,7 @@ export function DoorControlPanel({
             ) : null}
           </section>
         ) : null}
+        </div>
       </div>
     );
   }

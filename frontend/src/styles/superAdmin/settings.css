@@ -1646,7 +1646,8 @@
 /* Door control tab: one status line, then two short sections; details are collapsed. */
 .settings-door-card .dashboard-panel-header { align-items: flex-start; gap: 12px; }
 .settings-door-guide-note { color: #5c6b76; font-size: 12px; margin: 14px 0 0; }
-.door-sections { display: grid; gap: 14px; max-width: 760px; }
+.door-sections { display: grid; gap: 16px; }
+.door-section-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
 .door-status-line { align-items: center; border: 1px solid #e0e8e3; border-radius: 6px; display: flex; gap: 12px; padding: 10px 14px; }
 .door-status-line > div { display: grid; flex: 1; gap: 1px; min-width: 0; }
@@ -1662,9 +1663,9 @@
 .door-status-line.is-unknown .door-status-icon { background: #fbf2cc; color: #7a5d10; }
 .door-status-line.is-unknown strong { color: #7a5d10; }
 
-.door-section { border-top: 1px solid #e6ece8; display: grid; gap: 8px; padding-top: 14px; }
+.door-section { align-content: start; background: #fff; border: 1px solid #e3ebe6; border-radius: 6px; display: grid; gap: 10px; padding: 16px; }
 .settings-card .door-section h4 { align-items: center; color: #10251d; display: flex; font-size: 14px; gap: 6px; margin: 0; }
-.door-section .door-lock-switch { max-width: 320px; }
+.door-section .door-lock-switch { width: 100%; }
 .door-section-hint { color: #4f5f58; font-size: 12.5px; line-height: 1.45; margin: 0; }
 .door-section-more summary { color: #0c4b2d; cursor: pointer; font-size: 12.5px; font-weight: 600; width: max-content; }
 .door-section-more summary:focus-visible { outline: 2px solid #0c4b2d; outline-offset: 2px; }
