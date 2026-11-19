@@ -1253,10 +1253,14 @@ export default function Settings({ user }) {
 
           <AccessPolicyRules onOpenDoorControl={() => handleSelectTab('door')} />
 
-          <h3 className="settings-policy-heading">Default for new schedules</h3>
-          <div className="settings-form-grid">
-            <label className="settings-field">
-              <span>Default grace period</span>
+          <section className="settings-policy-box" aria-labelledby="settings-policy-grace">
+            <header className="settings-policy-box-head">
+              <h3 id="settings-policy-grace">Default grace period</h3>
+              <p>Filled in on each new schedule and override. Click Save Changes at the top to keep it.</p>
+            </header>
+            <div className="settings-policy-grace">
+            <label className="settings-field settings-policy-grace-field">
+              <span>Minutes</span>
               <div className="settings-input-suffix">
                 <input
                   type="number"
@@ -1283,12 +1287,13 @@ export default function Settings({ user }) {
                 <small>minutes</small>
               </div>
             </label>
-            <p className="settings-policy-note">
-              Filled in on each new schedule and override, and shown in schedules and reports. An existing schedule
-              keeps its own grace period when edited. The grace period does not extend door access: the door opens
-              only between the schedule&apos;s start and end. This default is saved in this browser.
-            </p>
-          </div>
+            <ul className="settings-policy-note">
+              <li>Shown in schedules and reports. An existing schedule keeps its own grace period when edited.</li>
+              <li>It does not extend door access: the door opens only between the schedule&apos;s start and end.</li>
+              <li>Saved in this browser only.</li>
+            </ul>
+            </div>
+          </section>
 
         </article>
         ) : null}
@@ -1325,37 +1330,45 @@ function AccessPolicyRules({ onOpenDoorControl }) {
   const modeLabel = { auto: 'Auto', on: 'On', off: 'Off' }[door.scheduleMode] || 'Auto';
   return (
     <div className="settings-policy">
-      <section className="settings-policy-section" aria-labelledby="settings-policy-roles">
-        <h3 id="settings-policy-roles" className="settings-policy-heading">Who can enter</h3>
+      <section className="settings-policy-mode" aria-label="Current scheduling mode">
+        <span className={`settings-door-tag is-${door.scheduleMode || 'auto'}`}>{modeLabel}</span>
+        <p>
+          <strong>Scheduling is {modeLabel}{door.state === 'unknown' ? ' · door offline' : ''}.</strong>{' '}
+          {door.scheduleMode === 'off'
+            ? 'The rules below are paused: every active registered user can enter.'
+            : door.scheduleMode === 'on'
+              ? 'The rules below always apply. Offline, only the emergency card opens the door.'
+              : 'The rules below apply while the door is online. Offline, enrolled fingers can enter and the logs upload later.'}
+        </p>
+        <button type="button" className="settings-secondary-button" onClick={onOpenDoorControl}>Door control</button>
+      </section>
+
+      <section className="settings-policy-box" aria-labelledby="settings-policy-roles">
+        <header className="settings-policy-box-head">
+          <h3 id="settings-policy-roles">Who can enter</h3>
+          <p>Checked on every fingerprint and RFID scan at the door.</p>
+        </header>
         <ul className="settings-policy-roles">
           {ROLE_RULES.map((rule) => (
             <li key={rule.role}>
-              <span className={`settings-door-tag ${rule.tone}`}>{rule.tag}</span>
-              <div><strong>{rule.role}</strong><p>{rule.text}</p></div>
+              <div className="settings-policy-role-head">
+                <strong>{rule.role}</strong>
+                <span className={`settings-door-tag ${rule.tone}`}>{rule.tag}</span>
+              </div>
+              <p>{rule.text}</p>
             </li>
           ))}
         </ul>
       </section>
 
-      <section className="settings-policy-section" aria-labelledby="settings-policy-schedules">
-        <h3 id="settings-policy-schedules" className="settings-policy-heading">Schedule rules</h3>
+      <section className="settings-policy-box" aria-labelledby="settings-policy-schedules">
+        <header className="settings-policy-box-head">
+          <h3 id="settings-policy-schedules">Schedule rules</h3>
+          <p>How schedules open the door, and what is logged.</p>
+        </header>
         <dl className="settings-policy-list">
           {SCHEDULE_RULES.map(([term, text]) => <div key={term}><dt>{term}</dt><dd>{text}</dd></div>)}
         </dl>
-      </section>
-
-      <section className="settings-policy-mode" aria-label="Current scheduling mode">
-        <span className={`settings-door-tag is-${door.scheduleMode || 'auto'}`}>{modeLabel}</span>
-        <p>
-          <strong>Scheduling is {modeLabel} on {door.deviceName}.</strong>{' '}
-          {door.scheduleMode === 'off'
-            ? 'The rules above are paused: every active registered user can enter.'
-            : door.scheduleMode === 'on'
-              ? 'The rules above always apply. Offline, only the emergency card opens the door.'
-              : 'The rules above apply while the door is online. Offline, enrolled fingers can enter and the logs upload later.'}
-          {door.state === 'unknown' ? ' The door is offline right now.' : ''}
-        </p>
-        <button type="button" className="settings-secondary-button" onClick={onOpenDoorControl}>Door control</button>
       </section>
     </div>
   );
