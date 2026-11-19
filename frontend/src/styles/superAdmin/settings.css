@@ -1595,3 +1595,7 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Door control tab: the same panel as the header door popup. */
+.settings-door-panel { display: grid; gap: 12px; max-width: 620px; }
+.settings-door-panel .access-status-door { margin: 0; }

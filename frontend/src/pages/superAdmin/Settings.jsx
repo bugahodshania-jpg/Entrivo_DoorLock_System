@@ -1,4 +1,5 @@
 import {
+  DoorClosed,
   Eye,
   EyeOff,
   Fingerprint,
@@ -20,6 +21,8 @@ import {
 } from '../../utils/systemSettings';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import ErrorNoticeModal from '../../components/ErrorNoticeModal';
+import { DoorControlPanel } from '../../components/DoorStatusCard';
+import { useDoorStatus } from '../../hooks/useDoorStatus';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
@@ -78,6 +81,7 @@ function formatPasswordLastUpdated(profile) {
 const settingsTabByHash = {
   '#admin-information': 'admin',
   '#access-policy': 'access',
+  '#door-control': 'door',
 };
 
 const settingsHashByTab = Object.fromEntries(
@@ -172,6 +176,7 @@ export default function Settings({ user }) {
     () => [
       { key: 'admin', label: 'Admin information' },
       { key: 'access', label: 'Access policy' },
+      { key: 'door', label: 'Door control' },
     ],
     [],
   );
@@ -1278,6 +1283,8 @@ export default function Settings({ user }) {
 
         </article>
         ) : null}
+
+        {activeTab === 'door' ? <DoorControlCard user={user} /> : null}
       </section>
       <ErrorNoticeModal
         open={Boolean(adminProfileError)}
@@ -1285,5 +1292,24 @@ export default function Settings({ user }) {
         onClose={() => setAdminProfileError('')}
       />
     </main>
+  );
+}
+
+/** Same as the header door popup: connection, scheduling mode and remote lock. */
+function DoorControlCard({ user }) {
+  const door = useDoorStatus();
+  return (
+    <article className="settings-card settings-door-card" role="tabpanel" aria-label="Door control">
+      <div className="dashboard-panel-header">
+        <div>
+          <span>Door control</span>
+          <p>{door.deviceName}: the door's connection, the scheduling mode and, for the Super Admin, the remote lock.</p>
+        </div>
+        <DoorClosed size={18} aria-hidden="true" className="settings-card-icon" />
+      </div>
+      <div className="settings-door-panel">
+        <DoorControlPanel door={door} user={user} />
+      </div>
+    </article>
   );
 }

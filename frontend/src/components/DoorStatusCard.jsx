@@ -56,10 +56,7 @@ export default function DoorStatusCard({ user }) {
 
 function DoorModal({ door, user, canControl, onClose }) {
   const closeRef = useRef(null);
-  const confirmAction = useActionConfirm();
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState({ text: '', error: false });
-  const isSuperAdmin = user?.role === 'super_admin';
   // The door status refreshes every few seconds and passes a new onClose each
   // time. Keep it in a ref so the focus below runs once, not on every refresh
   // (that stole focus from the security password box).
@@ -79,13 +76,78 @@ function DoorModal({ door, user, canControl, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  const occupant = door.occupant;
+  const rows = occupant ? [
+    ['Person', occupant.name],
+    occupant.role ? ['Role', ROLE_LABELS[occupant.role] || occupant.role] : null,
+    occupant.identifier ? ['ID', occupant.identifier] : null,
+    ['Method', occupant.method === 'RFID' ? 'RFID card' : occupant.method || '—'],
+    ACCESS_TYPE_LABELS[occupant.access_type] ? ['Access type', ACCESS_TYPE_LABELS[occupant.access_type]] : null,
+    occupant.schedule ? ['Schedule', occupant.schedule] : null,
+    ['Entered', [occupant.entered_time, occupant.entered_date].filter(Boolean).join(' · ') || '—'],
+  ].filter(Boolean) : [];
+  const offline = door.state === 'unknown';
+  const DoorIcon = door.state === 'locked' ? LockKeyhole : door.state === 'unlocked' ? LockKeyholeOpen : WifiOff;
+
+  return (
+    <div className="action-confirm-backdrop door-panel-backdrop" role="presentation"
+      onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="action-confirm-modal access-status-modal is-granted door-occupant-modal" role="dialog"
+        aria-modal="true" aria-labelledby="door-occupant-title">
+        <header className="access-status-header">
+          <span className="access-status-icon" aria-hidden="true">{door.state === 'unlocked' ? <UserRound size={24} /> : <DoorIcon size={24} />}</span>
+          <div>
+            <span className="access-status-eyebrow">{door.deviceName}</span>
+            <h2 id="door-occupant-title">{door.state === 'unlocked' ? 'Currently using the door' : 'Door'}</h2>
+          </div>
+        </header>
+
+        {offline ? null : door.state !== 'unlocked' ? (
+          <p className="door-occupant-empty">The door is {door.label.toLowerCase()} now, so no one is using it.</p>
+        ) : rows.length ? (
+          <dl className="access-status-details">
+            {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+          </dl>
+        ) : (
+          <p className="door-occupant-empty">The door is unlocked, but no recent entry shows who unlocked it.</p>
+        )}
+
+        <DoorControlPanel door={door} user={user} canControl={canControl}
+          onBusyChange={setBusy} confirmingRef={confirmingRef} />
+
+        <div className="action-confirm-actions access-status-actions">
+          <button type="button" ref={closeRef} onClick={onClose} disabled={busy}>Close</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * The door's connection notice, live state, scheduling mode and (Super Admin)
+ * remote lock. Used in the header door popup and on the Settings page.
+ * Must render inside an ActionConfirmProvider.
+ */
+export function DoorControlPanel({ door, user, canControl = true, onBusyChange, confirmingRef }) {
+  const confirmAction = useActionConfirm();
+  const [busy, setBusyState] = useState(false);
+  const [notice, setNotice] = useState({ text: '', error: false });
+  const isSuperAdmin = user?.role === 'super_admin';
+  const setBusy = (value) => {
+    setBusyState(value);
+    onBusyChange?.(value);
+  };
+  const setConfirming = (value) => {
+    if (confirmingRef) confirmingRef.current = value;
+  };
+
   async function send(payload, confirm) {
-    confirmingRef.current = true;
+    setConfirming(true);
     let password;
     try {
       password = await confirmAction({ ...confirm, returnPassword: true });
     } finally {
-      confirmingRef.current = false;
+      setConfirming(false);
     }
     if (!password) return;
     setBusy(true);
@@ -125,33 +187,12 @@ function DoorModal({ door, user, canControl, onClose }) {
     });
   };
 
-  const occupant = door.occupant;
-  const rows = occupant ? [
-    ['Person', occupant.name],
-    occupant.role ? ['Role', ROLE_LABELS[occupant.role] || occupant.role] : null,
-    occupant.identifier ? ['ID', occupant.identifier] : null,
-    ['Method', occupant.method === 'RFID' ? 'RFID card' : occupant.method || '—'],
-    ACCESS_TYPE_LABELS[occupant.access_type] ? ['Access type', ACCESS_TYPE_LABELS[occupant.access_type]] : null,
-    occupant.schedule ? ['Schedule', occupant.schedule] : null,
-    ['Entered', [occupant.entered_time, occupant.entered_date].filter(Boolean).join(' · ') || '—'],
-  ].filter(Boolean) : [];
   const offline = door.state === 'unknown';
   const DoorIcon = door.state === 'locked' ? LockKeyhole : door.state === 'unlocked' ? LockKeyholeOpen : WifiOff;
   const pending = door.pendingCommand;
 
   return (
-    <div className="action-confirm-backdrop door-panel-backdrop" role="presentation"
-      onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="action-confirm-modal access-status-modal is-granted door-occupant-modal" role="dialog"
-        aria-modal="true" aria-labelledby="door-occupant-title">
-        <header className="access-status-header">
-          <span className="access-status-icon" aria-hidden="true">{door.state === 'unlocked' ? <UserRound size={24} /> : <DoorIcon size={24} />}</span>
-          <div>
-            <span className="access-status-eyebrow">{door.deviceName}</span>
-            <h2 id="door-occupant-title">{door.state === 'unlocked' ? 'Currently using the door' : 'Door'}</h2>
-          </div>
-        </header>
-
+    <>
         {offline ? (
           <p className="door-control-offline" role="status">
             <WifiOff size={15} aria-hidden="true" />
@@ -162,15 +203,7 @@ function DoorModal({ door, user, canControl, onClose }) {
                 : 'Scheduling is disabled automatically: enrolled fingers can enter, and their entries are saved for the access logs.'}
             </span>
           </p>
-        ) : door.state !== 'unlocked' ? (
-          <p className="door-occupant-empty">The door is {door.label.toLowerCase()} now, so no one is using it.</p>
-        ) : rows.length ? (
-          <dl className="access-status-details">
-            {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-          </dl>
-        ) : (
-          <p className="door-occupant-empty">The door is unlocked, but no recent entry shows who unlocked it.</p>
-        )}
+        ) : null}
 
         <div className={`access-status-door is-${door.state}`} role="status" aria-live="polite">
           <DoorIcon size={16} aria-hidden="true" />
@@ -212,10 +245,6 @@ function DoorModal({ door, user, canControl, onClose }) {
           </div>
         ) : null}
 
-        <div className="action-confirm-actions access-status-actions">
-          <button type="button" ref={closeRef} onClick={onClose} disabled={busy}>Close</button>
-        </div>
-      </section>
-    </div>
+    </>
   );
 }
