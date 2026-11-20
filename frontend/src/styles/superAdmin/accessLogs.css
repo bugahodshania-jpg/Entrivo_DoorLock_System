@@ -563,3 +563,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Logs the door saved while offline and uploaded later */
+.access-log-offline-tag {
+  align-items: center;
+  background: #fbf2cc;
+  border: 1px solid #ecd98a;
+  border-radius: 3px;
+  color: #7a5d10;
+  cursor: help;
+  display: inline-flex;
+  font-size: 10.5px;
+  font-weight: 700;
+  gap: 3px;
+  line-height: 1;
+  margin-left: 6px;
+  padding: 3px 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.access-logs-table td strong + .access-log-offline-tag { display: flex; margin: 4px 0 0; width: max-content; }

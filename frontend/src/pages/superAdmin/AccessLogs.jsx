@@ -26,6 +26,7 @@ import useLiveAccessLogs from '../../hooks/useLiveAccessLogs';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
 import { userHasPrivilege } from '../../utils/privileges';
+import OfflineLogTag from '../../components/OfflineLogTag';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
@@ -169,6 +170,7 @@ export default function AccessLogs({ user }) {
         log.scheduleId,
         log.scheduleWindow,
         log.status,
+        log.offline ? 'offline' : '',
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
@@ -588,6 +590,7 @@ export default function AccessLogs({ user }) {
                     </td>
                     <td>
                       <strong>{log.accessType || 'N/A'}</strong>
+                      <OfflineLogTag log={log} />
                     </td>
                     <td>
                       <strong>{log.scheduleId ?? 'N/A'}</strong>

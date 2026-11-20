@@ -5,6 +5,7 @@ import AccessLogsLiveStatus from '../../components/AccessLogsLiveStatus';
 import useLiveAccessLogs from '../../hooks/useLiveAccessLogs';
 import { getManilaDateStamp } from '../../utils/dateTime';
 import { buildExportNote, exportTable } from '../../utils/exportFiles';
+import OfflineLogTag from '../../components/OfflineLogTag';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/users.css';
 import '../../styles/superAdmin/accessLogs.css';
@@ -82,7 +83,7 @@ export default function UserAccessLogs({ user }) {
         return true;
       }
 
-      return [log.method, log.accessType, log.status, log.scheduleKindLabel, log.scheduleWindow, log.time, log.date]
+      return [log.method, log.accessType, log.status, log.scheduleKindLabel, log.scheduleWindow, log.time, log.date, log.offline ? 'offline' : '']
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedSearchQuery));
     });
@@ -321,7 +322,7 @@ export default function UserAccessLogs({ user }) {
                     <td>{log.date}</td>
                     <td>{log.time}</td>
                     <td>{log.method}</td>
-                    <td>{log.accessType || '—'}</td>
+                    <td>{log.accessType || '—'}<OfflineLogTag log={log} /></td>
                     {showSchedule ? (
                     <td>
                       {log.scheduleKindLabel ? (

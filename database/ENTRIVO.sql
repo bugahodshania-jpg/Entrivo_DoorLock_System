@@ -418,6 +418,7 @@ CREATE TABLE `access_log` (
   `access_type` enum('IN','OUT','VERIFY') NOT NULL DEFAULT 'IN',
   `matched_slot` int DEFAULT NULL,
   `match_confidence` int DEFAULT NULL,
+  `offline_synced_at` datetime DEFAULT NULL,
   PRIMARY KEY (`log_id`),
   KEY `idx_schedule_id` (`schedule_id`),
   KEY `idx_card_id` (`card_id`),

@@ -63,6 +63,9 @@ export default function AccessLogViewModal({ log, onClose }) {
         ['Status', <span className={`dashboard-log-status access-logs-status-${status}`}>
           {displayLabel(log.status) || 'Not recorded'}
         </span>],
+        ['Recorded', log.offline
+          ? `Offline: saved by the door without a connection, synced ${log.offlineSyncedAt || 'later'}`
+          : 'Live'],
       ],
     },
     {

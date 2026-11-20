@@ -44,6 +44,7 @@ final class OfflineExitService
 
         DoorEventLog::ensure($this->pdo);
         AccessLogSchema::ensureRfidUid($this->pdo);
+        AccessLogSchema::ensureOfflineSynced($this->pdo);
         $hasAccessType = AccessLogSchema::hasColumn($this->pdo, 'access_log', 'access_type');
         $this->pdo->beginTransaction();
         try {
@@ -59,12 +60,13 @@ final class OfflineExitService
             $extraColumn = $hasAccessType ? ',access_type' : '';
             $extraValue = $hasAccessType ? ($isEntry ? ",'IN'" : ",'OUT'") : '';
             $this->pdo->prepare("INSERT INTO access_log
-                (user_id,card_id,rfid_uid,fingerprint_id,schedule_id,override_id,access_timestamp,access_status,denial_reason,method_access{$extraColumn})
-                VALUES (?,?,?,?,?,?,?,'granted',NULL,?{$extraValue})")
+                (user_id,card_id,rfid_uid,fingerprint_id,schedule_id,override_id,access_timestamp,access_status,denial_reason,method_access,offline_synced_at{$extraColumn})
+                VALUES (?,?,?,?,?,?,?,'granted',NULL,?,?{$extraValue})")
                 ->execute([
                     $identity['user_id'], $identity['card_id'], $method === 'rfid' ? $uid : null, $identity['fingerprint_id'],
                     $exit['schedule_id'], $exit['override_id'], $at->format('Y-m-d H:i:s'),
                     $method === 'rfid' ? 'RFID' : 'Fingerprint',
+                    $now->format('Y-m-d H:i:s'),
                 ]);
             $logId = (int) $this->pdo->lastInsertId();
             DoorEventLog::remember($this->pdo, $eventId, $logId, $now);

@@ -48,6 +48,31 @@ final class AccessLogSchema
         }
     }
 
+    /**
+     * offline_synced_at: when an entry or exit the door saved while offline
+     * reached the server. NULL for every normal (live) log.
+     */
+    public static function ensureOfflineSynced(PDO $pdo): void
+    {
+        if (self::hasColumn($pdo, 'access_log', 'offline_synced_at')) return;
+        if ($pdo->inTransaction()) {
+            throw new RuntimeException('Add the access_log offline_synced_at column before beginning a transaction.');
+        }
+        try {
+            $pdo->exec('ALTER TABLE access_log ADD COLUMN offline_synced_at DATETIME NULL DEFAULT NULL');
+        } catch (PDOException $error) {
+            if ((int) ($error->errorInfo[1] ?? 0) !== 1060) throw $error;
+        }
+    }
+
+    /** SQL for the offline sync time, or NULL when the column does not exist yet. */
+    public static function offlineSyncedSelect(PDO $pdo, string $table = 'access_log'): string
+    {
+        return self::hasColumn($pdo, 'access_log', 'offline_synced_at')
+            ? "DATE_FORMAT({$table}.offline_synced_at, '%b %e, %Y %h:%i %p')"
+            : 'NULL';
+    }
+
     public static function ensureRfidUid(PDO $pdo): void
     {
         if (self::hasColumn($pdo, 'access_log', 'rfid_uid')) return;

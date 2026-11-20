@@ -55,6 +55,8 @@ try {
         && (int) $row['user_id'] === 1 && (int) $row['card_id'] === 1 && $row['rfid_uid'] === 'AA00000001',
         'The offline exit must be a granted RFID OUT for the card owner. Got ' . json_encode($row));
     expectOfflineExit($row['access_timestamp'] === '2026-11-12 10:25:00', 'The exit must carry the time it happened, not the upload time.');
+    expectOfflineExit(($row['offline_synced_at'] ?? null) === '2026-11-12 10:30:00',
+        'An offline upload must be marked with the time it reached the server. Got ' . json_encode($row['offline_synced_at'] ?? null));
 
     // Retrying the same upload never logs it twice.
     $before = $count();

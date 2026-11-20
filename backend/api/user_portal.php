@@ -24,6 +24,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/AccessLogSchema.php';
 require_once dirname(__DIR__) . '/services/NotificationService.php';
 require_once dirname(__DIR__) . '/services/OverrideRequestAlertService.php';
 require_once dirname(__DIR__) . '/services/ScheduleStatusService.php';
@@ -643,6 +644,7 @@ function portalAccessLogs(PDO $pdo, int $userId): array
     $scheduleKindSelect = $hasScheduleKind
         ? "COALESCE(schedules.schedule_kind, 'regular')"
         : "CASE WHEN schedules.status = 'overridden' THEN 'override' ELSE 'regular' END";
+    $offlineSyncedColumn = AccessLogSchema::offlineSyncedSelect($pdo);
 
     $statement = $pdo->prepare(
         "SELECT
@@ -653,6 +655,7 @@ function portalAccessLogs(PDO $pdo, int $userId): array
             access_log.method_access,
             {$accessTypeColumn} AS access_type,
             access_log.access_status,
+            {$offlineSyncedColumn} AS offline_synced_at,
             access_log.schedule_id,
             access_log.override_id,
             {$scheduleKindSelect} AS schedule_kind,
@@ -690,6 +693,8 @@ function portalAccessLogs(PDO $pdo, int $userId): array
                 'method' => $row['method_access'],
                 'accessType' => $row['access_type'],
                 'status' => $row['access_status'],
+                'offline' => $row['offline_synced_at'] !== null,
+                'offlineSyncedAt' => $row['offline_synced_at'],
                 'scheduleId' => $row['schedule_id'] !== null ? (int) $row['schedule_id'] : null,
                 'overrideId' => $row['override_id'] !== null ? (int) $row['override_id'] : null,
                 'scheduleKind' => $row['schedule_id'] !== null || $row['override_id'] !== null

@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 require_once dirname(__DIR__) . '/config/connection.php';
 require_once dirname(__DIR__) . '/services/EmergencyCards.php';
+require_once dirname(__DIR__) . '/services/AccessLogSchema.php';
 
 $limit = filter_input(INPUT_GET, 'limit', FILTER_VALIDATE_INT, [
     'options' => [
@@ -64,6 +65,8 @@ try {
         ? 'access_log.match_confidence'
         : 'NULL';
 
+    $offlineSyncedColumn = AccessLogSchema::offlineSyncedSelect($pdo);
+
     $statement = $pdo->prepare(
         "SELECT
             access_log.log_id,
@@ -100,6 +103,7 @@ try {
             {$accessTypeColumn} AS access_type,
             {$slotColumn} AS matched_slot,
             {$confidenceColumn} AS match_confidence,
+            {$offlineSyncedColumn} AS offline_synced_at,
             access_log.access_status
          FROM access_log
          LEFT JOIN users ON users.id = access_log.user_id
@@ -149,6 +153,9 @@ try {
             'matchedSlot' => $log['matched_slot'] !== null ? (int) $log['matched_slot'] : null,
             'matchConfidence' => $log['match_confidence'] !== null ? (int) $log['match_confidence'] : null,
             'status' => $log['access_status'],
+            // Saved by the door while it had no connection, uploaded later.
+            'offline' => $log['offline_synced_at'] !== null,
+            'offlineSyncedAt' => $log['offline_synced_at'],
             ];
         },
         $statement->fetchAll()
