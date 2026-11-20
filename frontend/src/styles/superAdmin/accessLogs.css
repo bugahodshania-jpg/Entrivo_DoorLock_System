@@ -99,7 +99,7 @@
 }
 
 .access-logs-toolbar-filters .manage-users-role-tabs {
-  z-index: 20;
+  z-index: 15; /* above the table, below the sticky top bar (20) */
 }
 
 .access-logs-dates,

@@ -319,7 +319,7 @@
 }
 
 .delete-requests-page .manage-users-role-tabs {
-  z-index: 20;
+  z-index: 15; /* above the table, below the sticky top bar (20) */
 }
 
 .delete-requests-page .dashboard-panel-header p {
