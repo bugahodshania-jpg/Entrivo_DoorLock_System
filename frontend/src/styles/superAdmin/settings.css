@@ -1606,7 +1606,7 @@
 .settings-door-logs-actions { display: flex; gap: 4px; }
 .settings-door-logs-intro { color: #5c6b76; font-size: 12px; margin: 6px 0 10px; }
 .settings-door-logs { display: grid; gap: 6px; list-style: none; margin: 0; max-height: min(60vh, 520px); overflow-y: auto; padding: 0; }
-.settings-door-logs li { border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 2px; padding: 8px 10px; }
+.settings-door-logs li { border: 1px solid #e3ebe6; border-radius: 3px; display: grid; gap: 2px; padding: 8px 10px; }
 .settings-door-logs li.is-failed { background: #fdf6f5; border-color: #efc7c2; }
 .settings-door-logs time { color: #5c6b76; font-size: 11px; }
 .settings-door-logs span { color: #10251d; font-size: 13px; }
@@ -1617,14 +1617,14 @@
 
 /* Access policy tab: the rules the door enforces. */
 .settings-policy { display: grid; gap: 14px; margin-bottom: 14px; }
-.settings-policy-box { border: 1px solid #e3ebe6; border-radius: 6px; overflow: hidden; }
+.settings-policy-box { border: 1px solid #e3ebe6; border-radius: 3px; overflow: hidden; }
 .settings-policy-box-head { background: #f7faf8; border-bottom: 1px solid #e3ebe6; padding: 10px 14px; }
 .settings-card .settings-policy-box-head h3 { color: #10251d; font-size: 14px; font-weight: 800; line-height: 1.3; margin: 0; }
 .settings-policy-box-head p { color: #5c6b76; font-size: 12px; margin: 2px 0 0; }
 .settings-policy-roles { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; margin: 0; padding: 12px 14px; }
 @media (max-width: 1180px) { .settings-policy-roles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .settings-policy-roles { grid-template-columns: minmax(0, 1fr); } }
-.settings-policy-roles li { border: 1px solid #e3ebe6; border-radius: 4px; display: grid; align-content: start; gap: 6px; padding: 10px 12px; }
+.settings-policy-roles li { border: 1px solid #e3ebe6; border-radius: 3px; display: grid; align-content: start; gap: 6px; padding: 10px 12px; }
 .settings-policy-role-head { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
 .settings-policy-role-head strong { color: #10251d; font-size: 13px; line-height: 1.3; }
 .settings-policy-role-head .settings-door-tag { flex: 0 0 auto; padding: 3px 9px; white-space: nowrap; }
@@ -1635,7 +1635,7 @@
 .settings-policy-list dt { color: #10251d; font-size: 13px; font-weight: 700; }
 .settings-policy-list dd { color: #4f5f58; font-size: 13px; line-height: 1.45; margin: 0; }
 @media (max-width: 640px) { .settings-policy-list div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
-.settings-policy-mode { align-items: center; background: #f4fbf7; border: 1px solid #c8dfd2; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px; }
+.settings-policy-mode { align-items: center; background: #f4fbf7; border: 1px solid #c8dfd2; border-radius: 3px; display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 14px; }
 .settings-policy-mode .settings-door-tag { min-width: 56px; padding: 3px 9px; }
 .settings-policy-mode p { color: #4f5f58; flex: 1 1 280px; font-size: 13px; line-height: 1.45; margin: 0; }
 .settings-policy-mode strong { color: #10251d; }
@@ -1648,12 +1648,12 @@
 .door-split { align-items: start; display: grid; gap: 20px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
 .door-split-main { display: grid; gap: 14px; }
 
-.door-status-line { align-items: center; border: 1px solid #e0e8e3; border-radius: 6px; display: flex; gap: 12px; padding: 10px 14px; }
+.door-status-line { align-items: center; border: 1px solid #e0e8e3; border-radius: 3px; display: flex; gap: 12px; padding: 10px 14px; }
 .door-status-line > div { display: grid; flex: 1; gap: 1px; min-width: 0; }
 .door-status-line strong { color: #10251d; font-size: 14px; }
 .door-status-line > div span { color: #4f5f58; font-size: 12.5px; }
 .door-status-line small { color: #5c6b76; font-size: 12px; white-space: nowrap; }
-.door-status-icon { align-items: center; border-radius: 50%; display: inline-flex; flex: 0 0 auto; height: 34px; justify-content: center; width: 34px; }
+.door-status-icon { align-items: center; border-radius: 3px; display: inline-flex; flex: 0 0 auto; height: 34px; justify-content: center; width: 34px; }
 .door-status-line.is-locked { background: #f4fbf7; border-color: #c8dfd2; }
 .door-status-line.is-locked .door-status-icon { background: #e3f1e9; color: #0c4b2d; }
 .door-status-line.is-unlocked { background: #fdf7f0; border-color: #f0d6bb; }
@@ -1664,27 +1664,27 @@
 
 .door-split { align-items: stretch; }
 .door-split-main { align-content: start; }
-.door-section { background: #fff; border: 1px solid #e3ebe6; border-radius: 8px; display: grid; gap: 12px; padding: 14px 16px; }
+.door-section { background: #fff; border: 1px solid #e3ebe6; border-radius: 3px; display: grid; gap: 12px; padding: 14px 16px; }
 .door-section-head { align-items: center; display: flex; gap: 10px; }
 .door-section-head > div { flex: 1; min-width: 0; }
 .settings-card .door-section-head h4 { color: #10251d; font-size: 14px; margin: 0; }
 .door-section-head p { color: #5c6b76; font-size: 12px; margin: 1px 0 0; }
-.door-section-icon { align-items: center; background: #e3f1e9; border-radius: 8px; color: #0c4b2d; display: inline-flex; flex: 0 0 auto; height: 32px; justify-content: center; width: 32px; }
+.door-section-icon { align-items: center; background: #e3f1e9; border-radius: 3px; color: #0c4b2d; display: inline-flex; flex: 0 0 auto; height: 32px; justify-content: center; width: 32px; }
 .door-section-chip { background: #e3f1e9; border-radius: 999px; color: #0c4b2d; font-size: 11.5px; font-weight: 700; padding: 3px 10px; white-space: nowrap; }
 .door-section-chip.is-unlocked { background: #fbeee0; color: #8a4510; }
 .door-section-chip.is-unknown { background: #fbf2cc; color: #7a5d10; }
 
 /* Segmented scheduling switch */
-.door-split .door-mode-switch { background: #f1f5f3; border: 1px solid #e3ebe6; border-radius: 8px; gap: 4px; padding: 4px; }
-.door-split .door-mode-switch button { background: transparent; border: 0; border-radius: 6px; color: #3e4f47; font-weight: 600; min-height: 36px; transition: background 0.15s ease, color 0.15s ease; }
+.door-split .door-mode-switch { background: #f1f5f3; border: 1px solid #e3ebe6; border-radius: 3px; gap: 4px; padding: 4px; }
+.door-split .door-mode-switch button { background: transparent; border: 0; border-radius: 2px; color: #3e4f47; font-weight: 600; min-height: 36px; transition: background 0.15s ease, color 0.15s ease; }
 .door-split .door-mode-switch button:hover:not(.is-active):not(:disabled) { background: #e4ece7; color: #10251d; }
 .door-split .door-mode-switch button.is-active { background: #0c4b2d; box-shadow: 0 1px 3px rgba(12, 75, 45, 0.3); color: #fff; }
 
 /* Remote lock switch */
-.door-split .door-lock-switch { background: #f7faf8; border-color: #e3ebe6; border-radius: 8px; min-height: 46px; width: 100%; }
+.door-split .door-lock-switch { background: #f7faf8; border-color: #e3ebe6; border-radius: 3px; min-height: 46px; width: 100%; }
 .door-split .door-lock-switch:not(:disabled):hover { border-color: #8fb8a2; }
 
-.door-info { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 6px; display: grid; gap: 14px; padding: 16px; }
+.door-info { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 3px; display: grid; gap: 14px; padding: 16px; }
 .settings-card .door-info h4 { color: #10251d; font-size: 14px; margin: 0; }
 .settings-card .door-info h5 { color: #5c6b76; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; margin: 0 0 6px; text-transform: uppercase; }
 .door-info ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
