@@ -2321,3 +2321,25 @@
 .schedules-import-run.is-blocked:hover,
 .schedules-import-actions button:disabled { background: #c9d3cd; border-color: #c9d3cd; color: #5f6b64; cursor: not-allowed; }
 .schedules-import-actions .dashboard-export-button:disabled { background: transparent; }
+
+/* Review modal shown on top of the import modal */
+.schedules-import-review-overlay { background: rgba(10, 18, 14, 0.45); z-index: 10000; }
+.schedules-modal.schedules-import-review { display: flex; flex-direction: column; max-height: calc(100vh - 48px); max-width: 1040px; width: 100%; }
+.schedules-import-review .schedules-modal-header p { align-items: center; display: flex; gap: 5px; }
+.schedules-import-review .schedules-import-table-wrap { flex: 1 1 auto; max-height: none; min-height: 120px; }
+.schedules-import-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.schedules-import-counts span { background: #f1f5f3; border-radius: 999px; color: #33443d; font-size: 12.5px; padding: 4px 11px; }
+.schedules-import-counts span.is-ok { background: #e3f1e9; color: #0c4b2d; }
+.schedules-import-counts span.is-error { background: #fdf0ee; color: #9b2c1f; }
+.schedules-import-table { font-size: 12.5px; }
+.schedules-import-table td, .schedules-import-table th { padding: 9px 12px; }
+.schedules-import-table td:first-child { color: #5c6b76; width: 48px; }
+.schedules-import-table td.is-nowrap { white-space: nowrap; }
+.schedules-import-status { border-radius: 999px; display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; white-space: nowrap; }
+.schedules-import-status.is-approved { background: #e3f1e9; color: #0c4b2d; }
+.schedules-import-status.is-pending { background: #fbf2cc; color: #7a5d10; }
+.schedules-import-review .schedules-import-actions { align-items: center; }
+.schedules-import-review .schedules-import-another { margin-right: auto; }
+@media (max-width: 640px) {
+  .schedules-import-review .schedules-import-another { margin-right: 0; }
+}
