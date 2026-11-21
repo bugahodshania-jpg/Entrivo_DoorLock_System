@@ -745,7 +745,7 @@ export default function RFIDCards({ user }) {
               <span>{showEnrollmentScans ? 'Scanned UID for Enrollment Verification' : 'Student RFID Cards'}</span>
               <p>
                 {showEnrollmentScans
-                  ? 'UIDs read by the enrollment scanner. These are not issued student cards.'
+                  ? 'UIDs read by the RFID scanner station or tapped at the door controller. These are not issued student cards.'
                   : 'Issued RFID cards linked to student profiles.'}
               </p>
             </div>
@@ -882,7 +882,7 @@ export default function RFIDCards({ user }) {
                 {showEnrollmentScans && !isScanLoading && visibleEnrollmentScans.length === 0 && (
                   <tr>
                     <td className="dashboard-recent-empty" colSpan={scanColumns.length}>
-                      <TableEmptyState description={normalizedSearchQuery || scanDateFrom || scanDateTo ? 'Try adjusting your search or scan date filters.' : 'Cards read by the enrollment scanner will appear here.'}>
+                      <TableEmptyState description={normalizedSearchQuery || scanDateFrom || scanDateTo ? 'Try adjusting your search or scan date filters.' : 'Cards read by the RFID scanner or tapped at the door controller will appear here.'}>
                         {normalizedSearchQuery || scanDateFrom || scanDateTo
                           ? 'No enrollment scans match these filters.'
                           : 'No enrollment scans yet.'}

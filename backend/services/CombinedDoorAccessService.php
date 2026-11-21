@@ -63,11 +63,21 @@ final class CombinedDoorAccessService
             $this->recordRfidDecision($decision, $now);
             if ($eventId !== null) DoorEventLog::remember($this->pdo, $eventId, (int) $this->pdo->lastInsertId(), $now);
             $this->pdo->commit();
+            $this->rememberDoorScan($decision, $input);
             return $decision;
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $error;
         }
+    }
+
+    /** Card taps also appear in RFID Cards → View Scanned UID. */
+    private function rememberDoorScan(array $decision, array $input): void
+    {
+        $uid = $decision['rfid_uid'] ?? null;
+        if (!is_string($uid) || $uid === '' || !empty($decision['emergency_card'])) return;
+        require_once __DIR__ . '/RfidScanService.php';
+        RfidScanService::recordDoorTap($this->pdo, $uid, (string) ($input['direction'] ?? 'entry'));
     }
 
     private function authorizeRfid(array $input, bool $hasRole, DateTimeImmutable $now): array

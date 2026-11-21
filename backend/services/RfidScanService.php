@@ -61,9 +61,28 @@ class RfidScanService
         return ['verified' => true, 'rfid_uid' => $rfidUid, 'scanned_at' => $scan['scanned_at']];
     }
 
-    public function record(string $rfidUid, ?string $deviceLabel = null): array
+    /**
+     * A card tapped at the door controller (online, or uploaded later from its
+     * offline queue with the time it happened) also goes to the scanned UID
+     * list, so View Scanned UID shows it next to the RFID scanner station's.
+     * Emergency cards are left out. Best effort: never breaks the door's answer.
+     */
+    public static function recordDoorTap(PDO $pdo, string $rfidUid, string $direction, ?string $scannedAt = null): void
     {
-        $scannedAt = entrivo_now();
+        try {
+            require_once __DIR__ . '/EmergencyCards.php';
+            $service = new self($pdo);
+            $uid = $service->normalizeUid($rfidUid);
+            if (!$service->isValidUid($uid) || in_array($uid, EmergencyCards::uids(), true)) return;
+            $service->record($uid, 'Door controller (' . ($direction === 'exit' ? 'exit' : 'entry') . ')', $scannedAt);
+        } catch (Throwable) {
+            // The access log already has this tap.
+        }
+    }
+
+    public function record(string $rfidUid, ?string $deviceLabel = null, ?string $scannedAt = null): array
+    {
+        $scannedAt ??= entrivo_now();
         $label = trim((string) $deviceLabel);
         $statement = $this->pdo->prepare(
             'INSERT INTO rfid_scan_log (rfid_uid, scanned_at, device_label)

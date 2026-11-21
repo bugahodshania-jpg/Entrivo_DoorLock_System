@@ -71,6 +71,11 @@ final class OfflineExitService
             $logId = (int) $this->pdo->lastInsertId();
             DoorEventLog::remember($this->pdo, $eventId, $logId, $now);
             $this->pdo->commit();
+            if ($method === 'rfid') {
+                // Also listed in View Scanned UID, at the time it was tapped.
+                require_once __DIR__ . '/RfidScanService.php';
+                RfidScanService::recordDoorTap($this->pdo, $uid, $direction, $at->format('Y-m-d H:i:s'));
+            }
             return ['success' => true, 'recorded' => true, 'log_id' => $logId, 'user_id' => $identity['user_id'],
                 'access_timestamp' => $at->format('Y-m-d H:i:s'), 'message' => $isEntry ? 'Offline entry recorded.' : 'Offline exit recorded.'];
         } catch (Throwable $error) {

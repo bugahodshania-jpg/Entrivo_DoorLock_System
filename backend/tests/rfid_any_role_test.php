@@ -12,6 +12,7 @@ $pdo = entrivo_pdo();
 $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');
 $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY,username VARCHAR(50),role VARCHAR(20),is_active INT,approval_status VARCHAR(20),must_change_password INT,onboarding_step VARCHAR(20)) ENGINE=InnoDB');
 $pdo->exec('CREATE TEMPORARY TABLE rfid_cards (card_id INT PRIMARY KEY,user_id INT,rfid_uid VARCHAR(30),status VARCHAR(20)) ENGINE=InnoDB');
+$pdo->exec('CREATE TEMPORARY TABLE rfid_scan_log (scan_id INT AUTO_INCREMENT PRIMARY KEY,rfid_uid VARCHAR(30) NOT NULL,scanned_at DATETIME NOT NULL,device_label VARCHAR(64) NULL) ENGINE=InnoDB');
 $pdo->exec("CREATE TEMPORARY TABLE schedules (
     schedule_id INT PRIMARY KEY, user_id INT, schedule_type VARCHAR(20), schedule_kind VARCHAR(20),
     schedule_date DATE NULL, time_start TIME, time_end TIME, start_date DATE NULL, end_date DATE NULL,

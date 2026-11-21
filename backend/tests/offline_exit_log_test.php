@@ -8,12 +8,13 @@ function expectOfflineExit(bool $condition, string $message): void
 }
 
 $pdo = entrivo_pdo();
-$tables = ['fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'schedules', 'access_overrides', 'access_log', 'door_event_log'];
+$tables = ['fingerprint_devices', 'rfid_scan_log', 'users', 'rfid_cards', 'fingerprints', 'schedules', 'access_overrides', 'access_log', 'door_event_log'];
 try {
     // Connection-local shadow tables: real accounts, cards, logs and events are never touched.
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY,username VARCHAR(50),role VARCHAR(20),is_active INT,approval_status VARCHAR(20),must_change_password INT,onboarding_step VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE rfid_cards (card_id INT PRIMARY KEY,user_id INT,rfid_uid VARCHAR(30),status VARCHAR(20)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TEMPORARY TABLE rfid_scan_log (scan_id INT AUTO_INCREMENT PRIMARY KEY,rfid_uid VARCHAR(30) NOT NULL,scanned_at DATETIME NOT NULL,device_label VARCHAR(64) NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprints (fingerprint_id INT PRIMARY KEY,user_id INT,finger_name VARCHAR(50),enrollment_device_id INT,enrollment_slot INT) ENGINE=InnoDB');
     $pdo->exec("CREATE TEMPORARY TABLE schedules (
         schedule_id INT PRIMARY KEY, user_id INT, schedule_type VARCHAR(20), schedule_kind VARCHAR(20),
@@ -97,6 +98,9 @@ try {
         'An offline card entry must be a granted RFID IN at the time it happened. Got ' . json_encode($row));
     $again = $service->verify($card($id(8), ['direction' => 'entry', 'rfid_uid' => 'CC00000003']), $now);
     expectOfflineExit(($again['duplicate'] ?? false) === true, 'A repeated entry upload must not log twice.');
+    $tapped = $pdo->query("SELECT scanned_at, device_label FROM rfid_scan_log WHERE rfid_uid = 'CC00000003'")->fetchAll(PDO::FETCH_ASSOC);
+    expectOfflineExit($tapped === [['scanned_at' => '2026-11-12 10:28:00', 'device_label' => 'Door controller (entry)']],
+        'An offline card tap appears once in the scanned UID list, at the time it was tapped. Got ' . json_encode($tapped));
 
     // An enrolled finger let in offline (scheduling Auto or Off) is an IN for the slot owner.
     $fingerIn = $service->verify(['offline_exit' => true, 'method' => 'fingerprint', 'enrollment_device_id' => 1, 'matched_slot' => 7,

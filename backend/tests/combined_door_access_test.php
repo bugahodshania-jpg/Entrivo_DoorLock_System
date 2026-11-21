@@ -18,7 +18,7 @@ foreach ([null, false, '', 'wrong-token', ' fixture-token', ['fixture-token']] a
 $pdo = entrivo_pdo();
 // The fixture card may also be a configured emergency card; these checks need the plain rules.
 putenv('DOOR_EMERGENCY_RFID_UIDS');
-$tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'fingerprint_sensor_slots'];
+$tables = ['direct_fingerprint_import_jobs', 'rfid_scan_log', 'fingerprint_devices', 'users', 'rfid_cards', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'fingerprint_sensor_slots'];
 $now = new DateTimeImmutable('2026-10-21 10:00:00', new DateTimeZone('Asia/Manila'));
 $template = str_repeat("\x44\x45", 256);
 try {
@@ -33,6 +33,7 @@ try {
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY,username VARCHAR(50),is_active INT,approval_status VARCHAR(20),must_change_password INT,onboarding_step VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE rfid_cards (card_id INT PRIMARY KEY,user_id INT,rfid_uid VARCHAR(30),status VARCHAR(20)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TEMPORARY TABLE rfid_scan_log (scan_id INT AUTO_INCREMENT PRIMARY KEY,rfid_uid VARCHAR(30) NOT NULL,scanned_at DATETIME NOT NULL,device_label VARCHAR(64) NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprints (fingerprint_id INT PRIMARY KEY,user_id INT,finger_name VARCHAR(50),enrollment_device_id INT,enrollment_slot INT,template_data LONGBLOB,template_hash VARCHAR(64),status VARCHAR(20),enrolled_at DATETIME) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_enrollment_jobs (job_id INT PRIMARY KEY,user_id INT,fingerprint_id INT,finger_name VARCHAR(50),enrollment_device_id INT,assigned_slot INT,status VARCHAR(20),progress INT,finished_at DATETIME NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE direct_fingerprint_import_jobs (id INT PRIMARY KEY,user_id INT,enrollment_device_id INT,target_slot INT,status VARCHAR(20),queued_at DATETIME,processing_at DATETIME NULL) ENGINE=InnoDB');
@@ -129,6 +130,10 @@ try {
     $pdo->exec('DELETE FROM rfid_cards WHERE card_id=1');
     $knownLog = $pdo->query('SELECT rfid_uid FROM access_log WHERE log_id=' . $leadingZeroLogId)->fetchColumn();
     expectCombined($knownLog === '00000ABCDE', 'Deleting a card registration must not remove its scanned UID or strip leading zeros.');
+    $doorScans = $pdo->query("SELECT rfid_uid, device_label FROM rfid_scan_log WHERE device_label LIKE 'Door controller%' ORDER BY scan_id DESC LIMIT 2")->fetchAll(PDO::FETCH_ASSOC);
+    expectCombined(($doorScans[0] ?? null) === ['rfid_uid' => '00000ABCDE', 'device_label' => 'Door controller (entry)']
+        && ($doorScans[1]['device_label'] ?? null) === 'Door controller (exit)',
+        'Cards tapped at the door controller must appear in the scanned UID list, with the direction. Got ' . json_encode($doorScans));
     $reset();
     $legacyFingerprint = $fingerprint;
     unset($legacyFingerprint['template_hash']);
