@@ -4,6 +4,7 @@ import {
   Ban,
   Check,
   ChevronDown,
+  DoorOpen,
   Download,
   Expand,
   Eye,
@@ -617,6 +618,45 @@ function validateEditForm(form) {
 
 export default function ManageUsers({ user: currentUser } = {}) {
   const confirmAction = useActionConfirm();
+  // Staff room hours: staff a Super Admin allowed to enter during the room's
+  // daily hours without a schedule. Admins see it; only a Super Admin changes it.
+  const [roomAccess, setRoomAccess] = useState({ label: '6:00 AM – 9:00 PM', allowed: new Set(), canEdit: false });
+  const [roomAccessNotice, setRoomAccessNotice] = useState('');
+
+  function applyRoomAccess(data) {
+    if (!data?.hours) return;
+    setRoomAccess({ label: data.hours.label, allowed: new Set(data.allowed_user_ids || []), canEdit: Boolean(data.can_edit) });
+  }
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    axiosClient.get('/api/door_control.php', { params: { view: 'room_access', actor_id: currentUser.id } })
+      .then((response) => applyRoomAccess(response.data))
+      .catch(() => {});
+  }, [currentUser?.id]);
+
+  async function toggleRoomAccess(user) {
+    const allow = !roomAccess.allowed.has(Number(user.id));
+    const password = await confirmAction({
+      title: allow ? `Allow ${user.name} during room hours?` : `Remove ${user.name} from room hours?`,
+      message: allow
+        ? `${user.name} will be able to enter every day from ${roomAccess.label} without a schedule. Outside those hours they still need a schedule. Their portal privileges do not change.`
+        : `${user.name} will need a schedule or an approved override again to enter.`,
+      confirmLabel: allow ? 'Allow room hours' : 'Remove room hours',
+      danger: !allow,
+      returnPassword: true,
+    });
+    if (!password) return;
+    try {
+      const response = await axiosClient.post('/api/door_control.php', {
+        action: 'staff_room_access', actor_id: currentUser?.id, password, user_id: Number(user.id), allowed: allow,
+      });
+      applyRoomAccess(response.data);
+      setRoomAccessNotice(response.data?.message || 'Saved.');
+    } catch (error) {
+      setErrorMessage(error.response?.data?.message || 'Room hours access could not be changed right now.');
+    }
+  }
   const roleFilterMenuRef = useRef(null);
   const statusFilterMenuRef = useRef(null);
   const editOriginalRef = useRef(null);
@@ -1992,6 +2032,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
                       </td>
                       <td>
                         <strong>{formatRoleLabel(user.role)}</strong>
+                        {user.role === 'staff' && roomAccess.allowed.has(Number(user.id)) ? (
+                          <span className="manage-users-room-hours" title={`Can enter during room hours (${roomAccess.label}) without a schedule`}>
+                            <DoorOpen size={12} aria-hidden="true" /> Room hours
+                          </span>
+                        ) : null}
                       </td>
                       <td>
                         <span className={`dashboard-log-status manage-users-status-${user.status}`}>
@@ -2013,6 +2058,12 @@ export default function ManageUsers({ user: currentUser } = {}) {
                               icon: KeyRound,
                               onClick: () => openPasswordModal(user),
                               disabled: isPasswordSaving,
+                            },
+                            {
+                              label: roomAccess.allowed.has(Number(user.id)) ? 'Remove Room Hours' : 'Allow Room Hours',
+                              icon: DoorOpen,
+                              onClick: () => toggleRoomAccess(user),
+                              hidden: user.role !== 'staff' || !roomAccess.canEdit,
                             },
                             {
                               label: 'Roles & Privileges',
@@ -2172,6 +2223,29 @@ export default function ManageUsers({ user: currentUser } = {}) {
                       </section>
                     ) : null}
                   </div>
+                  {viewUser.role === 'staff' ? (
+                    <section className="pending-registration-review-card manage-users-room-card">
+                      <h3>Door access</h3>
+                      <div className="manage-users-room-row">
+                        <div>
+                          <strong>
+                            Room hours: {roomAccess.allowed.has(Number(viewUser.id)) ? 'Allowed' : 'Not allowed'}
+                          </strong>
+                          <p>
+                            {roomAccess.allowed.has(Number(viewUser.id))
+                              ? `Enters every day from ${roomAccess.label} without a schedule. Outside those hours a schedule or override is needed.`
+                              : `Needs a schedule or an approved override to enter. A Super Admin can allow entry during room hours (${roomAccess.label}).`}
+                          </p>
+                        </div>
+                        {roomAccess.canEdit ? (
+                          <button type="button" className="manage-users-room-button" onClick={() => toggleRoomAccess(viewUser)}>
+                            <DoorOpen size={14} aria-hidden="true" />
+                            {roomAccess.allowed.has(Number(viewUser.id)) ? 'Remove' : 'Allow'}
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
                   {viewGroups.slice(1).map((group) => (
                     <section className="pending-registration-review-card" key={group.title}>
                       <h3>{group.title}</h3>
@@ -2935,6 +3009,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
       }}
     />
     <DeleteRequestToast message={deleteNotice} title="Delete request" onClose={() => setDeleteNotice('')} />
+    <DeleteRequestToast message={roomAccessNotice} title="Room hours" onClose={() => setRoomAccessNotice('')} />
     <ErrorNoticeModal
       open={Boolean(errorMessage)}
       message={errorMessage}

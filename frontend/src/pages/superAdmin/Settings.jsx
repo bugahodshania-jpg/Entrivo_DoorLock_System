@@ -1252,6 +1252,8 @@ export default function Settings({ user }) {
 
           <AccessPolicyRules onOpenDoorControl={() => handleSelectTab('door')} />
 
+          <StaffRoomHours user={user} />
+
           <section className="settings-policy-box" aria-labelledby="settings-policy-grace">
             <header className="settings-policy-box-head">
               <h3 id="settings-policy-grace">Default grace period</h3>
@@ -1310,7 +1312,7 @@ export default function Settings({ user }) {
 
 const ROLE_RULES = [
   { role: 'Student', tag: 'Override only', tone: 'is-on', text: 'Enters only during an approved override schedule. A regular schedule or a registered credential alone never opens the room.' },
-  { role: 'Faculty and staff', tag: 'Schedule', tone: 'is-auto', text: 'Enters during an approved regular or override schedule.' },
+  { role: 'Faculty and staff', tag: 'Schedule', tone: 'is-auto', text: 'Enters during an approved regular or override schedule. Staff a Super Admin allows can also enter during the room hours (below).' },
   { role: 'Admin and Super Admin', tag: 'Any time', tone: 'is-lock', text: 'Permanent override: no schedule needed. A schedule that is running is still linked in the logs.' },
   { role: 'Emergency card', tag: 'Any time', tone: 'is-off', text: 'Opens the door online and offline, logged under the card’s name (default “Emergency card”).' },
 ];
@@ -1371,6 +1373,96 @@ function AccessPolicyRules({ onOpenDoorControl }) {
         </dl>
       </section>
     </div>
+  );
+}
+
+/**
+ * Staff room hours: the room's daily hours, and how many staff may enter
+ * during them without a schedule (chosen per person in Manage Users).
+ * Admins can view; only a Super Admin can change the hours.
+ */
+function StaffRoomHours({ user }) {
+  const confirmAction = useActionConfirm();
+  const [state, setState] = useState({ loading: true, error: '', hours: null, allowed: [], canEdit: false });
+  const [form, setForm] = useState({ start: '06:00', end: '21:00' });
+  const [notice, setNotice] = useState({ text: '', error: false });
+  const [busy, setBusy] = useState(false);
+
+  function apply(data) {
+    setState({ loading: false, error: '', hours: data.hours, allowed: data.allowed_user_ids || [], canEdit: Boolean(data.can_edit) });
+    setForm({ start: data.hours.start, end: data.hours.end });
+  }
+
+  useEffect(() => {
+    if (!user?.id) return;
+    axiosClient.get('/api/door_control.php', { params: { view: 'room_access', actor_id: user.id } })
+      .then((response) => apply(response.data))
+      .catch((error) => setState((current) => ({ ...current, loading: false, error: error.response?.data?.message || 'Staff room hours could not be loaded.' })));
+  }, [user?.id]);
+
+  const changed = state.hours && (form.start !== state.hours.start || form.end !== state.hours.end);
+  const invalid = !form.start || !form.end || form.end <= form.start;
+
+  async function save() {
+    if (!changed || invalid) return;
+    const password = await confirmAction({
+      title: 'Change the staff room hours?',
+      message: `Allowed staff will be able to enter from ${form.start} to ${form.end} every day without a schedule.`,
+      confirmLabel: 'Save room hours',
+      returnPassword: true,
+    });
+    if (!password) return;
+    setBusy(true);
+    setNotice({ text: '', error: false });
+    try {
+      const response = await axiosClient.post('/api/door_control.php', {
+        action: 'room_hours', actor_id: user?.id, password, start: form.start, end: form.end,
+      });
+      apply(response.data);
+      setNotice({ text: response.data?.message || 'Saved.', error: false });
+    } catch (error) {
+      setNotice({ text: error.response?.data?.message || 'The room hours could not be saved.', error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const manageUsersHref = user?.role === 'super_admin' ? '/super-admin/manage-users' : '/admin/manage-users';
+  const count = state.allowed.length;
+
+  return (
+    <section className="settings-policy-box" aria-labelledby="settings-policy-room">
+      <header className="settings-policy-box-head">
+        <h3 id="settings-policy-room">Staff room hours</h3>
+        <p>Staff who clean or manage the room can enter during these hours without a schedule, but only those a Super Admin allows.</p>
+      </header>
+      {state.loading ? <p className="settings-room-note">Loading…</p>
+        : state.error ? <p className="settings-room-note is-error">{state.error}</p>
+        : (
+          <div className="settings-room">
+            <div className="settings-room-hours">
+              <span className="settings-door-tag is-auto">Every day</span>
+              {state.canEdit ? (
+                <div className="settings-room-inputs">
+                  <label>From <input type="time" value={form.start} onChange={(event) => setForm((current) => ({ ...current, start: event.target.value }))} disabled={busy} /></label>
+                  <label>To <input type="time" value={form.end} onChange={(event) => setForm((current) => ({ ...current, end: event.target.value }))} disabled={busy} /></label>
+                  <button type="button" className="settings-secondary-button" onClick={save} disabled={busy || !changed || invalid}>
+                    {busy ? 'Saving…' : 'Save hours'}
+                  </button>
+                </div>
+              ) : <strong>{state.hours.label}</strong>}
+              {state.canEdit && invalid ? <p className="settings-room-note is-error">The end time must be after the start time.</p> : null}
+              {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
+            </div>
+            <ul className="settings-room-rules">
+              <li><b>{count === 0 ? 'No staff' : count === 1 ? '1 staff member' : `${count} staff members`}</b> allowed right now.
+                {state.canEdit ? <> Choose who in <a href={manageUsersHref}>Manage Users</a> (row menu → Allow Room Hours).</> : ' Only a Super Admin can change who is allowed.'}</li>
+              <li>Outside these hours, allowed staff still need a schedule or an approved override. A running schedule is used first.</li>
+              <li>Door access only: their portal privileges stay those of a staff account. Works offline too, and the 15-minute reminder plays before the hours end.</li>
+            </ul>
+          </div>
+        )}
+    </section>
   );
 }
 

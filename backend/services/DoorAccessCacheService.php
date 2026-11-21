@@ -5,6 +5,7 @@ require_once __DIR__ . '/ScheduleStatusService.php';
 require_once __DIR__ . '/ScheduleAccessPolicy.php';
 require_once __DIR__ . '/DirectFingerprintAccessService.php';
 require_once __DIR__ . '/EmergencyCards.php';
+require_once __DIR__ . '/StaffRoomAccess.php';
 
 /**
  * The door's offline schedule copy. While online, the door controller keeps
@@ -14,7 +15,9 @@ require_once __DIR__ . '/EmergencyCards.php';
  *  - a credential is listed only when it would pass every non-schedule entry
  *    check (active card or confirmed active fingerprint, active and set-up
  *    account, a door role);
- *  - faculty / staff: approved regular and override windows;
+ *  - faculty / staff: approved regular and override windows; staff a Super
+ *    Admin allowed also get the room hours of each day (as regular windows,
+ *    listed after their schedules so a running schedule's end is used first);
  *  - students: approved override windows only;
  *  - admin / super_admin, and emergency cards: any time (no windows).
  *
@@ -84,10 +87,14 @@ final class DoorAccessCacheService
         [$people, $credentials] = $this->collectCredentials($deviceId);
         $schedules = $this->schedulesFor(array_keys($people));
         $policy = new ScheduleAccessPolicy($this->pdo);
+        $room = [
+            'staff' => array_flip(StaffRoomAccess::allowedUserIds($this->pdo)),
+            'hours' => StaffRoomAccess::hours($this->pdo, $deviceId),
+        ];
 
         // Fewer days when a large school would not fit the controller's copy.
         for ($days = self::DAYS; $days >= 1; $days--) {
-            $packed = $this->pack($people, $credentials, $schedules, $policy, $today, $days, $now);
+            $packed = $this->pack($people, $credentials, $schedules, $policy, $today, $days, $now, $room);
             if (strlen($packed['bytes']) <= self::MAX_BYTES) return $packed + ['days' => $days];
         }
         throw new RuntimeException('The door schedule copy does not fit the controller even for one day.');
@@ -209,7 +216,7 @@ final class DoorAccessCacheService
     }
 
     private function pack(array $people, array $credentials, array $schedules, ScheduleAccessPolicy $policy,
-        DateTimeImmutable $today, int $days, DateTimeImmutable $now): array
+        DateTimeImmutable $today, int $days, DateTimeImmutable $now, array $room): array
     {
         $zone = $today->getTimezone();
         $index = [];
@@ -225,7 +232,19 @@ final class DoorAccessCacheService
                 }
                 // Regular before override at the same start (regular has priority).
                 usort($windows, static fn ($a, $b) => [$a[0], $a[2], $a[1]] <=> [$b[0], $b[2], $b[1]]);
-                $windows = array_slice(array_values(array_unique($windows, SORT_REGULAR)), 0, self::MAX_WINDOWS_PER_PERSON);
+                $roomWindows = [];
+                if ($person['role'] === self::ROLE_CODES['staff'] && isset($room['staff'][$userId])) {
+                    for ($day = 0; $day < $days; $day++) {
+                        $date = $today->modify("+$day day")->format('Y-m-d');
+                        $roomWindows[] = [
+                            (new DateTimeImmutable($date . ' ' . $room['hours']['start'], $zone))->getTimestamp(),
+                            (new DateTimeImmutable($date . ' ' . $room['hours']['end'], $zone))->getTimestamp(),
+                            self::KIND_REGULAR,
+                        ];
+                    }
+                }
+                $windows = array_slice(array_values(array_unique($windows, SORT_REGULAR)), 0, self::MAX_WINDOWS_PER_PERSON - count($roomWindows));
+                array_push($windows, ...$roomWindows);
             }
             $index[$userId] = count($index);
             $peopleBytes .= pack('VCCvvv', $userId, $person['role'], $person['flags'], $windowCount, count($windows), 0);

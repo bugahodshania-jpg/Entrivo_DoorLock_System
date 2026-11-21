@@ -5,7 +5,7 @@
 --
 -- WARNING: each table is dropped and recreated. Run this only on a new, empty
 -- database, never on one that holds real records.
--- Generated 2026-11-20 (38 tables).
+-- Generated 2026-11-20 (38 tables); staff_room_access added 2026-11-21 (39 tables).
 
 CREATE DATABASE IF NOT EXISTS `entrivo_database_system` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
 USE `entrivo_database_system`;
@@ -547,7 +547,21 @@ CREATE TABLE `door_controller_controls` (
   `command_done_at` datetime DEFAULT NULL,
   `mode_updated_by` int DEFAULT NULL,
   `mode_updated_at` datetime DEFAULT NULL,
+  `room_hours_start` time DEFAULT NULL,
+  `room_hours_end` time DEFAULT NULL,
   PRIMARY KEY (`device_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Table structure for table `staff_room_access`
+-- (staff a Super Admin allowed to enter during the room hours without a schedule)
+--
+DROP TABLE IF EXISTS `staff_room_access`;
+CREATE TABLE `staff_room_access` (
+  `user_id` int NOT NULL,
+  `granted_by` int DEFAULT NULL,
+  `granted_at` datetime NOT NULL,
+  PRIMARY KEY (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --

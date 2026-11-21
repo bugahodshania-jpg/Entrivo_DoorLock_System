@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ScheduleStatusService.php';
+require_once __DIR__ . '/StaffRoomAccess.php';
 
 /**
  * Schedule part of a door-entry decision, shared by fingerprint and RFID.
@@ -27,6 +28,8 @@ final class ScheduleAccessPolicy
      * Door ENTRY rule by role (the credential and active account are checked
      * by the caller first):
      *  - faculty / staff: a current approved REGULAR or OVERRIDE schedule.
+     *    Staff a Super Admin allowed (StaffRoomAccess) may also enter during
+     *    the room's daily hours without a schedule.
      *  - student: a current approved OVERRIDE schedule only; a regular
      *    schedule or a registered credential alone never opens the room.
      *  - admin / super_admin: permanent override, no schedule needed. A
@@ -59,7 +62,29 @@ final class ScheduleAccessPolicy
             return $this->evaluate($userId, $now, true);
         }
         $schedule = $this->evaluate($userId, $now);
-        if ($schedule['granted'] || !in_array($role, self::PERMANENT_OVERRIDE_ROLES, true)) {
+        if ($schedule['granted']) {
+            return $schedule;
+        }
+        // Staff a Super Admin allowed: the room's daily hours, no schedule needed.
+        $room = StaffRoomAccess::evaluate($this->pdo, $userId, $role, $now, $deviceId ?? 1);
+        if ($room !== null && $room['granted']) {
+            return [
+                'time_end' => $room['time_end'],
+                'granted' => true,
+                'reason' => 'access_granted',
+                'message' => 'Access granted: staff room hours (until ' . StaffRoomAccess::label($room['time_end']) . ').',
+                'schedule_id' => null,
+                'override_id' => null,
+                'schedule_kind' => 'room_hours',
+            ];
+        }
+        if ($room !== null && $schedule['reason'] === 'no_schedule') {
+            // Outside the room hours: say whether they have not started or have ended.
+            $schedule['reason'] = $room['reason'];
+            $schedule['message'] = $room['reason'] === 'schedule_not_started'
+                ? 'Staff room hours have not started yet.' : 'Staff room hours have ended for today.';
+        }
+        if (!in_array($role, self::PERMANENT_OVERRIDE_ROLES, true)) {
             return $schedule;
         }
         return [

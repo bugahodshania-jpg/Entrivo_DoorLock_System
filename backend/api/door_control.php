@@ -12,16 +12,23 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization');
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204); exit; }
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
-        // Door control logs (GET ?actor_id=&device_id=).
-        echo json_encode((new DoorControlService())->history($_GET), JSON_THROW_ON_ERROR);
+        // Door control logs (GET ?actor_id=&device_id=), or staff room access (?view=room_access).
+        $service = new DoorControlService();
+        echo json_encode(($_GET['view'] ?? '') === 'room_access' ? $service->roomAccess($_GET) : $service->history($_GET), JSON_THROW_ON_ERROR);
         exit;
     }
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new DoorStatusException('Use POST to control the door.', 405);
     $input = json_decode(file_get_contents('php://input'), true, 16, JSON_THROW_ON_ERROR);
     if (!is_array($input)) throw new DoorStatusException('A JSON object is required.', 422);
     $service = new DoorControlService();
-    // action: "schedule_mode" (with mode auto|on|off), or "lock" / "unlock".
-    $result = ($input['action'] ?? null) === 'schedule_mode' ? $service->setScheduleMode($input) : $service->sendCommand($input);
+    // action: "schedule_mode" (mode auto|on|off), "room_hours" (start, end),
+    // "staff_room_access" (user_id, allowed), or "lock" / "unlock".
+    $result = match ($input['action'] ?? null) {
+        'schedule_mode' => $service->setScheduleMode($input),
+        'room_hours' => $service->setRoomHours($input),
+        'staff_room_access' => $service->setStaffRoomAccess($input),
+        default => $service->sendCommand($input),
+    };
     echo json_encode($result, JSON_THROW_ON_ERROR);
 } catch (DoorStatusException $error) {
     http_response_code($error->httpStatus);

@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/DoorStatusService.php';
 require_once __DIR__ . '/ActivityLogService.php';
+require_once __DIR__ . '/StaffRoomAccess.php';
 
 /**
  * Portal controls for the door controller:
@@ -154,6 +155,78 @@ final class DoorControlService
      * Door control logs: scheduling changes, remote lock/unlock requests, the
      * door's confirmations and refused attempts, newest first.
      */
+    /**
+     * Staff room access for the portal (GET ?view=room_access&actor_id=):
+     * the room hours and the staff allowed to enter during them. Admins can
+     * view it; only a Super Admin can change it.
+     */
+    public function roomAccess(array $input): array
+    {
+        $actor = $this->viewer($input, 'Only an administrator can view staff room access.');
+        $deviceId = $this->deviceId($input);
+        $hours = StaffRoomAccess::hours($this->pdo, $deviceId);
+        return [
+            'success' => true,
+            'hours' => [
+                'start' => substr($hours['start'], 0, 5),
+                'end' => substr($hours['end'], 0, 5),
+                'label' => StaffRoomAccess::label($hours['start']) . ' – ' . StaffRoomAccess::label($hours['end']),
+            ],
+            'allowed_user_ids' => StaffRoomAccess::allowedUserIds($this->pdo),
+            'can_edit' => $actor['role'] === 'super_admin',
+        ];
+    }
+
+    public function setRoomHours(array $input): array
+    {
+        $actor = $this->authorizedActor($input, ['super_admin']);
+        $deviceId = $this->deviceId($input);
+        $start = $this->timeInput($input['start'] ?? null);
+        $end = $this->timeInput($input['end'] ?? null);
+        if ($start === null || $end === null || $end <= $start) {
+            throw new DoorStatusException('Choose a start time before the end time, for example 06:00 to 21:00.', 422);
+        }
+        StaffRoomAccess::ensureSchema($this->pdo);
+        $this->pdo->prepare('INSERT INTO door_controller_controls (device_id, room_hours_start, room_hours_end)
+            VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE room_hours_start = VALUES(room_hours_start), room_hours_end = VALUES(room_hours_end)')
+            ->execute([$deviceId, $start, $end]);
+        $label = StaffRoomAccess::label($start) . ' – ' . StaffRoomAccess::label($end);
+        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update', 'Set the staff room hours to ' . $label . '.',
+            'Success', null, 'door', (string) $deviceId);
+        return ['success' => true, 'message' => 'Staff room hours are now ' . $label . '.'] + $this->roomAccess($input);
+    }
+
+    public function setStaffRoomAccess(array $input): array
+    {
+        $actor = $this->authorizedActor($input, ['super_admin']);
+        $deviceId = $this->deviceId($input);
+        $userId = filter_var($input['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $allowed = $input['allowed'] ?? null;
+        if ($userId === false || !is_bool($allowed)) {
+            throw new DoorStatusException('Choose a staff member and whether to allow room hours.', 422);
+        }
+        $query = $this->pdo->prepare('SELECT id, role, username FROM users WHERE id = ?');
+        $query->execute([$userId]);
+        $person = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$person || $person['role'] !== 'staff') {
+            throw new DoorStatusException('Room hours access is only for staff accounts.', 422);
+        }
+        StaffRoomAccess::ensureSchema($this->pdo);
+        if ($allowed) {
+            $this->pdo->prepare('INSERT INTO staff_room_access (user_id, granted_by, granted_at) VALUES (?, ?, NOW())
+                ON DUPLICATE KEY UPDATE granted_by = VALUES(granted_by), granted_at = NOW()')->execute([$userId, $actor['id']]);
+        } else {
+            $this->pdo->prepare('DELETE FROM staff_room_access WHERE user_id = ?')->execute([$userId]);
+        }
+        $name = $this->personName((int) $userId) ?? (string) $person['username'];
+        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update',
+            ($allowed ? 'Allowed ' : 'Removed ') . $name . ($allowed ? ' to enter during the staff room hours.' : ' from the staff room hours.'),
+            'Success', null, 'door', (string) $deviceId);
+        return ['success' => true, 'message' => $allowed
+            ? $name . ' can now enter during the room hours without a schedule.'
+            : $name . ' now needs a schedule again to enter.'] + $this->roomAccess($input);
+    }
+
     public function history(array $input): array
     {
         $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -187,6 +260,39 @@ final class DoorControlService
             'actor_role' => $row['role'],
         ], $query->fetchAll(PDO::FETCH_ASSOC));
         return ['success' => true, 'logs' => $logs];
+    }
+
+    /** An active admin or super admin, by actor_id (read-only views). */
+    private function viewer(array $input, string $message): array
+    {
+        $actorId = filter_var($input['actor_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $query = $this->pdo->prepare('SELECT id, role, is_active FROM users WHERE id = ?');
+        $query->execute([$actorId === false ? 0 : $actorId]);
+        $actor = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$actor || (int) $actor['is_active'] !== 1 || !in_array($actor['role'], ['admin', 'super_admin'], true)) {
+            throw new DoorStatusException($message, 403);
+        }
+        return ['id' => (int) $actor['id'], 'role' => $actor['role']];
+    }
+
+    /** "06:00" or "06:00:00" -> "06:00:00", else null. */
+    private function timeInput(mixed $value): ?string
+    {
+        if (!is_string($value)) return null;
+        $value = strlen($value) === 5 ? $value . ':00' : $value;
+        return StaffRoomAccess::validTime($value) ? $value : null;
+    }
+
+    private function personName(int $userId): ?string
+    {
+        if (!$this->hasInfoTables()) return null;
+        $query = $this->pdo->prepare("SELECT COALESCE(
+                NULLIF(TRIM(CONCAT_WS(' ', st.first_name, st.last_name)), ''),
+                NULLIF(TRIM(CONCAT_WS(' ', fi.first_name, fi.last_name)), ''))
+            FROM users u LEFT JOIN staff_info st ON st.user_id = u.id LEFT JOIN faculty_info fi ON fi.user_id = u.id WHERE u.id = ?");
+        $query->execute([$userId]);
+        $name = $query->fetchColumn();
+        return is_string($name) && $name !== '' ? $name : null;
     }
 
     private function hasInfoTables(): bool
@@ -242,11 +348,18 @@ final class DoorControlService
         if (!$user || (int) $user['is_active'] !== 1 || !in_array($user['role'], $roles, true)) {
             throw new DoorStatusException(in_array('admin', $roles, true)
                 ? 'Only an administrator can change door scheduling.'
-                : 'Only a Super Admin can lock or unlock the door remotely.', 403);
+                : (in_array($input['action'] ?? '', ['room_hours', 'staff_room_access'], true)
+                    ? 'Only a Super Admin can change staff room access.'
+                    : 'Only a Super Admin can lock or unlock the door remotely.'), 403);
         }
         if (!password_verify($password, (string) $user['password_hash'])) {
-            $what = ($input['action'] ?? '') === 'schedule_mode'
-                ? 'change door scheduling' : 'remotely ' . (($input['action'] ?? '') === 'lock' ? 'lock' : 'unlock') . ' the door';
+            $what = match ($input['action'] ?? '') {
+                'schedule_mode' => 'change door scheduling',
+                'room_hours' => 'change the staff room hours',
+                'staff_room_access' => 'change staff room access',
+                'lock' => 'remotely lock the door',
+                default => 'remotely unlock the door',
+            };
             (new ActivityLogService($this->pdo))->record((int) $user['id'], 'Update',
                 'Refused an attempt to ' . $what . ': incorrect security password.', 'Failed', null, 'door',
                 (string) $this->deviceId($input));

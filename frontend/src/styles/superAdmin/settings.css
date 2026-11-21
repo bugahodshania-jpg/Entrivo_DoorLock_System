@@ -1702,3 +1702,17 @@
   .door-status-line { align-items: flex-start; flex-wrap: wrap; }
   .door-status-line small { flex-basis: 100%; padding-left: 46px; }
 }
+
+/* Access policy: staff room hours */
+.settings-room { align-items: start; display: grid; gap: 16px; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); padding: 12px 14px; }
+@media (max-width: 760px) { .settings-room { grid-template-columns: minmax(0, 1fr); } }
+.settings-room-hours { display: grid; gap: 8px; justify-items: start; }
+.settings-room-hours .settings-door-tag { padding: 3px 9px; }
+.settings-room-hours > strong { color: #10251d; font-size: 18px; }
+.settings-room-inputs { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-room-inputs label { color: #4f5f58; display: grid; font-size: 12px; font-weight: 600; gap: 3px; }
+.settings-room-inputs input { border: 1px solid #d7e4de; border-radius: 3px; font: inherit; font-size: 13px; height: 34px; padding: 0 8px; }
+.settings-room-note { color: #0c4b2d; font-size: 12px; margin: 0; }
+.settings-room-note.is-error { color: #9b2c1f; }
+.settings-room-rules { color: #33443d; display: grid; font-size: 12.5px; gap: 6px; line-height: 1.45; margin: 0; padding-left: 18px; }
+.settings-room-rules a { color: #0c4b2d; font-weight: 600; }
