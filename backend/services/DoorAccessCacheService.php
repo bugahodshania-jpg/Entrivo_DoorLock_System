@@ -87,9 +87,10 @@ final class DoorAccessCacheService
         [$people, $credentials] = $this->collectCredentials($deviceId);
         $schedules = $this->schedulesFor(array_keys($people));
         $policy = new ScheduleAccessPolicy($this->pdo);
+        $hours = StaffRoomAccess::hours($this->pdo, $deviceId);
         $room = [
-            'staff' => array_flip(StaffRoomAccess::allowedUserIds($this->pdo)),
-            'hours' => StaffRoomAccess::hours($this->pdo, $deviceId),
+            'staff' => $hours['enabled'] ? array_flip(StaffRoomAccess::allowedUserIds($this->pdo)) : [],
+            'hours' => $hours,
         ];
 
         // Fewer days when a large school would not fit the controller's copy.

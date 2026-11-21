@@ -35,7 +35,7 @@ try {
         device_id INT NOT NULL PRIMARY KEY, schedule_mode VARCHAR(10) NOT NULL DEFAULT 'auto', command VARCHAR(10) NULL,
         command_id INT NOT NULL DEFAULT 0, command_by INT NULL, command_at DATETIME NULL, command_done_id INT NOT NULL DEFAULT 0,
         command_done_at DATETIME NULL, mode_updated_by INT NULL, mode_updated_at DATETIME NULL,
-        room_hours_start TIME NULL, room_hours_end TIME NULL) ENGINE=InnoDB");
+        room_hours_start TIME NULL, room_hours_end TIME NULL, room_hours_enabled TINYINT(1) NOT NULL DEFAULT 1) ENGINE=InnoDB");
     $pdo->exec("CREATE TEMPORARY TABLE schedules (
         schedule_id INT PRIMARY KEY, user_id INT, schedule_type VARCHAR(20), schedule_kind VARCHAR(20),
         schedule_date DATE NULL, time_start TIME, time_end TIME, start_date DATE NULL, end_date DATE NULL,
@@ -109,8 +109,18 @@ try {
     expectRoomError(fn () => $service->setRoomHours([...$hours, 'end' => '07:00']), 422, 'The end must be after the start.');
     expectRoomError(fn () => $service->setRoomHours([...$hours, 'start' => '7am']), 422, 'Times must be HH:MM.');
     $changed = $service->setRoomHours($hours);
-    expectRoom($changed['hours'] === ['start' => '07:30', 'end' => '19:00', 'label' => '7:30 AM – 7:00 PM'], 'Hours saved. Got ' . json_encode($changed['hours']));
+    expectRoom($changed['hours'] === ['start' => '07:30', 'end' => '19:00', 'label' => '7:30 AM – 7:00 PM', 'enabled' => true], 'Hours saved. Got ' . json_encode($changed['hours']));
     expectRoom(!$entry(4, 'staff', '07:00')['granted'] && $entry(4, 'staff', '18:00')['time_end'] === '19:00:00', 'New hours apply at once.');
+
+    // Turned off: the hours and the allow list are kept, but nobody gets room hours until turned on again.
+    expectRoomError(fn () => $service->setRoomHours([...$hours, 'enabled' => 'no']), 422, 'enabled must be true or false.');
+    $off = $service->setRoomHours([...$hours, 'enabled' => false]);
+    expectRoom($off['hours']['enabled'] === false && $off['allowed_user_ids'] === [4], 'Turned off, allow list kept.');
+    expectRoom(!$entry(4, 'staff', '12:00')['granted'] && $entry(4, 'staff', '12:00')['reason'] === 'expired_schedule', 'Off: a schedule is needed (todays ended at 10:00).');
+    $service->setRoomHours($hours); // enabled omitted: stays off
+    expectRoom(!$entry(4, 'staff', '12:00')['granted'], 'Saving times alone does not turn the hours back on.');
+    $on = $service->setRoomHours([...$hours, 'enabled' => true]);
+    expectRoom($on['hours']['enabled'] === true && $entry(4, 'staff', '12:00')['granted'], 'Turned on again: every day.');
 
     // Admins can view it; only a Super Admin can edit; faculty cannot view.
     expectRoom($service->roomAccess(['actor_id' => 2])['can_edit'] === false && $service->roomAccess(['actor_id' => 1])['can_edit'] === true, 'View and edit rights.');
@@ -123,6 +133,8 @@ try {
     $descriptions = array_column($logs, 'description');
     expectRoom(in_array('Allowed Rosa Keeper to enter during the staff room hours.', $descriptions, true)
         && in_array('Set the staff room hours to 7:30 AM – 7:00 PM.', $descriptions, true)
+        && in_array('Turned off the staff room hours.', $descriptions, true)
+        && in_array('Turned on the staff room hours (7:30 AM – 7:00 PM, every day).', $descriptions, true)
         && in_array('Removed Rosa Keeper from the staff room hours.', $descriptions, true)
         && in_array('Refused an attempt to change staff room access: incorrect security password.', $descriptions, true),
         'Changes and refused attempts are logged. Got ' . json_encode($descriptions));

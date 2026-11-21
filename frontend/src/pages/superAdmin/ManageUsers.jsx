@@ -620,12 +620,12 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const confirmAction = useActionConfirm();
   // Staff room hours: staff a Super Admin allowed to enter during the room's
   // daily hours without a schedule. Admins see it; only a Super Admin changes it.
-  const [roomAccess, setRoomAccess] = useState({ label: '6:00 AM – 9:00 PM', allowed: new Set(), canEdit: false });
+  const [roomAccess, setRoomAccess] = useState({ label: '6:00 AM – 9:00 PM', enabled: true, allowed: new Set(), canEdit: false });
   const [roomAccessNotice, setRoomAccessNotice] = useState('');
 
   function applyRoomAccess(data) {
     if (!data?.hours) return;
-    setRoomAccess({ label: data.hours.label, allowed: new Set(data.allowed_user_ids || []), canEdit: Boolean(data.can_edit) });
+    setRoomAccess({ label: data.hours.label, enabled: data.hours.enabled !== false, allowed: new Set(data.allowed_user_ids || []), canEdit: Boolean(data.can_edit) });
   }
 
   useEffect(() => {
@@ -2033,8 +2033,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
                       <td>
                         <strong>{formatRoleLabel(user.role)}</strong>
                         {user.role === 'staff' && roomAccess.allowed.has(Number(user.id)) ? (
-                          <span className="manage-users-room-hours" title={`Can enter during room hours (${roomAccess.label}) without a schedule`}>
-                            <DoorOpen size={12} aria-hidden="true" /> Room hours
+                          <span className={`manage-users-room-hours${roomAccess.enabled ? '' : ' is-off'}`}
+                            title={roomAccess.enabled
+                              ? `Can enter during room hours (${roomAccess.label}) without a schedule`
+                              : 'Allowed, but the staff room hours are turned off in Settings'}>
+                            <DoorOpen size={12} aria-hidden="true" /> Room hours{roomAccess.enabled ? '' : ' (off)'}
                           </span>
                         ) : null}
                       </td>
@@ -2232,7 +2235,9 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             Room hours: {roomAccess.allowed.has(Number(viewUser.id)) ? 'Allowed' : 'Not allowed'}
                           </strong>
                           <p>
-                            {roomAccess.allowed.has(Number(viewUser.id))
+                            {roomAccess.allowed.has(Number(viewUser.id)) && !roomAccess.enabled
+                              ? 'The staff room hours are turned off in Settings, so a schedule or override is needed until they are turned on again.'
+                              : roomAccess.allowed.has(Number(viewUser.id))
                               ? `Enters every day from ${roomAccess.label} without a schedule. Outside those hours a schedule or override is needed.`
                               : `Needs a schedule or an approved override to enter. A Super Admin can allow entry during room hours (${roomAccess.label}).`}
                           </p>

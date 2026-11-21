@@ -171,6 +171,7 @@ final class DoorControlService
                 'start' => substr($hours['start'], 0, 5),
                 'end' => substr($hours['end'], 0, 5),
                 'label' => StaffRoomAccess::label($hours['start']) . ' – ' . StaffRoomAccess::label($hours['end']),
+                'enabled' => $hours['enabled'],
             ],
             'allowed_user_ids' => StaffRoomAccess::allowedUserIds($this->pdo),
             'can_edit' => $actor['role'] === 'super_admin',
@@ -186,14 +187,29 @@ final class DoorControlService
         if ($start === null || $end === null || $end <= $start) {
             throw new DoorStatusException('Choose a start time before the end time, for example 06:00 to 21:00.', 422);
         }
+        $enabled = $input['enabled'] ?? null; // optional: true/false turns the daily hours on or off
+        if ($enabled !== null && !is_bool($enabled)) {
+            throw new DoorStatusException('enabled must be true or false.', 422);
+        }
         StaffRoomAccess::ensureSchema($this->pdo);
-        $this->pdo->prepare('INSERT INTO door_controller_controls (device_id, room_hours_start, room_hours_end)
-            VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE room_hours_start = VALUES(room_hours_start), room_hours_end = VALUES(room_hours_end)')
-            ->execute([$deviceId, $start, $end]);
+        $before = StaffRoomAccess::hours($this->pdo, $deviceId);
+        $enabled ??= $before['enabled'];
+        $this->pdo->prepare('INSERT INTO door_controller_controls (device_id, room_hours_start, room_hours_end, room_hours_enabled)
+            VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE room_hours_start = VALUES(room_hours_start),
+            room_hours_end = VALUES(room_hours_end), room_hours_enabled = VALUES(room_hours_enabled)')
+            ->execute([$deviceId, $start, $end, $enabled ? 1 : 0]);
         $label = StaffRoomAccess::label($start) . ' – ' . StaffRoomAccess::label($end);
-        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update', 'Set the staff room hours to ' . $label . '.',
-            'Success', null, 'door', (string) $deviceId);
-        return ['success' => true, 'message' => 'Staff room hours are now ' . $label . '.'] + $this->roomAccess($input);
+        $timesChanged = $start !== $before['start'] || $end !== $before['end'];
+        [$log, $message] = match (true) {
+            !$enabled && $before['enabled'] => ['Turned off the staff room hours.',
+                'Staff room hours are off. Staff need a schedule to enter until they are turned on again.'],
+            $enabled && !$before['enabled'] => ['Turned on the staff room hours (' . $label . ', every day).',
+                'Staff room hours are on: ' . $label . ' every day until turned off.'],
+            default => ['Set the staff room hours to ' . $label . '.', 'Staff room hours are now ' . $label . '.'],
+        };
+        if ($timesChanged && $enabled !== $before['enabled']) $log = rtrim($log, '.') . ' and set them to ' . $label . '.';
+        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update', $log, 'Success', null, 'door', (string) $deviceId);
+        return ['success' => true, 'message' => $message] + $this->roomAccess($input);
     }
 
     public function setStaffRoomAccess(array $input): array

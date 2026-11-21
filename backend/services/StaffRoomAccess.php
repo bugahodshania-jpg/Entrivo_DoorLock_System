@@ -26,21 +26,30 @@ final class StaffRoomAccess
         )');
         require_once __DIR__ . '/DoorControlService.php';
         DoorControlService::ensureSchema($pdo);
-        foreach (['room_hours_start', 'room_hours_end'] as $column) {
+        $columns = [
+            'room_hours_start' => 'TIME NULL DEFAULT NULL',
+            'room_hours_end' => 'TIME NULL DEFAULT NULL',
+            'room_hours_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        ];
+        foreach ($columns as $column => $type) {
             if ($pdo->query("SHOW COLUMNS FROM door_controller_controls LIKE '{$column}'")->fetch()) continue;
             try {
-                $pdo->exec("ALTER TABLE door_controller_controls ADD COLUMN {$column} TIME NULL DEFAULT NULL");
+                $pdo->exec("ALTER TABLE door_controller_controls ADD COLUMN {$column} {$type}");
             } catch (PDOException $error) {
                 if ((int) ($error->errorInfo[1] ?? 0) !== 1060) throw $error; // added meanwhile
             }
         }
     }
 
-    /** @return array{start: string, end: string} HH:MM:SS, defaults until a Super Admin sets them */
+    /**
+     * The saved hours repeat every day while enabled; they stop only when a
+     * Super Admin turns them off (on by default).
+     * @return array{start: string, end: string, enabled: bool} HH:MM:SS, defaults until a Super Admin sets them
+     */
     public static function hours(PDO $pdo, int $deviceId = 1): array
     {
         try {
-            $query = $pdo->prepare('SELECT room_hours_start, room_hours_end FROM door_controller_controls WHERE device_id = ?');
+            $query = $pdo->prepare('SELECT * FROM door_controller_controls WHERE device_id = ?');
             $query->execute([$deviceId]);
             $row = $query->fetch(PDO::FETCH_ASSOC);
         } catch (PDOException) {
@@ -48,10 +57,11 @@ final class StaffRoomAccess
         }
         $start = is_array($row) ? (string) ($row['room_hours_start'] ?? '') : '';
         $end = is_array($row) ? (string) ($row['room_hours_end'] ?? '') : '';
+        $enabled = !is_array($row) || !array_key_exists('room_hours_enabled', $row) || (int) $row['room_hours_enabled'] === 1;
         if (!self::validTime($start) || !self::validTime($end) || $end <= $start) {
-            return ['start' => self::DEFAULT_START, 'end' => self::DEFAULT_END];
+            return ['start' => self::DEFAULT_START, 'end' => self::DEFAULT_END, 'enabled' => $enabled];
         }
-        return ['start' => $start, 'end' => $end];
+        return ['start' => $start, 'end' => $end, 'enabled' => $enabled];
     }
 
     public static function isAllowed(PDO $pdo, int $userId): bool
@@ -84,6 +94,7 @@ final class StaffRoomAccess
     {
         if (strtolower(trim((string) $role)) !== 'staff' || !self::isAllowed($pdo, $userId)) return null;
         $hours = self::hours($pdo, $deviceId);
+        if (!$hours['enabled']) return null; // turned off: staff need a schedule like faculty
         $time = $now->setTimezone(new DateTimeZone('Asia/Manila'))->format('H:i:s');
         if ($time >= $hours['start'] && $time < $hours['end']) {
             return ['granted' => true, 'reason' => 'access_granted', 'time_end' => $hours['end']];

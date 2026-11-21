@@ -1716,3 +1716,13 @@
 .settings-room-note.is-error { color: #9b2c1f; }
 .settings-room-rules { color: #33443d; display: grid; font-size: 12.5px; gap: 6px; line-height: 1.45; margin: 0; padding-left: 18px; }
 .settings-room-rules a { color: #0c4b2d; font-weight: 600; }
+
+/* Staff room hours: on/off switch */
+.settings-room-status { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-room-hours .settings-door-tag.is-off { background: #f3f4f3; color: #5b645f; }
+.settings-room-toggle { align-items: center; background: #fff; border: 1px solid #d7e4de; border-radius: 3px; color: #33443d; cursor: pointer; display: inline-flex; font: inherit; font-size: 12px; font-weight: 600; gap: 6px; height: 28px; padding: 0 10px; }
+.settings-room-toggle > span { background: #c9d3ce; border-radius: 999px; display: inline-block; height: 14px; position: relative; transition: background 0.15s; width: 26px; }
+.settings-room-toggle > span::after { background: #fff; border-radius: 50%; content: ''; height: 10px; left: 2px; position: absolute; top: 2px; transition: left 0.15s; width: 10px; }
+.settings-room-toggle.is-on > span { background: #0c7a45; }
+.settings-room-toggle.is-on > span::after { left: 14px; }
+.settings-room-toggle:disabled { cursor: not-allowed; opacity: 0.6; }

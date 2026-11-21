@@ -1427,6 +1427,34 @@ function StaffRoomHours({ user }) {
     }
   }
 
+  // On/off: once on, the hours repeat every day until a Super Admin turns them off.
+  async function toggleEnabled() {
+    const turnOn = !state.hours.enabled;
+    const password = await confirmAction({
+      title: turnOn ? 'Turn on the staff room hours?' : 'Turn off the staff room hours?',
+      message: turnOn
+        ? `Allowed staff will be able to enter from ${state.hours.label} every day, until you turn this off.`
+        : 'Allowed staff will need a schedule or an approved override to enter until you turn this on again. The hours and the allowed staff are kept.',
+      confirmLabel: turnOn ? 'Turn on' : 'Turn off',
+      danger: !turnOn,
+      returnPassword: true,
+    });
+    if (!password) return;
+    setBusy(true);
+    setNotice({ text: '', error: false });
+    try {
+      const response = await axiosClient.post('/api/door_control.php', {
+        action: 'room_hours', actor_id: user?.id, password, start: state.hours.start, end: state.hours.end, enabled: turnOn,
+      });
+      apply(response.data);
+      setNotice({ text: response.data?.message || 'Saved.', error: false });
+    } catch (error) {
+      setNotice({ text: error.response?.data?.message || 'The room hours could not be changed.', error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const manageUsersHref = user?.role === 'super_admin' ? '/super-admin/manage-users' : '/admin/manage-users';
   const count = state.allowed.length;
 
@@ -1441,7 +1469,17 @@ function StaffRoomHours({ user }) {
         : (
           <div className="settings-room">
             <div className="settings-room-hours">
-              <span className="settings-door-tag is-auto">Every day</span>
+              <div className="settings-room-status">
+                <span className={`settings-door-tag ${state.hours.enabled ? 'is-auto' : 'is-off'}`}>
+                  {state.hours.enabled ? 'On · every day' : 'Off'}
+                </span>
+                {state.canEdit ? (
+                  <button type="button" className={`settings-room-toggle${state.hours.enabled ? ' is-on' : ''}`}
+                    role="switch" aria-checked={state.hours.enabled} onClick={toggleEnabled} disabled={busy}>
+                    <span aria-hidden="true" /> {state.hours.enabled ? 'Turn off' : 'Turn on'}
+                  </button>
+                ) : null}
+              </div>
               {state.canEdit ? (
                 <div className="settings-room-inputs">
                   <label>From <input type="time" value={form.start} onChange={(event) => setForm((current) => ({ ...current, start: event.target.value }))} disabled={busy} /></label>
@@ -1457,6 +1495,9 @@ function StaffRoomHours({ user }) {
             <ul className="settings-room-rules">
               <li><b>{count === 0 ? 'No staff' : count === 1 ? '1 staff member' : `${count} staff members`}</b> allowed right now.
                 {state.canEdit ? <> Choose who in <a href={manageUsersHref}>Manage Users</a> (row menu → Allow Room Hours).</> : ' Only a Super Admin can change who is allowed.'}</li>
+              <li>{state.hours.enabled
+                ? 'The hours repeat every day and stay on until a Super Admin turns them off.'
+                : 'Turned off: allowed staff need a schedule until it is turned on again. The hours and the allowed staff are kept.'}</li>
               <li>Outside these hours, allowed staff still need a schedule or an approved override. A running schedule is used first.</li>
               <li>Door access only: their portal privileges stay those of a staff account. Works offline too, and the 15-minute reminder plays before the hours end.</li>
             </ul>

@@ -549,6 +549,7 @@ CREATE TABLE `door_controller_controls` (
   `mode_updated_at` datetime DEFAULT NULL,
   `room_hours_start` time DEFAULT NULL,
   `room_hours_end` time DEFAULT NULL,
+  `room_hours_enabled` tinyint(1) NOT NULL DEFAULT '1',
   PRIMARY KEY (`device_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 

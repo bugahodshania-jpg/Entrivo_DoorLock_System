@@ -933,3 +933,5 @@
 @media (max-width: 640px) {
   .manage-users-room-card .manage-users-room-row { align-items: flex-start; flex-direction: column; }
 }
+
+.dashboard-recent-table.manage-users-table td span.manage-users-room-hours.is-off { background: #f3f4f3; color: #5b645f; }
