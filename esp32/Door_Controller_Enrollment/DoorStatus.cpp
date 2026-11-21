@@ -6,6 +6,7 @@
 #include "BackendClient.h"
 #include "Config.h"
 #include "DoorStatus.h"
+#include "AccessCache.h"
 #include "HttpLock.h"
 #include <Preferences.h>
 
@@ -73,6 +74,8 @@ namespace {
         DynamicJsonDocument reply(768);
         if (deserializeJson(reply, body) != DeserializationError::Ok) return;
         readControls(reply);
+        // A newer offline schedule copy is downloaded by serviceAccessCache().
+        if (reply["access_cache_version"].is<uint32_t>()) noteAccessCacheVersion(reply["access_cache_version"].as<uint32_t>());
         if (unlocked) readSessionEnd(reply);
     }
 

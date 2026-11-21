@@ -3,6 +3,7 @@
 #include <RTClib.h>
 #include <driver/gpio.h>
 #include <Preferences.h>
+#include <time.h>
 #include "Config.h"
 #include "DoorHardware.h"
 #include "DoorStatus.h"
@@ -151,11 +152,50 @@ void saveReminderAt(uint32_t rtcAt) {
 
 uint32_t restoredReminderAt() { return doorStoreReady ? doorStore.getULong("remind", 0) : 0; }
 
+namespace {
+    // "rtcok" in NVS: the DS3231 was set to UTC by syncRtcFromClock() and has
+    // not lost power since. Cleared when the DS3231 reports a power loss.
+    bool rtcTrusted = false;
+    unsigned long lastRtcSyncAt = 0;
+    constexpr unsigned long RTC_SYNC_INTERVAL_MS = 60000UL;
+    constexpr uint32_t RTC_VALID_AFTER = 1700000000UL;
+}
+
+void syncRtcFromClock() {
+    if (!rtcReady || (lastRtcSyncAt != 0 && millis() - lastRtcSyncAt < RTC_SYNC_INTERVAL_MS)) return;
+    const time_t system = time(nullptr);
+    if (system < static_cast<time_t>(RTC_VALID_AFTER)) return;
+    lastRtcSyncAt = millis();
+    const uint32_t rtcNow = rtc.now().unixtime();
+    const long drift = static_cast<long>(rtcNow) - static_cast<long>(system);
+    if (drift > 2 || drift < -2) {
+        rtc.adjust(DateTime(static_cast<uint32_t>(system)));
+        Serial.print("[RTC] Set from the internet / backend clock (was off by ");
+        Serial.print(drift);
+        Serial.println(" s).");
+    }
+    if (!rtcTrusted) {
+        rtcTrusted = true;
+        if (doorStoreReady) doorStore.putBool("rtcok", true);
+    }
+}
+
+uint32_t trustedRtcSeconds() {
+    if (!rtcReady || !rtcTrusted) return 0;
+    const uint32_t now = rtc.now().unixtime();
+    return now >= RTC_VALID_AFTER ? now : 0;
+}
+
 void initDoorFeedback() {
     Wire.begin(RTC_SDA_PIN, RTC_SCL_PIN);
     rtcReady = rtc.begin();
-    if (!rtcReady) Serial.println("RTC unavailable; credential verification still works.");
-    else if (rtc.lostPower()) Serial.println("RTC lost power. Scheduling is not enabled in this sketch.");
+    rtcTrusted = rtcReady && doorStoreReady && doorStore.getBool("rtcok", false);
+    if (!rtcReady) Serial.println("RTC unavailable; offline schedules need internet time after each restart.");
+    else if (rtc.lostPower()) {
+        Serial.println("RTC lost power (check its battery). It is set again once internet time is known.");
+        rtcTrusted = false;
+        if (doorStoreReady) doorStore.putBool("rtcok", false);
+    }
     mp3.begin(DFPLAYER_BAUDRATE, SERIAL_8N1, DFPLAYER_RX_PIN, DFPLAYER_TX_PIN);
     delay(700);
     audioReady = true;

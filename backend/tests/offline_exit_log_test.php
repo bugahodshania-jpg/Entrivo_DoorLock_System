@@ -105,6 +105,14 @@ try {
     expectOfflineExit($fingerIn['recorded'] === true && $row['access_type'] === 'IN' && (int) $row['user_id'] === 2
         && $row['method_access'] === 'Fingerprint' && $row['access_timestamp'] === '2026-11-12 10:29:00',
         'An offline fingerprint entry must be a granted IN for the slot owner. Got ' . json_encode($row));
+    expectOfflineExit($row['schedule_id'] === null, 'An entry outside any schedule (10:29, after 08:00-10:00) is not linked to one.');
+
+    // An entry the door allowed from its saved schedule copy is linked to that schedule.
+    $scheduledIn = $service->verify(['offline_exit' => true, 'method' => 'fingerprint', 'enrollment_device_id' => 1, 'matched_slot' => 7,
+        'direction' => 'entry', 'event_id' => $id(10), 'age_seconds' => 5400], $now);
+    $row = $log($scheduledIn['log_id']);
+    expectOfflineExit($row['access_timestamp'] === '2026-11-12 09:00:00' && (int) $row['schedule_id'] === 20 && $row['override_id'] === null,
+        'An offline entry at 09:00 must be linked to the 08:00-10:00 schedule. Got ' . json_encode($row));
 
     // Malformed uploads are refused (so the controller can drop them) and log nothing.
     $before = $count();

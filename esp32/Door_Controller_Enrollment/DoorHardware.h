@@ -59,5 +59,11 @@ uint32_t rtcSeconds();
 // 15-minute reminder moment in rtcSeconds() (0 = none); survives a restart.
 void saveReminderAt(uint32_t rtcAt);
 uint32_t restoredReminderAt();
+// Keeps the DS3231 on UTC from the internet / backend clock (checked once a
+// minute), so offline schedule checks have the right time after a restart.
+void syncRtcFromClock();
+// DS3231 Unix time when this firmware has set it and it has kept power since
+// (its backup battery); 0 = not trusted.
+uint32_t trustedRtcSeconds();
 
 #endif

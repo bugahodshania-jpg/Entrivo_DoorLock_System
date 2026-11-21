@@ -163,6 +163,18 @@ final class DoorStatusService
             } catch (Throwable $error) {
                 error_log('Door status controls: ' . $error->getMessage());
             }
+            // Version of the offline schedule copy; the controller downloads
+            // /api/door_access_cache.php only when it differs from its own.
+            // Locked reports only: the controller downloads while locked, and
+            // unlocked reports must stay quick (touch-to-lock is waiting).
+            if ($state === 'locked') {
+                try {
+                    require_once __DIR__ . '/DoorAccessCacheService.php';
+                    $reply['access_cache_version'] = (new DoorAccessCacheService($this->pdo))->cachedVersion($deviceId);
+                } catch (Throwable $error) {
+                    error_log('Door status access cache: ' . $error->getMessage());
+                }
+            }
             if ($state === 'unlocked') {
                 // The current end of the schedule the room was opened on, so the
                 // controller re-plans its 15-minute reminder after an edit.

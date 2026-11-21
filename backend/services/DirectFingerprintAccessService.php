@@ -259,6 +259,38 @@ final class DirectFingerprintAccessService
         ]);
     }
 
+    /**
+     * The account behind a door sensor slot when that slot passes every entry
+     * check except the schedule (one active, confirmed enrollment with a valid
+     * template, no restore in progress, an active and set-up account with a
+     * door role). Read only, nothing is logged. Used for the door's offline
+     * schedule copy. @return array{user_id: int, role: ?string}|null
+     */
+    public function usableSlotOwner(int $deviceId, int $slot): ?array
+    {
+        $hasRole = (bool) $this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
+        $lookup = $this->pdo->prepare(
+            'SELECT f.*, u.is_active, u.approval_status, u.must_change_password, u.onboarding_step'
+            . ($hasRole ? ', u.role' : '') . '
+             FROM fingerprints f INNER JOIN users u ON u.id = f.user_id
+             WHERE f.enrollment_device_id = ? AND f.enrollment_slot = ?'
+        );
+        $lookup->execute([$deviceId, $slot]);
+        $matches = $lookup->fetchAll(PDO::FETCH_ASSOC);
+        if (count($matches) !== 1) return null;
+        $fingerprint = $matches[0];
+        $role = $hasRole ? (string) ($fingerprint['role'] ?? '') : null;
+        if ((int) $fingerprint['is_active'] !== 1 || $fingerprint['approval_status'] !== 'approved'
+            || (int) $fingerprint['must_change_password'] !== 0 || $fingerprint['onboarding_step'] !== 'done'
+            || ($hasRole && !in_array($role, ['faculty', 'staff', 'admin', 'super_admin', 'student'], true))
+            || $fingerprint['status'] !== 'active' || !$this->validTemplate($fingerprint)
+            || DirectFingerprintImportSchema::hasActiveForUserOrSlot($this->pdo, (int) $fingerprint['user_id'], $deviceId, $slot)
+            || !$this->confirmedEnrollment($fingerprint, $deviceId, $slot)) {
+            return null;
+        }
+        return ['user_id' => (int) $fingerprint['user_id'], 'role' => $role];
+    }
+
     private function validTemplate(array $fingerprint): bool
     {
         return FingerprintTemplateFormat::verifiedBinary(

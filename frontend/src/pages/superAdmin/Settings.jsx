@@ -1321,6 +1321,7 @@ const SCHEDULE_RULES = [
   ['Regular and override', 'A running regular schedule is used first. An override does not cancel the regular schedule; it adds its own window.'],
   ['Exit', 'Never refused. Leaving after the schedule ends is logged as Extended, with the minutes over.'],
   ['End reminder', 'The door plays a reminder 15 minutes before the schedule ends, twice. If the end time is edited, it plans the reminder again.'],
+  ['Offline', 'The door keeps a copy of who may enter today and the next 7 days, updated within about a minute of any change. Without internet it checks that copy with its own clock; entries upload later with an Offline tag.'],
   ['New schedules', 'Only fully active accounts (approved, active, password changed, sign-up finished) can be given a schedule.'],
 ];
 
@@ -1336,8 +1337,8 @@ function AccessPolicyRules({ onOpenDoorControl }) {
           {door.scheduleMode === 'off'
             ? 'The rules below are paused: every active registered user can enter.'
             : door.scheduleMode === 'on'
-              ? 'The rules below always apply. Offline, only the emergency card opens the door.'
-              : 'The rules below apply while the door is online. Offline, enrolled fingers can enter and the logs upload later.'}
+              ? 'The rules below apply online and offline (the door checks its saved copy). With no saved copy, only the emergency card opens it offline.'
+              : 'The rules below apply online and offline (the door checks its saved copy). With no saved copy, enrolled fingers can enter offline.'}
         </p>
         <button type="button" className="settings-secondary-button" onClick={onOpenDoorControl}>Door control</button>
       </section>
@@ -1375,8 +1376,8 @@ function AccessPolicyRules({ onOpenDoorControl }) {
 
 // Longer explanations shown on the Door control tab.
 const DOOR_MODE_DETAILS = {
-  auto: 'Recommended. Schedules apply while online. If the internet drops, enrolled fingers can enter and the entries sync later.',
-  on: 'Schedules always apply. When offline, only the emergency card opens the door.',
+  auto: 'Recommended. Schedules apply online and offline: the door keeps a copy of today’s and the next 7 days’ schedules. With no saved copy, enrolled fingers can enter offline.',
+  on: 'Schedules apply online and offline, from the door’s saved copy. With no saved copy, only the emergency card opens the door offline.',
   off: 'No schedule needed. Any active registered user can enter; every entry is still logged.',
 };
 

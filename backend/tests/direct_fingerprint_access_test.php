@@ -129,7 +129,18 @@ try {
         $expectDeny('invalid_fingerprint');
         $pdo->prepare("UPDATE fingerprints SET status='active',template_data=?,template_hash=? WHERE fingerprint_id=1")->execute([$template, hash('sha256', $template)]);
     }
+    // The door's offline schedule copy lists a slot only when a live entry
+    // would pass every check except the schedule.
+    expectDirect($service->usableSlotOwner(1, 11) === ['user_id' => 1, 'role' => null], 'A confirmed active slot is usable offline.');
+    expectDirect($service->usableSlotOwner(1, 999) === null && $service->usableSlotOwner(2, 11) === null, 'Unknown slots are not usable offline.');
+    $pdo->exec('UPDATE users SET is_active=0 WHERE id=1');
+    expectDirect($service->usableSlotOwner(1, 11) === null, 'An inactive account is not usable offline.');
+    $pdo->exec('UPDATE users SET is_active=1 WHERE id=1');
+    $pdo->exec("UPDATE fingerprints SET status='inactive' WHERE fingerprint_id=1");
+    expectDirect($service->usableSlotOwner(1, 11) === null, 'An inactive fingerprint is not usable offline.');
+    $pdo->exec("UPDATE fingerprints SET status='active' WHERE fingerprint_id=1");
     $pdo->prepare("INSERT INTO fingerprints VALUES (2,1,'Right thumb',1,11,NULL,?,?,'active','pending',NULL,'2026-10-20 09:00:00')")->execute([$template, hash('sha256', $template)]);
+    expectDirect($service->usableSlotOwner(1, 11) === null, 'A slot with two owners is not usable offline.');
     $expectDeny('ambiguous_slot');
     $pdo->exec('DELETE FROM fingerprints WHERE fingerprint_id=2');
 

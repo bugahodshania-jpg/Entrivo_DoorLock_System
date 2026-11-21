@@ -55,7 +55,7 @@ final class OfflineExitService
             $identity = $method === 'rfid' ? $this->cardOwner($uid) : $this->slotOwner((int) $deviceId, (int) $slot);
             $exit = $identity['user_id'] !== null && !$isEntry
                 ? ScheduleAccessPolicy::exitFields((new ScheduleAccessPolicy($this->pdo))->exitContext($identity['user_id'], $at))
-                : ['schedule_id' => null, 'override_id' => null];
+                : ($identity['user_id'] !== null ? $this->entrySchedule($identity['user_id'], $at) : ['schedule_id' => null, 'override_id' => null]);
 
             $extraColumn = $hasAccessType ? ',access_type' : '';
             $extraValue = $hasAccessType ? ($isEntry ? ",'IN'" : ",'OUT'") : '';
@@ -77,6 +77,26 @@ final class OfflineExitService
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $error;
         }
+    }
+
+    /**
+     * The schedule an offline entry used (the door checked its saved copy),
+     * found again at the time of the entry so the log is linked to it.
+     * @return array{schedule_id: ?int, override_id: ?int}
+     */
+    private function entrySchedule(int $userId, DateTimeImmutable $at): array
+    {
+        $role = null;
+        if ($this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch()) {
+            $query = $this->pdo->prepare('SELECT role FROM users WHERE id = ?');
+            $query->execute([$userId]);
+            $role = $query->fetchColumn();
+            $role = $role === false ? null : (string) $role;
+        }
+        $entry = (new ScheduleAccessPolicy($this->pdo))->evaluateEntry($userId, $role, $at);
+        return $entry['granted']
+            ? ['schedule_id' => $entry['schedule_id'], 'override_id' => $entry['override_id']]
+            : ['schedule_id' => null, 'override_id' => null];
     }
 
     /** @return array{user_id: ?int, card_id: ?int, fingerprint_id: ?int} */

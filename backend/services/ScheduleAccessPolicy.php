@@ -318,7 +318,7 @@ final class ScheduleAccessPolicy
     }
 
     /** The override schedule and its approved request must both still exist. */
-    private function approvedOverrideId(int $userId, string $start, string $end): ?int
+    public function approvedOverrideId(int $userId, string $start, string $end): ?int
     {
         $approval = $this->pdo->prepare(
             'SELECT override_id FROM access_overrides

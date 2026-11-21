@@ -13,6 +13,7 @@
 #include "SensorMemory.h"
 #include "Rfid.h"
 #include "OfflineExitQueue.h"
+#include "AccessCache.h"
 #include "WiFiManager.h"
 #include "SerialLog.h"
 
@@ -46,7 +47,8 @@ namespace {
         if (connectionLostAnnounced) return;
         connectionLostAnnounced = true;
         SerialLog::warn(String("Connection lost for 60 s: offline mode (scheduling ") + doorScheduleMode()
-            + (offlineFingerEntryAllowed() ? ", enrolled fingers may enter)." : ", emergency card only)."));
+            + (accessCacheUsableNow() ? ", entries checked against the saved schedules)."
+                : offlineFingerEntryAllowed() ? ", no saved schedules: enrolled fingers may enter)." : ", emergency card only)."));
         playTrack(AUDIO_CONNECTION_LOST);
     }
 
@@ -68,6 +70,39 @@ namespace {
         if (reason == "no_schedule" || reason == "schedule_not_started") return AUDIO_OUTSIDE_SCHEDULE;
         if (reason == "expired_schedule") return AUDIO_SCHEDULE_EXPIRED;
         return AUDIO_ACCESS_DENIED;
+    }
+
+    // An entry checked against the saved schedule copy while the backend is
+    // unreachable. Fills the decision like a backend reply (reason, kind and
+    // schedule end, so the voice prompts and the 15-minute reminder work).
+    // False when there is no usable copy (the older offline rules apply).
+    bool applyOfflineAnswer(const OfflineAnswer &answer, String &message, DoorDecision &decision) {
+        using DoorAccessCache::Kind;
+        using DoorAccessCache::Reason;
+        if (answer.result == OfflineCheck::Unavailable) return false;
+        decision = DoorDecision{};
+        decision.userId = answer.userId;
+        if (answer.result == OfflineCheck::NotListed) {
+            decision.reason = "not_registered";
+            message = "Backend unreachable: not in the saved schedules (not registered, inactive, or no door access).";
+            return true;
+        }
+        const DoorAccessCache::Decision &saved = answer.decision;
+        if (answer.result == OfflineCheck::Granted) {
+            decision.reason = "access_granted";
+            decision.scheduleKind = saved.kind == Kind::Override ? "override"
+                : saved.kind == Kind::PermanentOverride ? "permanent_override"
+                : saved.kind == Kind::ScheduleOff ? "schedule_off" : "regular";
+            decision.secondsRemaining = saved.secondsRemaining;
+            decision.scheduleEndEpoch = saved.endEpoch;
+            message = "Backend unreachable: allowed by the saved schedules (" + decision.scheduleKind
+                + "), entry saved for the access log.";
+            return true;
+        }
+        decision.reason = saved.reason == Reason::NotStarted ? "schedule_not_started"
+            : saved.reason == Reason::Expired ? "expired_schedule" : "no_schedule";
+        message = "Backend unreachable: no current schedule in the saved copy (" + decision.reason + ").";
+        return true;
     }
 
     // Voice prompt for a granted entry: an approved override and an admin's
@@ -225,6 +260,7 @@ namespace {
         SerialLog::kv("Scheduling (portal)", String(doorScheduleMode()) + (offlineFingerEntryAllowed() ? " (enrolled fingers may enter while offline)" : " (offline: emergency card only)"));
         SerialLog::kv("Clock", clockValid() ? "set (backend / internet time)" : "not set yet (waiting for internet)");
         SerialLog::kv("Offline exits waiting", String(offlineExitCount()));
+        SerialLog::kv("Offline schedules", accessCacheSummary());
         SerialLog::kv("Fingerprint exit", fingerprintExitArmed ? "waiting for a finger" : "touch after the door is unlocked");
         SerialLog::kv("Locking finger", unlockedByFingerSlot ? "sensor slot " + String(unlockedByFingerSlot)
             : unlockedByUserId ? "any finger of user " + String(unlockedByUserId) : String("any registered finger"));
@@ -235,7 +271,7 @@ namespace {
         SerialLog::kv("Device token", String(DOOR_DEVICE_TOKEN).length() ? "configured" : "MISSING - set Config.h and backend/.env");
         SerialLog::kv("Enrollment device", String(ENROLLMENT_DEVICE_ID));
         SerialLog::blank();
-        SerialLog::step("Registered identities and schedules are verified by the backend.");
+        SerialLog::step("Identities and schedules are verified by the backend; offline, by the saved schedules.");
         SerialLog::step("Serial commands: M = status, T = RTC time, L = lock, U = unlock (relay test), R = play the 15-min reminder (audio test).");
         if (!sensorReady) SerialLog::debug("Sensor unavailable: check the R307S wiring/power. It is retried automatically.");
         if (WiFi.status() != WL_CONNECTED && !isWiFiConnecting()) SerialLog::debug("WiFi offline: check WIFI_SSID / WIFI_PASSWORD in Config.h.");
@@ -288,6 +324,7 @@ namespace {
         newDoorEventId(exitEventId);
         bool granted = authorizeRfid(uid, isExit, message, &decision, &backendUnreachable, exitEventId);
         bool grantedOffline = false;
+        bool savedScheduleAnswered = false; // a refusal from the saved copy keeps its own voice prompt
         if (!granted && backendUnreachable && isOfflineAccessCard(uid)) {
             // Connection lost: the emergency card works locally, same in/out process.
             granted = grantedOffline = true;
@@ -305,6 +342,15 @@ namespace {
             decision = DoorDecision{};
             message = "Backend unreachable: exit allowed locally (saved for the access log).";
             SerialLog::warn("[OFFLINE] Exit reader used without the backend. Card " + uid + ".");
+        }
+        else if (!granted && backendUnreachable) {
+            // Entrance card: checked against the saved schedules when there is a usable copy.
+            const OfflineAnswer answer = checkOfflineCard(uid);
+            savedScheduleAnswered = applyOfflineAnswer(answer, message, decision);
+            if (answer.result == OfflineCheck::Granted) {
+                granted = grantedOffline = true;
+                SerialLog::warn("[OFFLINE] Card " + uid + " let in by the saved schedules.");
+            }
         }
         // The IN or OUT the backend could not record is kept and uploaded later.
         if (grantedOffline) queueOfflineExit(exitEventId, uid, 0, !isExit);
@@ -330,7 +376,7 @@ namespace {
         // exit card. At the entrance it never plays.
         const bool offlineEmergencyExit = isExit && granted && grantedOffline && isOfflineAccessCard(uid);
         const uint16_t exitTrack = offlineEmergencyExit ? AUDIO_EMERGENCY_CARD : AUDIO_EXIT_VERIFIED;
-        if (!granted) playDeniedFeedback(backendUnreachable ? AUDIO_OFFLINE : deniedTrack(decision.reason));
+        if (!granted) playDeniedFeedback(backendUnreachable && !savedScheduleAnswered ? AUDIO_OFFLINE : deniedTrack(decision.reason));
         else if (emergencyExit) {
             if (lockedIn) {
                 openDoorRelay(exitTrack);
@@ -439,16 +485,26 @@ namespace {
         bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId,
             &backendUnreachable, exitEventId);
         bool offlineFingerEntry = false;
-        if (!granted && backendUnreachable && !isExit && offlineFingerEntryAllowed()) {
-            // Connection lost and scheduling is Auto or Off in the portal: the
-            // matched slot proves an enrolled finger, so it may enter without a
-            // schedule check. Saved and added to the access log later.
-            granted = offlineFingerEntry = true;
-            decision = DoorDecision{};
-            message = String("Backend unreachable: enrolled finger (slot ") + match.matchedSlot
-                + ") let in with scheduling " + doorScheduleMode() + " (entry saved for the access log).";
-            SerialLog::warn("[OFFLINE] Enrolled finger entered without the backend (scheduling disabled while offline).");
-            queueOfflineExit(exitEventId, "", match.matchedSlot, true);
+        bool savedScheduleAnswered = false; // a refusal from the saved copy keeps its own voice prompt
+        if (!granted && backendUnreachable && !isExit) {
+            const OfflineAnswer answer = checkOfflineFinger(match.matchedSlot);
+            savedScheduleAnswered = applyOfflineAnswer(answer, message, decision);
+            if (answer.result == OfflineCheck::Granted) {
+                // The saved schedules (today and the next 7 days) allow this entry.
+                granted = offlineFingerEntry = true;
+                SerialLog::warn("[OFFLINE] Finger (slot " + String(match.matchedSlot) + ") let in by the saved schedules.");
+                queueOfflineExit(exitEventId, "", match.matchedSlot, true);
+            } else if (!savedScheduleAnswered && offlineFingerEntryAllowed()) {
+                // No usable saved copy and scheduling is Auto or Off: the
+                // matched slot proves an enrolled finger, so it may enter
+                // without a schedule check. Saved and added to the access log later.
+                granted = offlineFingerEntry = true;
+                decision = DoorDecision{};
+                message = String("Backend unreachable: enrolled finger (slot ") + match.matchedSlot
+                    + ") let in with scheduling " + doorScheduleMode() + " (no saved schedules; entry saved for the access log).";
+                SerialLog::warn("[OFFLINE] Enrolled finger entered without the backend (no saved schedules).");
+                queueOfflineExit(exitEventId, "", match.matchedSlot, true);
+            }
         }
         if (!granted && backendUnreachable && isExit && (unlockedByFingerSlot != 0 || unlockedByUserId == 0)) {
             // Connection lost: the slot check above already proved this is the
@@ -465,7 +521,8 @@ namespace {
             ? (isExit ? "Exit granted, door locked"
                 : exitOnly ? "Exit only: door unlocked so you can leave. Touch outside to lock"
                 : "Access granted, door unlocked")
-            : isExit ? "Lock refused: the door stays unlocked" : "Access denied by backend", message);
+            : isExit ? "Lock refused: the door stays unlocked"
+            : savedScheduleAnswered ? "Access denied by the saved schedules (offline)" : "Access denied by backend", message);
         // A refused lock ends this attempt: touch again, then scan the right finger.
         if (!granted && isExit) fingerprintExitArmed = false;
         if (!granted && message.indexOf("not linked") >= 0)
@@ -487,7 +544,7 @@ namespace {
                 SerialLog::step("To lock: touch the sensor, then scan this same finger (slot " + String(unlockedByFingerSlot) + ").");
             }
             discardBufferedScans();
-        } else playDeniedFeedback(backendUnreachable ? AUDIO_OFFLINE : deniedTrack(decision.reason));
+        } else playDeniedFeedback(backendUnreachable && !savedScheduleAnswered ? AUDIO_OFFLINE : deniedTrack(decision.reason));
     }
 }
 
@@ -525,6 +582,7 @@ void setup() {
     initRfidReaders();
     SerialLog::step("RFID readers ready.");
     initOfflineExits();
+    initAccessCache();
     connectWiFi();
     // Internet time (UTC) for the reminder; the backend's time also sets it.
     configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -534,6 +592,7 @@ void setup() {
 
 void loop() {
     updateDoorHardware();
+    syncRtcFromClock(); // keeps the DS3231 right for offline schedule checks
     serviceReminder();
     serviceSessionEnd();
     serviceConnectionAnnouncement();
@@ -616,6 +675,8 @@ void loop() {
         if (handled) { interruptSensorMemoryRead(); discardBufferedScans(); return; }
     }
     if (isFingerprintWorkPending()) { delay(2); return; }
+    // Locked and idle: fetch a newer saved schedule copy when the backend has one.
+    serviceAccessCache();
 
     if (serviceSensorMemory(sensorReady)) { discardBufferedScans(); delay(2); return; }
 

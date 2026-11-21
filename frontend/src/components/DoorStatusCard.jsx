@@ -10,8 +10,8 @@ import '../styles/shared/accessStatusModal.css';
 import '../styles/shared/doorStatus.css';
 
 const SCHEDULE_MODES = [
-  { value: 'auto', label: 'Auto', hint: 'Schedules apply while the door is online. If it loses internet, scheduling turns off by itself and enrolled fingers can enter.' },
-  { value: 'on', label: 'On', hint: 'Schedules always apply, even offline. Offline, only the emergency card opens the door.' },
+  { value: 'auto', label: 'Auto', hint: 'Schedules apply online and offline (the door keeps a copy). With no saved copy, enrolled fingers can enter while offline.' },
+  { value: 'on', label: 'On', hint: 'Schedules apply online and offline (the door keeps a copy). With no saved copy, only the emergency card opens it while offline.' },
   { value: 'off', label: 'Off', hint: 'No schedule needed: any active registered user can enter.' },
 ];
 
@@ -199,7 +199,7 @@ export function DoorControlPanel({
   if (variant === 'sections') {
     const lockState = door.state === 'locked' ? 'lock' : door.state === 'unlocked' ? 'unlock' : '';
     const statusLine = offline
-      ? (door.scheduleMode === 'on' ? 'No internet. Only the emergency card opens the door.' : 'No internet. Enrolled fingers can enter; entries sync later.')
+      ? (door.scheduleMode === 'off' ? 'No internet. Registered users can enter; entries sync later.' : 'No internet. The door checks its saved schedules; entries sync later.')
       : 'Online. Changes reach the door within a few seconds.';
     const showLock = canControl && isSuperAdmin;
     return (
@@ -303,9 +303,9 @@ export function DoorControlPanel({
             <WifiOff size={15} aria-hidden="true" />
             <span>
               <strong>Connection lost.</strong> The door controller is not reaching the internet.{' '}
-              {door.scheduleMode === 'on'
-                ? 'Scheduling stays on, so only the emergency card opens the door.'
-                : 'Scheduling is disabled automatically: enrolled fingers can enter, and their entries are saved for the access logs.'}
+              {door.scheduleMode === 'off'
+                ? 'Scheduling is off, so registered users can enter. Entries are saved for the access logs.'
+                : 'The door checks the schedules it saved (today and the next 7 days). Entries are saved for the access logs.'}
             </span>
           </p>
         ) : null}
