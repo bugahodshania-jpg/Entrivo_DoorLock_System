@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 require_once dirname(__DIR__) . '/config/connection.php';
+require_once dirname(__DIR__) . '/services/ScheduleAccessPolicy.php';
 
 try {
     $pdo = entrivo_pdo();
@@ -36,17 +37,25 @@ $userCounts = $pdo->query(
          FROM users"
     )->fetch();
 
-    $scheduleCounts = $pdo->query(
-        "SELECT COUNT(*) AS active_schedules
-         FROM schedules
-         WHERE status IN ('approved', 'overridden')"
-    )->fetch();
+    // Approved schedules that run today: one-day schedules dated today, and
+    // repeating schedules whose day and date range include today.
+    $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+    $todayIds = [];
+    foreach ($pdo->query(
+        "SELECT * FROM schedules
+         WHERE status IN ('approved', 'overridden')
+            AND (schedule_date = CURDATE() OR schedule_type = 'recurring')"
+    )->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
+        if (ScheduleAccessPolicy::occursOn($candidate, $today)) $todayIds[] = (int) $candidate['schedule_id'];
+    }
+    $scheduleCounts = ['active_schedules' => count($todayIds)];
+    $todayIdList = $todayIds === [] ? '0' : implode(',', $todayIds);
 
     $hasAccessType = (bool) $pdo->query("SHOW COLUMNS FROM access_log LIKE 'access_type'")->fetch();
     $attendanceFilter = $hasAccessType ? "AND (access_type IS NULL OR access_type IN ('IN','OUT'))" : '';
     $accessCounts = $pdo->query(
         "SELECT
-            SUM(access_status = 'granted' {$attendanceFilter}) AS granted_access,
+            SUM(access_status = 'granted' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS granted_access,
             SUM(access_status = 'denied' AND DATE(access_timestamp) = CURDATE() {$attendanceFilter}) AS denied_today
          FROM access_log"
     )->fetch();
@@ -159,8 +168,7 @@ $userCounts = $pdo->query(
          LEFT JOIN faculty_info ON faculty_info.user_id = users.id
          LEFT JOIN staff_info ON staff_info.user_id = users.id
          LEFT JOIN admin_info ON admin_info.user_id = users.id
-         WHERE schedules.status IN ('approved', 'overridden')
-            AND schedules.schedule_date = CURDATE()
+         WHERE schedules.schedule_id IN ({$todayIdList})
          ORDER BY schedules.time_start ASC
         "
     );

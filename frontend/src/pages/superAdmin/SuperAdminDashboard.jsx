@@ -131,7 +131,15 @@ export default function SuperAdminDashboard() {
       {
         label: 'Access Granted',
         value: summary.grantedAccess,
-        detail: 'Successful access attempts',
+        detail: (
+          <>
+            Successful attempts
+            <span className="dashboard-summary-online">
+              <span aria-hidden="true" />
+              Today
+            </span>
+          </>
+        ),
         icon: CheckCircle2,
       },
       {
@@ -206,7 +214,13 @@ export default function SuperAdminDashboard() {
           <div className="dashboard-summary-copy">
             <span className="dashboard-summary-label">Active Schedules</span>
             <strong>{isSummaryLoading ? '--' : formatNumber(summary.activeSchedules)}</strong>
-            <small>Approved schedules</small>
+            <small>
+              Approved schedules
+              <span className="dashboard-summary-online">
+                <span aria-hidden="true" />
+                Today
+              </span>
+            </small>
           </div>
         </article>
       </section>
