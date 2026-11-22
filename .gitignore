@@ -6,3 +6,9 @@ backend/storage/
 
 # Device secrets (copy Secrets.example.h to Secrets.h in each sketch)
 esp32/**/Secrets.h
+
+# Office lock files (created while a document is open)
+~$*
+
+# Downloaded reference papers (kept locally, not in git)
+Manuscript/**/*.pdf
