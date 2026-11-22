@@ -76,7 +76,7 @@
 #define REMINDER_REPEAT_DELAY_MS 12000UL
 
 // Speaker volume of the DFPlayer, 0-30 (30 = loudest). Set once at startup.
-#define DFPLAYER_VOLUME 30
+#define DFPLAYER_VOLUME 26
 static_assert(DFPLAYER_VOLUME >= 0 && DFPLAYER_VOLUME <= 30, "DFPlayer volume must be 0-30.");
 
 #endif

@@ -406,9 +406,10 @@ namespace {
             armSessionEnd(decision.secondsRemaining);
         }
         else {
-            // 0012 is an exit prompt only. An entry let in offline hears 0023
-            // (saved for the access log); online, the normal entry track.
-            openDoorRelay(grantedOffline ? AUDIO_OFFLINE_ENTRY_SAVED : entryTrack(decision));
+            // Online or offline, a let-in entry hears the normal entry track
+            // (0001 access granted, or the override track). An offline entry
+            // is still saved and reaches the access log when the connection returns.
+            openDoorRelay(entryTrack(decision));
             // Card entry: touch + any finger of this same user locks.
             rememberUnlocker(0, decision.userId);
             armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
@@ -484,21 +485,20 @@ namespace {
         newDoorEventId(exitEventId);
         bool granted = authorizeMatchedFingerprint(match.matchedSlot, message, isExit, &exitOnly, &decision, unlockedByUserId,
             &backendUnreachable, exitEventId);
-        bool offlineFingerEntry = false;
         bool savedScheduleAnswered = false; // a refusal from the saved copy keeps its own voice prompt
         if (!granted && backendUnreachable && !isExit) {
             const OfflineAnswer answer = checkOfflineFinger(match.matchedSlot);
             savedScheduleAnswered = applyOfflineAnswer(answer, message, decision);
             if (answer.result == OfflineCheck::Granted) {
                 // The saved schedules (today and the next 7 days) allow this entry.
-                granted = offlineFingerEntry = true;
+                granted = true;
                 SerialLog::warn("[OFFLINE] Finger (slot " + String(match.matchedSlot) + ") let in by the saved schedules.");
                 queueOfflineExit(exitEventId, "", match.matchedSlot, true);
             } else if (!savedScheduleAnswered && offlineFingerEntryAllowed()) {
                 // No usable saved copy and scheduling is Auto or Off: the
                 // matched slot proves an enrolled finger, so it may enter
                 // without a schedule check. Saved and added to the access log later.
-                granted = offlineFingerEntry = true;
+                granted = true;
                 decision = DoorDecision{};
                 message = String("Backend unreachable: enrolled finger (slot ") + match.matchedSlot
                     + ") let in with scheduling " + doorScheduleMode() + " (no saved schedules; entry saved for the access log).";
@@ -537,7 +537,7 @@ namespace {
                 rememberUnlocker(0, decision.userId);
             }
             else {
-                openDoorRelay(offlineFingerEntry ? AUDIO_OFFLINE_ENTRY_SAVED : entryTrack(decision));
+                openDoorRelay(entryTrack(decision)); // same voice online and offline
                 rememberUnlocker(match.matchedSlot, decision.userId);
                 armReminder(decision.secondsRemaining, decision.scheduleEndEpoch);
                 armSessionEnd(decision.secondsRemaining);
