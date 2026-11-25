@@ -204,16 +204,18 @@ function formatAccessSetup(user, { isStudent = false } = {}) {
     };
   }
 
+  const hasBackupCard = user.backupRfidStatus && user.backupRfidStatus !== 'unassigned';
+  const cardLabel = hasBackupCard ? `${rfidLabel} + backup` : rfidLabel;
   const fingerprintLabel =
     user.fingerprintCount > 0
       ? `${user.fingerprintCount} fingerprint${user.fingerprintCount > 1 ? 's' : ''}`
       : 'No fingerprint';
 
   return {
-    rfid: rfidLabel,
+    rfid: cardLabel,
     fingerprint: fingerprintLabel,
     primary: fingerprintLabel,
-    secondary: rfidLabel,
+    secondary: cardLabel,
   };
 }
 
@@ -412,6 +414,10 @@ function buildEditForm(user) {
     officeDepartment: cleanDisplayValue(user.officeDepartment),
     workPosition: cleanDisplayValue(user.workPosition),
     rfidUid: cleanDisplayValue(user.rfidUid),
+    backupRfidUid: cleanDisplayValue(user.backupRfidUid),
+    backupRfidStatus: ['active', 'inactive', 'lost'].includes(user.backupRfidStatus)
+      ? user.backupRfidStatus
+      : 'active',
     fingerprintCount: user.fingerprintCount || 0,
     joinedAt: cleanDisplayValue(user.joinedAt),
   };
@@ -446,6 +452,7 @@ function editServerFieldErrors(message) {
     ['email', 'email'],
     ['school id', 'identifier'],
     ['employee id', 'identifier'],
+    ['backup rfid', 'backupRfidUid'],
     ['rfid', 'rfidUid'],
     ['first name', 'firstName'],
     ['middle name', 'middleName'],
@@ -611,6 +618,16 @@ function validateEditForm(form) {
   const rfidUid = String(form.rfidUid || '').trim();
   if (rfidUid && !/^[A-Z0-9]{1,30}$/.test(rfidUid)) {
     errors.rfidUid = 'RFID UID must be up to 30 letters or numbers.';
+  }
+
+  // Faculty, staff, admins and super admins may add a second (backup) card.
+  const backupRfidUid = String(form.backupRfidUid || '').trim();
+  if (backupRfidUid && !form.isStudent) {
+    if (!/^[0-9A-F]{10}$/.test(backupRfidUid)) {
+      errors.backupRfidUid = 'Backup RFID UID must be the 10-character UID shown on the scanner (0-9, A-F).';
+    } else if (backupRfidUid === rfidUid) {
+      errors.backupRfidUid = 'Backup RFID UID must be different from the RFID UID.';
+    }
   }
 
   return errors;
@@ -972,6 +989,12 @@ export default function ManageUsers({ user: currentUser } = {}) {
                   viewUser.fingerprintCount ? `${viewUser.fingerprintCount} active` : 'Not Enrolled',
                 ],
                 ['RFID UID', viewUser.rfidUid],
+                [
+                  'Backup RFID UID',
+                  viewUser.backupRfidUid && viewUser.backupRfidUid !== 'Not assigned'
+                    ? `${viewUser.backupRfidUid} (${viewUser.backupRfidStatus})`
+                    : 'Not assigned',
+                ],
                 ['Joined', viewUser.joinedAt],
               ],
         },
@@ -2591,7 +2614,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                           />
                         </EditField>
                       ) : null}
-                      <EditField label={editForm.isStudent ? 'RFID UID' : 'Backup RFID UID'} error={editFieldErrors.rfidUid}>
+                      <EditField label="RFID UID" error={editFieldErrors.rfidUid}>
                           <input
                             type="text"
                             value={editForm.rfidUid}
@@ -2601,11 +2624,42 @@ export default function ManageUsers({ user: currentUser } = {}) {
                                 event.target.value.replace(/\s+/g, '').toUpperCase(),
                               )
                             }
-                            placeholder={editForm.isStudent ? 'Enter RFID UID' : 'Optional backup card UID'}
+                            placeholder={editForm.isStudent ? 'Enter RFID UID' : 'Optional card UID'}
                             maxLength={30}
                             autoComplete="off"
                           />
                         </EditField>
+                      {!editForm.isStudent ? (
+                        <>
+                          <EditField label="Backup RFID UID" error={editFieldErrors.backupRfidUid}>
+                            <input
+                              type="text"
+                              value={editForm.backupRfidUid}
+                              onChange={(event) =>
+                                updateEditField(
+                                  'backupRfidUid',
+                                  event.target.value.replace(/\s+/g, '').toUpperCase(),
+                                )
+                              }
+                              placeholder="Tap the card on the scanner first"
+                              maxLength={10}
+                              autoComplete="off"
+                            />
+                          </EditField>
+                          {editForm.backupRfidUid ? (
+                            <EditField label="Backup card status">
+                              <select
+                                value={editForm.backupRfidStatus}
+                                onChange={(event) => updateEditField('backupRfidStatus', event.target.value)}
+                              >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                                <option value="lost">Lost</option>
+                              </select>
+                            </EditField>
+                          ) : null}
+                        </>
+                      ) : null}
                       <EditField label="Joined">
                         <input type="text" value={editForm.joinedAt || '—'} readOnly />
                       </EditField>

@@ -24,6 +24,7 @@ require_once dirname(__DIR__) . '/services/UserRegistrationService.php';
 require_once dirname(__DIR__) . '/services/SuperAdminDashboardSession.php';
 require_once dirname(__DIR__) . '/services/UserPrivilegeService.php';
 require_once dirname(__DIR__) . '/services/ActivityLogService.php';
+require_once dirname(__DIR__) . '/services/RfidCardSlots.php';
 
 require_once dirname(__DIR__) . '/config/connection.php';
 
@@ -146,10 +147,15 @@ function fetchUsersByRole(PDO $pdo, string $roleKey): array
                    {$profileTable}.office_department,
                    {$profileTable}.work_position") . ",
             COALESCE(rfid_cards.status, 'unassigned') AS rfid_status,
+            (SELECT backup_card.status
+             FROM rfid_cards AS backup_card
+             WHERE backup_card.user_id = users.id
+               AND backup_card.card_slot = 'backup'
+             LIMIT 1) AS backup_rfid_status,
             COUNT(fingerprints.fingerprint_id) AS fingerprint_count
          FROM users
          LEFT JOIN {$profileTable} ON {$profileTable}.user_id = users.id
-         LEFT JOIN rfid_cards ON rfid_cards.user_id = users.id
+         LEFT JOIN rfid_cards ON rfid_cards.user_id = users.id AND rfid_cards.card_slot = 'primary'
          LEFT JOIN fingerprints ON fingerprints.user_id = users.id AND fingerprints.status = 'active'
          WHERE {$roleCondition}
          GROUP BY
@@ -210,6 +216,7 @@ function fetchUsersByRole(PDO $pdo, string $roleKey): array
                 'officeDepartment' => $user['office_department'],
                 'workPosition' => $user['work_position'],
                 'rfidStatus' => $user['rfid_status'],
+                'backupRfidStatus' => $user['backup_rfid_status'] ?: 'unassigned',
                 'fingerprintCount' => (int) $user['fingerprint_count'],
                 'status' => resolveAccountStatus(
                     (string) ($user['approval_status'] ?? 'approved'),
@@ -319,9 +326,20 @@ function fetchUserById(PDO $pdo, int $userId): ?array
             (SELECT rfid_cards.rfid_uid
              FROM rfid_cards
              WHERE rfid_cards.user_id = users.id
+               AND rfid_cards.card_slot = 'primary'
              ORDER BY CASE WHEN rfid_cards.status = 'active' THEN 0 ELSE 1 END,
                       rfid_cards.issued_at DESC
              LIMIT 1) AS rfid_uid,
+            (SELECT backup_card.rfid_uid
+             FROM rfid_cards AS backup_card
+             WHERE backup_card.user_id = users.id
+               AND backup_card.card_slot = 'backup'
+             LIMIT 1) AS backup_rfid_uid,
+            (SELECT backup_card.status
+             FROM rfid_cards AS backup_card
+             WHERE backup_card.user_id = users.id
+               AND backup_card.card_slot = 'backup'
+             LIMIT 1) AS backup_rfid_status,
             (SELECT COUNT(*)
              FROM fingerprints
              WHERE fingerprints.user_id = users.id
@@ -388,6 +406,9 @@ function fetchUserById(PDO $pdo, int $userId): ?array
             (string) ($row['onboarding_step'] ?? 'done')
         ),
         'rfidUid' => $row['rfid_uid'] ?: 'Not assigned',
+        'backupRfidUid' => $row['backup_rfid_uid'] ?: 'Not assigned',
+        'backupRfidStatus' => $row['backup_rfid_status'] ?: 'unassigned',
+        'canHoldBackupRfid' => RfidCardSlots::canHoldBackup((string) $row['role']),
         'college' => $row['college'],
         'yearLevel' => $row['year_level'],
         'program' => $row['program_department'],
@@ -781,6 +802,31 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
         }
     }
 
+    // A second card for faculty, staff, admins and super admins; it opens the
+    // door under the same account, schedule and role rules as the first one.
+    $primaryChanges = array_key_exists('rfidUid', $input) || array_key_exists('rfid_uid', $input);
+    $currentPrimary = RfidCardSlots::card($pdo, $userId, RfidCardSlots::PRIMARY);
+    $finalPrimaryUid = $primaryChanges ? $rfidUid : ($currentPrimary['rfid_uid'] ?? null);
+    $backupChanges = array_key_exists('backupRfidUid', $input) || array_key_exists('backup_rfid_uid', $input);
+    $backup = null;
+
+    if ($backupChanges) {
+        $backup = RfidCardSlots::validateBackup(
+            $pdo,
+            $userId,
+            (string) $role,
+            $input['backupRfidUid'] ?? $input['backup_rfid_uid'] ?? '',
+            $input['backupRfidStatus'] ?? $input['backup_rfid_status'] ?? 'active',
+            $finalPrimaryUid
+        );
+    } else {
+        $currentBackup = RfidCardSlots::card($pdo, $userId, RfidCardSlots::BACKUP);
+
+        if ($currentBackup && $finalPrimaryUid !== null && strcasecmp((string) $currentBackup['rfid_uid'], $finalPrimaryUid) === 0) {
+            throw new InvalidArgumentException('RFID UID must be different from the backup RFID UID.');
+        }
+    }
+
     $pdo->beginTransaction();
 
     try {
@@ -883,14 +929,20 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
             ]);
         }
 
+        if ($backupChanges && $rfidUid !== null) {
+            // The primary may take over the old backup UID (a swap).
+            RfidCardSlots::releaseBackupUid($pdo, $userId, $rfidUid);
+        }
+
         if (array_key_exists('rfidUid', $input) || array_key_exists('rfid_uid', $input)) {
             $existingCard = $pdo->prepare(
-                'SELECT card_id
+                "SELECT card_id
                  FROM rfid_cards
                  WHERE user_id = :user_id
-                 ORDER BY CASE WHEN status = \'active\' THEN 0 ELSE 1 END,
+                   AND card_slot = 'primary'
+                 ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
                           issued_at DESC
-                 LIMIT 1'
+                 LIMIT 1"
             );
             $existingCard->execute(['user_id' => $userId]);
             $card = $existingCard->fetch();
@@ -915,14 +967,18 @@ function updateUserById(PDO $pdo, int $userId, array $input): array
                 ]);
             } else {
                 $insertCard = $pdo->prepare(
-                    "INSERT INTO rfid_cards (user_id, rfid_uid, status)
-                     VALUES (:user_id, :rfid_uid, 'active')"
+                    "INSERT INTO rfid_cards (user_id, rfid_uid, card_slot, status)
+                     VALUES (:user_id, :rfid_uid, 'primary', 'active')"
                 );
                 $insertCard->execute([
                     'user_id' => $userId,
                     'rfid_uid' => $rfidUid,
                 ]);
             }
+        }
+
+        if ($backup !== null) {
+            RfidCardSlots::saveBackup($pdo, $userId, $backup['uid'], $backup['status']);
         }
 
         $pdo->commit();
@@ -1317,6 +1373,7 @@ function setUserBlockStatusById(
 
 try {
     $pdo = entrivo_pdo();
+    RfidCardSlots::ensureSchema($pdo);
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['id'])) {
         $userId = filter_var($_GET['id'], FILTER_VALIDATE_INT);

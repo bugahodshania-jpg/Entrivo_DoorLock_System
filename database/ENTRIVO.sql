@@ -491,11 +491,12 @@ CREATE TABLE `rfid_cards` (
   `card_id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
   `rfid_uid` varchar(30) NOT NULL,
+  `card_slot` enum('primary','backup') NOT NULL DEFAULT 'primary',
   `status` enum('active','inactive','lost') DEFAULT 'active',
   `issued_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`card_id`),
-  UNIQUE KEY `user_id` (`user_id`),
+  UNIQUE KEY `uq_rfid_cards_user_slot` (`user_id`,`card_slot`),
   UNIQUE KEY `rfid_uid` (`rfid_uid`),
   KEY `idx_rfid_uid` (`rfid_uid`),
   CONSTRAINT `rfid_cards_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
