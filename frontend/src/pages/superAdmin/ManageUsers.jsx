@@ -4,6 +4,7 @@ import {
   Ban,
   Check,
   ChevronDown,
+  CreditCard,
   DoorOpen,
   Download,
   Expand,
@@ -12,6 +13,7 @@ import {
   GraduationCap,
   KeyRound,
   Pencil,
+  RefreshCw,
   Search,
   Shield,
   Trash2,
@@ -703,6 +705,14 @@ export default function ManageUsers({ user: currentUser } = {}) {
   const [deleteNotice, setDeleteNotice] = useState('');
   const [isBlockingUserId, setIsBlockingUserId] = useState(null);
   const [passwordUser, setPasswordUser] = useState(null);
+  const [rfidEnrollForm, setRfidEnrollForm] = useState(null);
+  const [rfidEnrollName, setRfidEnrollName] = useState('');
+  const [rfidEnrollErrors, setRfidEnrollErrors] = useState({});
+  const [rfidEnrollError, setRfidEnrollError] = useState('');
+  const [isRfidEnrollLoading, setIsRfidEnrollLoading] = useState(false);
+  const [isRfidEnrollSaving, setIsRfidEnrollSaving] = useState(false);
+  const [rfidScans, setRfidScans] = useState([]);
+  const [isRfidScansLoading, setIsRfidScansLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     newPassword: '',
     confirmPassword: '',
@@ -1374,6 +1384,122 @@ export default function ManageUsers({ user: currentUser } = {}) {
       );
     } finally {
       setIsBlockingUserId(null);
+    }
+  }
+
+  async function loadRfidScans() {
+    setIsRfidScansLoading(true);
+
+    try {
+      const response = await axiosClient.get('/api/rfid_enrollment_scans.php');
+      // Newest first; a UID tapped several times is listed once.
+      const seen = new Set();
+      const scans = (response.data?.scans || []).filter((scan) => {
+        const uid = String(scan.rfidUid || '').toUpperCase();
+        if (!uid || seen.has(uid)) return false;
+        seen.add(uid);
+        return true;
+      });
+      setRfidScans(scans.slice(0, 8));
+    } catch {
+      setRfidScans([]);
+    } finally {
+      setIsRfidScansLoading(false);
+    }
+  }
+
+  async function openRfidEnroll(user) {
+    if (!user?.id) {
+      return;
+    }
+
+    setRfidEnrollName(user.name || 'this user');
+    setRfidEnrollForm(null);
+    setRfidEnrollErrors({});
+    setRfidEnrollError('');
+    setIsRfidEnrollLoading(true);
+    loadRfidScans();
+
+    try {
+      const response = await axiosClient.get('/api/user.php', { params: { id: user.id } });
+      if (!response.data?.user) {
+        throw new Error('missing user');
+      }
+      setRfidEnrollForm(buildEditForm(response.data.user));
+    } catch (error) {
+      setRfidEnrollError(error.response?.data?.message || 'Unable to load this user right now.');
+    } finally {
+      setIsRfidEnrollLoading(false);
+    }
+  }
+
+  function closeRfidEnroll({ force = false } = {}) {
+    if (isRfidEnrollSaving && !force) {
+      return;
+    }
+
+    setRfidEnrollForm(null);
+    setIsRfidEnrollLoading(false);
+    setRfidEnrollErrors({});
+  }
+
+  function updateRfidEnrollField(field, value) {
+    setRfidEnrollForm((current) => (current ? { ...current, [field]: value } : current));
+    setRfidEnrollErrors((current) => ({ ...current, [field]: '' }));
+  }
+
+  async function handleSaveRfidEnroll(event) {
+    event.preventDefault();
+
+    if (!rfidEnrollForm || isRfidEnrollSaving) {
+      return;
+    }
+
+    const allErrors = validateEditForm(rfidEnrollForm);
+    const cardErrors = {};
+    if (allErrors.rfidUid) cardErrors.rfidUid = allErrors.rfidUid;
+    if (allErrors.backupRfidUid) cardErrors.backupRfidUid = allErrors.backupRfidUid;
+    setRfidEnrollErrors(cardErrors);
+
+    if (Object.keys(cardErrors).length > 0) {
+      return;
+    }
+
+    if (Object.keys(allErrors).length > 0) {
+      setRfidEnrollError(
+        "This user's profile has missing or invalid details. Open Edit to fix them, then enroll the RFID card.",
+      );
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Enroll RFID',
+      message: `Save the RFID cards for ${rfidEnrollName}?`,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRfidEnrollSaving(true);
+    setRfidEnrollError('');
+
+    try {
+      await axiosClient.put('/api/user.php', {
+        ...rfidEnrollForm,
+        actor_id: currentUser?.id || undefined,
+      });
+      await reloadUsers();
+      closeRfidEnroll({ force: true });
+    } catch (error) {
+      const message = error.response?.data?.message || 'Unable to save the RFID cards right now.';
+      const serverErrors = editServerFieldErrors(message);
+      if (serverErrors.rfidUid || serverErrors.backupRfidUid) {
+        setRfidEnrollErrors(serverErrors);
+      }
+      setRfidEnrollError(message);
+    } finally {
+      setIsRfidEnrollSaving(false);
     }
   }
 
@@ -2079,6 +2205,7 @@ export default function ManageUsers({ user: currentUser } = {}) {
                           items={[
                             { label: 'View', icon: Eye, onClick: () => openUserView(user) },
                             { label: 'Edit', icon: Pencil, onClick: () => openUserEdit(user) },
+                            { label: 'Enroll RFID', icon: CreditCard, onClick: () => openRfidEnroll(user) },
                             {
                               label: 'Change Password',
                               icon: KeyRound,
@@ -2724,6 +2851,172 @@ export default function ManageUsers({ user: currentUser } = {}) {
           document.body,
         )
       : null}
+    {rfidEnrollForm || isRfidEnrollLoading
+      ? createPortal(
+          <div
+            className="pending-registration-review-backdrop"
+            role="presentation"
+            onClick={() => closeRfidEnroll()}
+          >
+            <form
+              className="pending-registration-review manage-users-edit-modal manage-users-rfid-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="manage-user-rfid-title"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={handleSaveRfidEnroll}
+            >
+              <header>
+                <div>
+                  <h2 id="manage-user-rfid-title">Enroll RFID</h2>
+                  <p>Assign RFID cards to {rfidEnrollName}.</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close enroll RFID"
+                  onClick={() => closeRfidEnroll()}
+                  disabled={isRfidEnrollSaving}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+
+              {isRfidEnrollLoading || !rfidEnrollForm ? (
+                <p className="pending-registration-review-note">Loading user...</p>
+              ) : (
+                <div className="pending-registration-review-body">
+                  <ol className="manage-users-rfid-steps">
+                    <li>Tap the card on the RFID scanner.</li>
+                    <li>Pick its UID from the recent scans below, or type it.</li>
+                    <li>Save.</li>
+                  </ol>
+
+                  <section>
+                    <h3>Cards</h3>
+                    <dl>
+                      <EditField label="RFID UID" error={rfidEnrollErrors.rfidUid}>
+                        <input
+                          type="text"
+                          value={rfidEnrollForm.rfidUid}
+                          onChange={(event) =>
+                            updateRfidEnrollField('rfidUid', event.target.value.replace(/\s+/g, '').toUpperCase())
+                          }
+                          placeholder="Not assigned"
+                          maxLength={30}
+                          autoComplete="off"
+                        />
+                      </EditField>
+                      {!rfidEnrollForm.isStudent ? (
+                        <>
+                          <EditField label="Backup RFID UID" error={rfidEnrollErrors.backupRfidUid}>
+                            <input
+                              type="text"
+                              value={rfidEnrollForm.backupRfidUid}
+                              onChange={(event) =>
+                                updateRfidEnrollField(
+                                  'backupRfidUid',
+                                  event.target.value.replace(/\s+/g, '').toUpperCase(),
+                                )
+                              }
+                              placeholder="Optional second card"
+                              maxLength={10}
+                              autoComplete="off"
+                            />
+                          </EditField>
+                          {rfidEnrollForm.backupRfidUid ? (
+                            <EditField label="Backup card status">
+                              <select
+                                value={rfidEnrollForm.backupRfidStatus}
+                                onChange={(event) => updateRfidEnrollField('backupRfidStatus', event.target.value)}
+                              >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                                <option value="lost">Lost</option>
+                              </select>
+                            </EditField>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </dl>
+                  </section>
+
+                  <section>
+                    <div className="manage-users-rfid-scans-head">
+                      <h3>Recent scans</h3>
+                      <button type="button" onClick={loadRfidScans} disabled={isRfidScansLoading}>
+                        <RefreshCw size={13} aria-hidden="true" />
+                        {isRfidScansLoading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                    </div>
+                    {rfidScans.length === 0 ? (
+                      <p className="pending-registration-review-note">
+                        {isRfidScansLoading ? 'Loading scans...' : 'No scans yet. Tap the card on the scanner, then Refresh.'}
+                      </p>
+                    ) : (
+                      <ul className="manage-users-rfid-scans">
+                        {rfidScans.map((scan) => {
+                          const uid = String(scan.rfidUid || '').toUpperCase();
+                          const isMine = uid === rfidEnrollForm.rfidUid || uid === rfidEnrollForm.backupRfidUid;
+                          const isTaken = scan.registrationStatus === 'registered' && !isMine;
+
+                          return (
+                            <li key={scan.id}>
+                              <div>
+                                <strong>{uid}</strong>
+                                <span>
+                                  {scan.scannedAt} · {scan.deviceLabel}
+                                  {isTaken ? ' · already registered' : ''}
+                                </span>
+                              </div>
+                              <div className="manage-users-rfid-scan-actions">
+                                <button
+                                  type="button"
+                                  disabled={isTaken}
+                                  onClick={() => updateRfidEnrollField('rfidUid', uid)}
+                                >
+                                  Use
+                                </button>
+                                {!rfidEnrollForm.isStudent ? (
+                                  <button
+                                    type="button"
+                                    disabled={isTaken || !/^[0-9A-F]{10}$/.test(uid)}
+                                    onClick={() => updateRfidEnrollField('backupRfidUid', uid)}
+                                  >
+                                    Use as backup
+                                  </button>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
+                </div>
+              )}
+
+              <footer>
+                <button
+                  type="button"
+                  className="pending-registration-reject"
+                  onClick={() => closeRfidEnroll()}
+                  disabled={isRfidEnrollSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="pending-registration-approve"
+                  disabled={isRfidEnrollSaving || !rfidEnrollForm}
+                >
+                  {isRfidEnrollSaving ? 'Saving...' : 'Save RFID'}
+                </button>
+              </footer>
+            </form>
+          </div>,
+          document.body,
+        )
+      : null}
     {passwordUser
       ? createPortal(
           <div
@@ -3083,6 +3376,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
       open={Boolean(editError)}
       message={editError}
       onClose={() => setEditError('')}
+    />
+    <ErrorNoticeModal
+      open={Boolean(rfidEnrollError)}
+      message={rfidEnrollError}
+      onClose={() => setRfidEnrollError('')}
     />
     <ErrorNoticeModal
       open={Boolean(passwordError)}
