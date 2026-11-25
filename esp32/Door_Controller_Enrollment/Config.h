@@ -27,7 +27,7 @@
 #define HTTP_CONNECT_TIMEOUT_MS 5000
 #define HTTP_READ_TIMEOUT_MS 6000
 
-// Exact wiring from Fully_working_codeproplus.ino.
+// Exact wiring from the original working hardware test (Fully_working_codeproplus.ino, now only in git history).
 #define FP_UART_INDEX 1
 #define FP_RX_PIN 32
 #define FP_TX_PIN 33

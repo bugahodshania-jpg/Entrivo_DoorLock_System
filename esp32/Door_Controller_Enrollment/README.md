@@ -6,9 +6,10 @@ can also unlock the door. Both methods verify the registered account through the
 backend before granting entry. Scheduling and overrides are deferred in this
 sketch's dedicated verification endpoint.
 
-The wiring and latched door behavior follow the saved
-`../door_hardware_test/Fully_working_codeproplus.ino`. Its local Preferences test
-allowlist is not used. Existing sensor templates are preserved.
+The wiring and latched door behavior follow the original working hardware test
+(`Fully_working_codeproplus.ino`, removed from the repository; it is still in the
+git history). Its local Preferences test allowlist is not used. Existing sensor
+templates are preserved.
 
 ## Configure and upload
 
@@ -343,8 +344,7 @@ they do not assume that a particular sensor model or command caused the failure.
 The new verification route uses `CombinedDoorAccessService.php` and the existing
 enrollment/import endpoints. It records grants before returning permission to
 the board. This route checks registered identities without schedules; the older
-scheduled direct-access endpoint and `door_controller_for_sync` remain available
-for their existing workflows.
+scheduled direct-access endpoint remains available for its existing workflow.
 
 The accompanying backend regression tests use connection-local temporary tables:
 

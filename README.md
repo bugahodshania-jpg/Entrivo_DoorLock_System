@@ -49,9 +49,9 @@ firmware in use. Its README has the full wiring, voice tracks and behaviour:
 - **Portal header** shows the live door status. It reads *Door unavailable*
   when the controller has not reported for a while.
 
-`esp32/door_controller_for_sync` and `esp32/docs/door-hardware-pins.md` describe
-an earlier two-sensor design (lock on GPIO 4). They are kept for reference only;
-do not flash that sketch on the door.
+`esp32/Fingerprint_Bench_Test` is a diagnostic sketch for checking a
+fingerprint sensor on the bench, for example a replacement sensor before
+enrolling users. It is not part of the running system.
 
 ## Portal modules
 
