@@ -1704,21 +1704,24 @@
 }
 
 /* Access policy: staff room hours */
-.settings-room { align-items: start; display: grid; gap: 16px; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); padding: 12px 14px; }
+.settings-room { align-items: start; display: grid; gap: 16px; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); padding: 12px 14px; }
 @media (max-width: 760px) { .settings-room { grid-template-columns: minmax(0, 1fr); } }
-.settings-room-hours { display: grid; gap: 8px; justify-items: start; }
+.settings-room-hours { display: grid; gap: 10px; justify-items: stretch; }
 .settings-room-hours .settings-door-tag { padding: 3px 9px; }
-.settings-room-hours > strong { color: #10251d; font-size: 18px; }
-.settings-room-inputs { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; }
-.settings-room-inputs label { color: #4f5f58; display: grid; font-size: 12px; font-weight: 600; gap: 3px; }
-.settings-room-inputs input { border: 1px solid #d7e4de; border-radius: 3px; font: inherit; font-size: 13px; height: 34px; padding: 0 8px; }
+.settings-room-hours > strong { color: #10251d; font-size: 18px; justify-self: start; }
+/* From and To side by side, Save hours full width below them. */
+.settings-room-inputs { align-items: end; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.settings-room-inputs .settings-room-save { grid-column: 1 / -1; }
+.settings-room-inputs label { color: #4f5f58; display: grid; font-size: 12px; font-weight: 600; gap: 3px; min-width: 0; }
+.settings-room-inputs input { border: 1px solid #d7e4de; border-radius: 3px; box-sizing: border-box; font: inherit; font-size: 13px; height: 36px; min-width: 0; padding: 0 8px; width: 100%; }
+.settings-room-inputs .settings-room-save { box-sizing: border-box; height: 36px; padding: 0 16px; white-space: nowrap; }
 .settings-room-note { color: #0c4b2d; font-size: 12px; margin: 0; }
 .settings-room-note.is-error { color: #9b2c1f; }
 .settings-room-rules { color: #33443d; display: grid; font-size: 12.5px; gap: 6px; line-height: 1.45; margin: 0; padding-left: 18px; }
 .settings-room-rules a { color: #0c4b2d; font-weight: 600; }
 
 /* Staff room hours: on/off switch */
-.settings-room-status { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-room-status { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
 .settings-room-hours .settings-door-tag.is-off { background: #f3f4f3; color: #5b645f; }
 .settings-room-toggle { align-items: center; background: #fff; border: 1px solid #d7e4de; border-radius: 3px; color: #33443d; cursor: pointer; display: inline-flex; font: inherit; font-size: 12px; font-weight: 600; gap: 6px; height: 28px; padding: 0 10px; }
 .settings-room-toggle > span { background: #c9d3ce; border-radius: 999px; display: inline-block; height: 14px; position: relative; transition: background 0.15s; width: 26px; }

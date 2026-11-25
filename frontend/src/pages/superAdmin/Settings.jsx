@@ -1484,7 +1484,7 @@ function StaffRoomHours({ user }) {
                 <div className="settings-room-inputs">
                   <label>From <input type="time" value={form.start} onChange={(event) => setForm((current) => ({ ...current, start: event.target.value }))} disabled={busy} /></label>
                   <label>To <input type="time" value={form.end} onChange={(event) => setForm((current) => ({ ...current, end: event.target.value }))} disabled={busy} /></label>
-                  <button type="button" className="settings-secondary-button" onClick={save} disabled={busy || !changed || invalid}>
+                  <button type="button" className="settings-primary-button settings-room-save" onClick={save} disabled={busy || !changed || invalid}>
                     {busy ? 'Saving…' : 'Save hours'}
                   </button>
                 </div>
