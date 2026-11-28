@@ -49,20 +49,6 @@ function readStoredSettings() {
   }
 }
 
-function formatRelativeSaveTime(value) {
-  if (!value) {
-    return 'Not saved yet';
-  }
-
-  const formatted = formatDateTimeInManila(value);
-
-  if (formatted === '—' || formatted === String(value)) {
-    return 'Saved';
-  }
-
-  return `Saved ${formatted}`;
-}
-
 function formatPasswordLastUpdated(profile) {
   if (profile?.password_last_updated_label) {
     return profile.password_last_updated_label;
@@ -95,7 +81,6 @@ function getSettingsTabFromHash() {
 export default function Settings({ user }) {
   const confirmAction = useActionConfirm();
   const [settings, setSettings] = useState(() => readStoredSettings());
-  const [savedAt, setSavedAt] = useState(() => window.localStorage.getItem(`${SETTINGS_STORAGE_KEY}_saved_at`) || '');
   const [saveNotice, setSaveNotice] = useState('');
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [activeTab, setActiveTab] = useState(() => getSettingsTabFromHash());
@@ -648,7 +633,6 @@ export default function Settings({ user }) {
     const timestamp = getManilaDateTimeStamp();
     window.localStorage.setItem(`${SETTINGS_STORAGE_KEY}_saved_at`, timestamp);
     setSettings(normalized);
-    setSavedAt(timestamp);
     setSaveNotice(notice);
   }
 
@@ -678,20 +662,11 @@ export default function Settings({ user }) {
       handleSaveSettings();
     }
 
-    if (pendingConfirmation.type === 'reset') {
-      handleResetDefaults();
-    }
-
     closeConfirmation();
   }
 
   function handleSaveSettings() {
     persistSettings(settings);
-  }
-
-  function handleResetDefaults() {
-    setSettings(defaultSettings);
-    setSaveNotice('Defaults restored. Save changes to apply them.');
   }
 
   function handleSelectTab(tabKey) {
@@ -743,42 +718,6 @@ export default function Settings({ user }) {
             Update the signed-in administrator profile and password, review who can enter and when,
             set the default grace period for new schedules, and control the door&apos;s scheduling and lock.
           </p>
-        </div>
-        <div className="settings-hero-actions">
-          <div className="settings-save-row">
-            <span className={`settings-save-state${isDirty ? ' is-pending' : ''}`}>
-              {isDirty ? 'Unsaved changes' : formatRelativeSaveTime(savedAt)}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="settings-secondary-button"
-            onClick={() =>
-              requestConfirmation({
-                type: 'reset',
-                title: 'Restore defaults',
-                message: 'Restore the default settings? You can still review and save afterwards.',
-              })
-            }
-          >
-            <RefreshCcw size={16} aria-hidden="true" />
-            Reset Defaults
-          </button>
-          <button
-            type="button"
-            className="settings-primary-button"
-            onClick={() =>
-              requestConfirmation({
-                type: 'save',
-                title: 'Save changes',
-                message: 'Save all current settings now?',
-              })
-            }
-            disabled={!isDirty}
-          >
-            <Save size={16} aria-hidden="true" />
-            Save Changes
-          </button>
         </div>
       </section>
 
@@ -1257,9 +1196,10 @@ export default function Settings({ user }) {
           <section className="settings-policy-box" aria-labelledby="settings-policy-grace">
             <header className="settings-policy-box-head">
               <h3 id="settings-policy-grace">Default grace period</h3>
-              <p>Filled in on each new schedule and override. Click Save Changes at the top to keep it.</p>
+              <p>Filled in on each new schedule and override.</p>
             </header>
             <div className="settings-policy-grace">
+            <div className="settings-policy-grace-controls">
             <label className="settings-field settings-policy-grace-field">
               <span>Minutes</span>
               <div className="settings-input-suffix">
@@ -1288,6 +1228,22 @@ export default function Settings({ user }) {
                 <small>minutes</small>
               </div>
             </label>
+            <button
+              type="button"
+              className="settings-primary-button"
+              onClick={() =>
+                requestConfirmation({
+                  type: 'save',
+                  title: 'Save grace period',
+                  message: 'Save the default grace period now?',
+                })
+              }
+              disabled={!isDirty}
+            >
+              <Save size={16} aria-hidden="true" />
+              Save
+            </button>
+            </div>
             <ul className="settings-policy-note">
               <li>Shown in schedules and reports. An existing schedule keeps its own grace period when edited.</li>
               <li>It does not extend door access: the door opens only between the schedule&apos;s start and end.</li>

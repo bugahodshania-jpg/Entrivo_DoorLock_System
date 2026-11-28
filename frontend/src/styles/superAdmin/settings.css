@@ -26,40 +26,6 @@
   font-size: 13px;
 }
 
-.settings-hero-actions {
-  align-items: flex-end;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  min-width: 340px;
-}
-
-.settings-save-row {
-  display: flex;
-  flex: 1 0 100%;
-  justify-content: flex-end;
-}
-
-.settings-save-state {
-  align-items: center;
-  background: #ecfdf3;
-  border-radius: 999px;
-  color: #0c7a43;
-  display: inline-flex;
-  font-size: 11px;
-  font-weight: 800;
-  justify-content: center;
-  min-height: 30px;
-  padding: 0 12px;
-  text-align: center;
-}
-
-.settings-save-state.is-pending {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
 .settings-primary-button,
 .settings-secondary-button {
   align-items: center;
@@ -1549,12 +1515,6 @@
     flex-direction: column;
   }
 
-  .settings-hero-actions {
-    justify-content: stretch;
-    min-width: 0;
-    width: 100%;
-  }
-
   .settings-form-grid,
   .settings-module-strip {
     grid-template-columns: 1fr;
@@ -1639,6 +1599,7 @@
 .settings-policy-mode .settings-door-tag { min-width: 56px; padding: 3px 9px; }
 .settings-policy-mode p { color: #4f5f58; flex: 1 1 280px; font-size: 13px; line-height: 1.45; margin: 0; }
 .settings-policy-mode strong { color: #10251d; }
+.settings-policy-grace-controls { align-items: flex-start; display: flex; flex-direction: column; gap: 10px; }
 .settings-policy-grace { align-items: start; display: grid; gap: 16px; grid-template-columns: 180px minmax(0, 1fr); padding: 12px 14px; }
 @media (max-width: 640px) { .settings-policy-grace { grid-template-columns: minmax(0, 1fr); } }
 .settings-policy-note { color: #4f5f58; display: grid; font-size: 12px; gap: 4px; line-height: 1.45; margin: 0; padding-left: 16px; }
