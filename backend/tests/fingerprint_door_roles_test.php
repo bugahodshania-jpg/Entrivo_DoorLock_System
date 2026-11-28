@@ -8,11 +8,12 @@ function expectFingerRole(bool $condition, string $message): void
 }
 
 $pdo = entrivo_pdo();
-$tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'fingerprint_sensor_slots'];
+$tables = ['direct_fingerprint_import_jobs', 'fingerprint_devices', 'users', 'fingerprints', 'fingerprint_enrollment_jobs', 'schedules', 'access_overrides', 'access_log', 'fingerprint_sensor_slots', 'admin_schedule_required'];
 $template = str_repeat("\x44\x45", 256);
 $hash = hash('sha256', $template);
 try {
     // Connection-local shadow tables: real accounts, fingerprints, schedules and logs are never touched.
+    $pdo->exec('CREATE TEMPORARY TABLE admin_schedule_required (user_id INT NOT NULL PRIMARY KEY, set_by INT NULL, set_at DATETIME NOT NULL) ENGINE=InnoDB');
     $pdo->exec("CREATE TEMPORARY TABLE fingerprint_sensor_slots (device_id INT NOT NULL, slot INT NOT NULL, state VARCHAR(20) NOT NULL DEFAULT 'free',
         fingerprint_id INT NULL, job_id INT NULL, updated_at DATETIME NULL, PRIMARY KEY (device_id, slot)) ENGINE=InnoDB");
     $pdo->exec('CREATE TEMPORARY TABLE fingerprint_devices (device_id INT PRIMARY KEY,device_type VARCHAR(20),status VARCHAR(20)) ENGINE=InnoDB');
@@ -82,6 +83,16 @@ try {
         $exit = $verify($finger($id, 'exit', ['unlocked_by_user_id' => $id]), '21:10:00');
         expectFingerRole($exit['access_granted'], "The $role who unlocked can lock with a fingerprint. Got " . json_encode($exit));
     }
+
+    // An Admin a Super Admin set to need a schedule is refused without one; a Super Admin never is.
+    $pdo->exec('INSERT INTO admin_schedule_required (user_id, set_by, set_at) VALUES (' . $roles['admin'] . ', ' . $roles['super_admin'] . ', NOW())');
+    $policy = new ScheduleAccessPolicy($pdo);
+    $at = new DateTimeImmutable('today 21:00:00', new DateTimeZone('Asia/Manila'));
+    $needs = $policy->evaluateEntry($roles['admin'], 'admin', $at);
+    expectFingerRole(!$needs['granted'], 'An Admin who needs a schedule must be refused without one. Got ' . json_encode($needs));
+    expectFingerRole($policy->evaluateEntry($roles['super_admin'], 'super_admin', $at)['schedule_kind'] === 'permanent_override',
+        'A Super Admin always enters any time.');
+    $pdo->exec('DELETE FROM admin_schedule_required');
 
     // Students: fingerprint identifies them, but only an approved override opens the room.
     $student = $roles['student'];

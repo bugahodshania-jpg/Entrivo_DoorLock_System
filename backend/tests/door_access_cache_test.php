@@ -40,9 +40,10 @@ function readCopy(string $bytes): array
 $pdo = entrivo_pdo();
 // Only the shadow emergency-card table below counts in this test.
 putenv('DOOR_EMERGENCY_RFID_UIDS');
-$tables = ['users', 'rfid_cards', 'fingerprints', 'schedules', 'access_overrides', 'door_emergency_cards'];
+$tables = ['users', 'rfid_cards', 'fingerprints', 'schedules', 'access_overrides', 'door_emergency_cards', 'admin_schedule_required'];
 try {
     // Connection-local shadow tables: real accounts and schedules are never touched.
+    $pdo->exec('CREATE TEMPORARY TABLE admin_schedule_required (user_id INT NOT NULL PRIMARY KEY, set_by INT NULL, set_at DATETIME NOT NULL) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY,username VARCHAR(50),role VARCHAR(20),is_active INT,approval_status VARCHAR(20),must_change_password INT,onboarding_step VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE rfid_cards (card_id INT PRIMARY KEY,user_id INT NULL,rfid_uid VARCHAR(30),status VARCHAR(20)) ENGINE=InnoDB');
     $pdo->exec('CREATE TEMPORARY TABLE fingerprints (fingerprint_id INT PRIMARY KEY,user_id INT,finger_name VARCHAR(50),enrollment_device_id INT,enrollment_slot INT) ENGINE=InnoDB');
@@ -100,6 +101,12 @@ try {
     expectCache($nobody['flags'] === 1 && $nobody['count'] === 0 && $admin['role'] === 4 && $admin['flags'] === 1 && $admin['count'] === 0,
         'Emergency cards and admins enter at any time, without windows.');
     expectCache($student['role'] === 1 && $student['flags'] === 0 && $faculty['role'] === 2 && $faculty['flags'] === 0, 'Student and faculty roles.');
+
+    // An Admin a Super Admin set to need a schedule loses "any time" in the copy, then gets it back.
+    $pdo->exec('INSERT INTO admin_schedule_required (user_id, set_by, set_at) VALUES (3, 1, NOW())');
+    $restricted = readCopy($service->build(1, $now)['bytes'])['people'][3];
+    expectCache($restricted['user'] === 3 && $restricted['flags'] === 0, 'An Admin who needs a schedule must not enter at any time offline.');
+    $pdo->exec('DELETE FROM admin_schedule_required');
 
     // Windows: the student's approved override only; the faculty member's
     // approved regular schedules inside the 8 days (not the pending one, not 11-25).

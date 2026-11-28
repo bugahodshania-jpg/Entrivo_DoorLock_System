@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/ScheduleStatusService.php';
 require_once __DIR__ . '/StaffRoomAccess.php';
+require_once __DIR__ . '/AdminDoorAccess.php';
 
 /**
  * Schedule part of a door-entry decision, shared by fingerprint and RFID.
@@ -33,7 +34,8 @@ final class ScheduleAccessPolicy
      *  - student: a current approved OVERRIDE schedule only; a regular
      *    schedule or a registered credential alone never opens the room.
      *  - admin / super_admin: permanent override, no schedule needed. A
-     *    schedule that is valid right now is still linked for the logs.
+     *    schedule that is valid right now is still linked for the logs. An
+     *    Admin a Super Admin set to "needs a schedule" follows the faculty rule.
      * A missing role (legacy schema) follows the faculty/staff rule.
      *
      * @return array{granted: bool, reason: string, message: string,
@@ -84,7 +86,9 @@ final class ScheduleAccessPolicy
             $schedule['message'] = $room['reason'] === 'schedule_not_started'
                 ? 'Staff room hours have not started yet.' : 'Staff room hours have ended for today.';
         }
-        if (!in_array($role, self::PERMANENT_OVERRIDE_ROLES, true)) {
+        // A Super Admin can set an Admin to need a schedule (AdminDoorAccess).
+        if (!in_array($role, self::PERMANENT_OVERRIDE_ROLES, true)
+            || !AdminDoorAccess::entersAnyTime($this->pdo, $userId, $role)) {
             return $schedule;
         }
         return [

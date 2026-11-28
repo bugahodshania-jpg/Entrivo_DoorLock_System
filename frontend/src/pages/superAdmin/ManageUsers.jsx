@@ -635,16 +635,90 @@ function validateEditForm(form) {
   return errors;
 }
 
+const DOOR_ACCESS_OPTIONS = [
+  {
+    anyTime: true,
+    label: 'Any time, no schedule needed',
+    description: 'Fingerprint or RFID opens the door at any hour, like a permanent override. This is the default for Admins.',
+  },
+  {
+    anyTime: false,
+    label: 'Needs a schedule',
+    description: 'Enters only during an approved regular schedule or an approved override, like faculty. Outside it the door is refused.',
+  },
+];
+
 export default function ManageUsers({ user: currentUser } = {}) {
   const confirmAction = useActionConfirm();
   // Staff room hours: staff a Super Admin allowed to enter during the room's
   // daily hours without a schedule. Admins see it; only a Super Admin changes it.
-  const [roomAccess, setRoomAccess] = useState({ label: '6:00 AM – 9:00 PM', enabled: true, allowed: new Set(), canEdit: false });
+  const [roomAccess, setRoomAccess] = useState({ label: '6:00 AM – 9:00 PM', enabled: true, allowed: new Set(), adminNeedsSchedule: new Set(), canEdit: false });
   const [roomAccessNotice, setRoomAccessNotice] = useState('');
 
   function applyRoomAccess(data) {
     if (!data?.hours) return;
-    setRoomAccess({ label: data.hours.label, enabled: data.hours.enabled !== false, allowed: new Set(data.allowed_user_ids || []), canEdit: Boolean(data.can_edit) });
+    setRoomAccess({
+      label: data.hours.label,
+      enabled: data.hours.enabled !== false,
+      allowed: new Set(data.allowed_user_ids || []),
+      adminNeedsSchedule: new Set((data.admin_schedule_required_ids || []).map(Number)),
+      canEdit: Boolean(data.can_edit),
+    });
+  }
+
+  // Admin door access: by default an Admin enters the room any time without a
+  // schedule. A Super Admin can set an Admin to need a schedule (like faculty).
+  const [doorAccessUser, setDoorAccessUser] = useState(null);
+  const [doorAccessAnyTime, setDoorAccessAnyTime] = useState(true);
+  const [doorAccessError, setDoorAccessError] = useState('');
+  const [isDoorAccessSaving, setIsDoorAccessSaving] = useState(false);
+
+  function openDoorAccessModal(user) {
+    if (!user?.id || user.role !== 'admin' || !roomAccess.canEdit) return;
+    setDoorAccessUser({ id: Number(user.id), name: user.name });
+    setDoorAccessAnyTime(!roomAccess.adminNeedsSchedule.has(Number(user.id)));
+    setDoorAccessError('');
+  }
+
+  function closeDoorAccessModal({ force = false } = {}) {
+    if (isDoorAccessSaving && !force) return;
+    setDoorAccessUser(null);
+    setDoorAccessError('');
+  }
+
+  async function handleSaveDoorAccess(event) {
+    event.preventDefault();
+    if (!doorAccessUser || isDoorAccessSaving) return;
+    if (doorAccessAnyTime === !roomAccess.adminNeedsSchedule.has(doorAccessUser.id)) {
+      closeDoorAccessModal();
+      return;
+    }
+    const password = await confirmAction({
+      title: doorAccessAnyTime
+        ? `Let ${doorAccessUser.name} enter any time?`
+        : `Require a schedule for ${doorAccessUser.name}?`,
+      message: doorAccessAnyTime
+        ? `${doorAccessUser.name} will be able to enter the room at any time without a schedule. Their portal privileges do not change.`
+        : `${doorAccessUser.name} will need an approved schedule or override to enter the room, like faculty. Their portal privileges do not change.`,
+      confirmLabel: doorAccessAnyTime ? 'Allow any time' : 'Require schedule',
+      danger: !doorAccessAnyTime,
+      returnPassword: true,
+    });
+    if (!password) return;
+    setIsDoorAccessSaving(true);
+    setDoorAccessError('');
+    try {
+      const response = await axiosClient.post('/api/door_control.php', {
+        action: 'admin_door_access', actor_id: currentUser?.id, password, user_id: doorAccessUser.id, any_time: doorAccessAnyTime,
+      });
+      applyRoomAccess(response.data);
+      setRoomAccessNotice(response.data?.message || 'Saved.');
+      closeDoorAccessModal({ force: true });
+    } catch (error) {
+      setDoorAccessError(error.response?.data?.message || 'Door access could not be changed right now.');
+    } finally {
+      setIsDoorAccessSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -2189,6 +2263,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
                             <DoorOpen size={12} aria-hidden="true" /> Room hours{roomAccess.enabled ? '' : ' (off)'}
                           </span>
                         ) : null}
+                        {user.role === 'admin' && roomAccess.adminNeedsSchedule.has(Number(user.id)) ? (
+                          <span className="manage-users-room-hours is-off" title="Needs a schedule or an approved override to enter the room">
+                            <DoorOpen size={12} aria-hidden="true" /> Needs schedule
+                          </span>
+                        ) : null}
                       </td>
                       <td>
                         <span className={`dashboard-log-status manage-users-status-${user.status}`}>
@@ -2217,6 +2296,13 @@ export default function ManageUsers({ user: currentUser } = {}) {
                               icon: DoorOpen,
                               onClick: () => toggleRoomAccess(user),
                               hidden: user.role !== 'staff' || !roomAccess.canEdit,
+                            },
+                            {
+                              label: 'Door Access',
+                              icon: DoorOpen,
+                              onClick: () => openDoorAccessModal(user),
+                              disabled: isDoorAccessSaving,
+                              hidden: user.role !== 'admin' || !roomAccess.canEdit,
                             },
                             {
                               label: 'Roles & Privileges',
@@ -3345,6 +3431,91 @@ export default function ManageUsers({ user: currentUser } = {}) {
                         : 'Save Privileges'}
                   </button>
                 )}
+              </footer>
+            </form>
+          </div>,
+          document.body,
+        )
+      : null}
+    {doorAccessUser
+      ? createPortal(
+          <div
+            className="pending-registration-review-backdrop"
+            role="presentation"
+            onClick={() => closeDoorAccessModal()}
+          >
+            <form
+              className="pending-registration-review manage-users-privileges-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="manage-user-door-access-title"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={handleSaveDoorAccess}
+            >
+              <header>
+                <div>
+                  <h2 id="manage-user-door-access-title">Door Access</h2>
+                  <p>{`Choose when ${doorAccessUser.name} can enter the room.`}</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close door access"
+                  onClick={() => closeDoorAccessModal()}
+                  disabled={isDoorAccessSaving}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="pending-registration-review-body manage-users-privileges-body">
+                <section className="manage-users-privileges-list-card">
+                  <h3>Room entry</h3>
+                  <ul className="manage-users-privileges-list" role="radiogroup" aria-label="Room entry">
+                    {DOOR_ACCESS_OPTIONS.map((option) => {
+                      const checked = doorAccessAnyTime === option.anyTime;
+                      return (
+                        <li key={option.label}>
+                          <label className={checked ? 'is-checked' : undefined}>
+                            <input
+                              type="radio"
+                              name="manage-user-door-access"
+                              checked={checked}
+                              disabled={isDoorAccessSaving}
+                              onChange={() => {
+                                setDoorAccessAnyTime(option.anyTime);
+                                setDoorAccessError('');
+                              }}
+                            />
+                            <span>
+                              <strong>{option.label}</strong>
+                              <small>{option.description}</small>
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="manage-users-privileges-hint">
+                    Applies at the door online and offline (the door refreshes its saved copy within a few minutes). Portal privileges do not change.
+                  </p>
+                </section>
+                {doorAccessError ? (
+                  <p className="pending-registration-review-note" role="alert">{doorAccessError}</p>
+                ) : null}
+              </div>
+
+              <footer>
+                <button
+                  type="button"
+                  className="pending-registration-reject"
+                  onClick={() => closeDoorAccessModal()}
+                  disabled={isDoorAccessSaving}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="pending-registration-approve" disabled={isDoorAccessSaving}>
+                  {isDoorAccessSaving ? 'Saving...' : 'Save Door Access'}
+                </button>
               </footer>
             </form>
           </div>,

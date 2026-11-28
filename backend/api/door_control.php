@@ -22,11 +22,13 @@ try {
     if (!is_array($input)) throw new DoorStatusException('A JSON object is required.', 422);
     $service = new DoorControlService();
     // action: "schedule_mode" (mode auto|on|off), "room_hours" (start, end),
-    // "staff_room_access" (user_id, allowed), or "lock" / "unlock".
+    // "staff_room_access" (user_id, allowed), "admin_door_access" (user_id,
+    // any_time), or "lock" / "unlock".
     $result = match ($input['action'] ?? null) {
         'schedule_mode' => $service->setScheduleMode($input),
         'room_hours' => $service->setRoomHours($input),
         'staff_room_access' => $service->setStaffRoomAccess($input),
+        'admin_door_access' => $service->setAdminDoorAccess($input),
         default => $service->sendCommand($input),
     };
     echo json_encode($result, JSON_THROW_ON_ERROR);

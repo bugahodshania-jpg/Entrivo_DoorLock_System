@@ -1269,7 +1269,7 @@ export default function Settings({ user }) {
 const ROLE_RULES = [
   { role: 'Student', tag: 'Override only', tone: 'is-on', text: 'Enters only during an approved override schedule. A regular schedule or a registered credential alone never opens the room.' },
   { role: 'Faculty and staff', tag: 'Schedule', tone: 'is-auto', text: 'Enters during an approved regular or override schedule. Staff a Super Admin allows can also enter during the room hours (below).' },
-  { role: 'Admin and Super Admin', tag: 'Any time', tone: 'is-lock', text: 'Permanent override: no schedule needed. A schedule that is running is still linked in the logs.' },
+  { role: 'Admin and Super Admin', tag: 'Any time', tone: 'is-lock', text: 'Permanent override: no schedule needed. A Super Admin can set an Admin to need a schedule (Manage Users > Door Access). A running schedule is still linked in the logs.' },
   { role: 'Emergency card', tag: 'Any time', tone: 'is-off', text: 'Opens the door online and offline, logged under the card’s name (default “Emergency card”).' },
 ];
 

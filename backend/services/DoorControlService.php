@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/connection.php';
 require_once __DIR__ . '/DoorStatusService.php';
 require_once __DIR__ . '/ActivityLogService.php';
 require_once __DIR__ . '/StaffRoomAccess.php';
+require_once __DIR__ . '/AdminDoorAccess.php';
 
 /**
  * Portal controls for the door controller:
@@ -191,6 +192,8 @@ final class DoorControlService
                 'enabled' => $hours['enabled'],
             ],
             'allowed_user_ids' => StaffRoomAccess::allowedUserIds($this->pdo),
+            // Admins who need a schedule to enter (the rest enter any time).
+            'admin_schedule_required_ids' => AdminDoorAccess::scheduleRequiredUserIds($this->pdo),
             'can_edit' => $actor['role'] === 'super_admin',
         ];
     }
@@ -258,6 +261,41 @@ final class DoorControlService
         return ['success' => true, 'message' => $allowed
             ? $name . ' can now enter during the room hours without a schedule.'
             : $name . ' now needs a schedule again to enter.'] + $this->roomAccess($input);
+    }
+
+    /** Super Admin: whether an Admin enters any time or needs a schedule (user_id, any_time). */
+    public function setAdminDoorAccess(array $input): array
+    {
+        $actor = $this->authorizedActor($input, ['super_admin']);
+        $deviceId = $this->deviceId($input);
+        $userId = filter_var($input['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $anyTime = $input['any_time'] ?? null;
+        if ($userId === false || !is_bool($anyTime)) {
+            throw new DoorStatusException('Choose an Admin and whether they can enter any time.', 422);
+        }
+        $query = $this->pdo->prepare('SELECT id, role, username FROM users WHERE id = ?');
+        $query->execute([$userId]);
+        $person = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$person || $person['role'] !== 'admin') {
+            throw new DoorStatusException('Door access can only be set for Admin accounts. Super Admins always enter any time.', 422);
+        }
+        AdminDoorAccess::set($this->pdo, (int) $userId, $anyTime, $actor['id']);
+        $name = $this->adminName((int) $userId) ?? (string) $person['username'];
+        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update', $anyTime
+            ? 'Allowed ' . $name . ' (Admin) to enter the room any time without a schedule.'
+            : 'Set ' . $name . ' (Admin) to need a schedule to enter the room.', 'Success', (int) $userId, 'door', (string) $deviceId);
+        return ['success' => true, 'message' => $anyTime
+            ? $name . ' can now enter the room any time, without a schedule.'
+            : $name . ' now needs a schedule or an approved override to enter the room.'] + $this->roomAccess($input);
+    }
+
+    private function adminName(int $userId): ?string
+    {
+        if (!$this->hasInfoTables()) return null;
+        $query = $this->pdo->prepare("SELECT NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), '') FROM admin_info WHERE user_id = ?");
+        $query->execute([$userId]);
+        $name = $query->fetchColumn();
+        return is_string($name) && $name !== '' ? $name : null;
     }
 
     public function history(array $input): array
@@ -383,8 +421,8 @@ final class DoorControlService
                 ? 'Only an administrator with the door override privilege can lock or unlock the door remotely.'
                 : (in_array('admin', $roles, true)
                 ? 'Only an administrator can change door scheduling.'
-                : (in_array($input['action'] ?? '', ['room_hours', 'staff_room_access'], true)
-                    ? 'Only a Super Admin can change staff room access.'
+                : (in_array($input['action'] ?? '', ['room_hours', 'staff_room_access', 'admin_door_access'], true)
+                    ? 'Only a Super Admin can change who enters the room without a schedule.'
                     : 'Only a Super Admin can lock or unlock the door remotely.')), 403);
         }
         if (!password_verify($password, (string) $user['password_hash'])) {
@@ -392,6 +430,7 @@ final class DoorControlService
                 'schedule_mode' => 'change door scheduling',
                 'room_hours' => 'change the staff room hours',
                 'staff_room_access' => 'change staff room access',
+                'admin_door_access' => 'change an Admin door access setting',
                 'lock' => 'remotely lock the door',
                 default => 'remotely unlock the door',
             };

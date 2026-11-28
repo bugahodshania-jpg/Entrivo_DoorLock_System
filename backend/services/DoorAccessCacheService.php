@@ -19,7 +19,8 @@ require_once __DIR__ . '/StaffRoomAccess.php';
  *    Admin allowed also get the room hours of each day (as regular windows,
  *    listed after their schedules so a running schedule's end is used first);
  *  - students: approved override windows only;
- *  - admin / super_admin, and emergency cards: any time (no windows).
+ *  - admin / super_admin, and emergency cards: any time (no windows),
+ *    except Admins a Super Admin set to need a schedule (faculty windows).
  *
  * Binary format 1, little-endian; ESP32 AccessCacheFormat.h reads it.
  *   Header (40 bytes): "ENAC", u16 format, u16 header size, u32 version,
@@ -111,12 +112,16 @@ final class DoorAccessCacheService
         $hasRole = (bool) $this->pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
         $people = [];
         $credentials = [];
-        $addPerson = function (int $userId, ?string $role) use (&$people): void {
+        // Admins a Super Admin set to need a schedule get windows, not "any time".
+        $scheduleRequired = array_flip(AdminDoorAccess::scheduleRequiredUserIds($this->pdo));
+        $addPerson = function (int $userId, ?string $role) use (&$people, $scheduleRequired): void {
             if (isset($people[$userId])) return;
             $role = strtolower(trim((string) $role));
+            $always = in_array($role, ScheduleAccessPolicy::PERMANENT_OVERRIDE_ROLES, true)
+                && !($role === 'admin' && isset($scheduleRequired[$userId]));
             $people[$userId] = [
                 'role' => self::ROLE_CODES[$role] ?? 0,
-                'flags' => in_array($role, ScheduleAccessPolicy::PERMANENT_OVERRIDE_ROLES, true) ? self::FLAG_ALWAYS : 0,
+                'flags' => $always ? self::FLAG_ALWAYS : 0,
             ];
         };
 
