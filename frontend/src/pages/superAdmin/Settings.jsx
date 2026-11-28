@@ -1328,6 +1328,189 @@ function DoorLogsModal({ user, deviceId, onClose }) {
 }
 
 /** Same as the header door popup: connection, scheduling mode and remote lock. */
+const cardEnding = (uid) => (uid ? `ending ${String(uid).slice(-4)}` : '');
+
+/**
+ * Portal emergency card (Super Admin only). Works next to the door's built-in
+ * card (Secrets.h): the door receives it in its status reply, saves it in its
+ * own memory, and opens with it offline too.
+ */
+function EmergencyCardSection({ user, deviceId }) {
+  const confirmAction = useActionConfirm();
+  const [state, setState] = useState({ loading: true, error: '', card: null, door: null, builtIn: null });
+  const [form, setForm] = useState({ uid: '', name: '' });
+  const [scans, setScans] = useState({ loading: false, list: [] });
+  const [notice, setNotice] = useState({ text: '', error: false });
+  const [busy, setBusy] = useState(false);
+
+  function apply(data) {
+    setState({ loading: false, error: '', card: data.card || null, door: data.door || null, builtIn: data.built_in || null });
+  }
+
+  async function load(resetForm = false) {
+    try {
+      const response = await axiosClient.get('/api/door_control.php', {
+        params: { view: 'emergency_card', actor_id: user?.id, device_id: deviceId || 1 },
+      });
+      apply(response.data);
+      if (resetForm) setForm({ uid: response.data.card?.uid || '', name: response.data.card?.name || '' });
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.response?.data?.message || 'The emergency card could not be loaded.' }));
+    }
+  }
+
+  async function loadScans() {
+    setScans((current) => ({ ...current, loading: true }));
+    try {
+      const response = await axiosClient.get('/api/rfid_enrollment_scans.php');
+      const seen = new Set();
+      const list = (response.data?.scans || []).filter((scan) => {
+        const uid = String(scan.rfidUid || '').toUpperCase();
+        if (!/^[0-9A-F]{10}$/.test(uid) || seen.has(uid)) return false;
+        seen.add(uid);
+        return true;
+      });
+      setScans({ loading: false, list: list.slice(0, 5) });
+    } catch {
+      setScans({ loading: false, list: [] });
+    }
+  }
+
+  useEffect(() => {
+    if (!user?.id) return;
+    load(true);
+    loadScans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, deviceId]);
+
+  const cardUid = state.card?.uid || '';
+  const doorUid = state.door?.uid ?? null;
+  const waiting = !state.loading && !state.error && doorUid !== null && doorUid !== cardUid;
+
+  // While the door has not received the change yet, check again every few seconds.
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const timer = window.setInterval(() => load(false), 8000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+
+  const uid = form.uid.trim().toUpperCase();
+  const name = form.name.trim();
+  const uidValid = /^[0-9A-F]{10}$/.test(uid);
+  const changed = uid !== cardUid || (name || 'Emergency card') !== (state.card?.name || 'Emergency card');
+
+  async function submit(nextUid, nextName) {
+    const removing = nextUid === '';
+    const password = await confirmAction({
+      title: removing ? 'Remove the portal emergency card?' : 'Save the emergency card?',
+      message: removing
+        ? 'The door stops accepting this card once it receives the change. The built-in card keeps working.'
+        : `${nextName || 'Emergency card'} (card ${cardEnding(nextUid)}) will open the door at any time, online and offline, next to the built-in card.`,
+      confirmLabel: removing ? 'Remove card' : 'Save card',
+      danger: removing,
+      returnPassword: true,
+    });
+    if (!password) return;
+    setBusy(true);
+    setNotice({ text: '', error: false });
+    try {
+      const response = await axiosClient.post('/api/door_control.php', {
+        action: 'emergency_card', actor_id: user?.id, device_id: deviceId || 1, password, uid: nextUid, name: nextName,
+      });
+      apply(response.data);
+      setForm({ uid: response.data.card?.uid || '', name: response.data.card?.name || '' });
+      setNotice({ text: response.data?.message || 'Saved.', error: false });
+    } catch (error) {
+      setNotice({ text: error.response?.data?.message || 'The emergency card could not be saved.', error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const doorLine = doorUid === null
+    ? (cardUid ? 'The door has not confirmed it yet. Upload the latest door firmware if this does not change.' : '')
+    : doorUid === cardUid
+      ? (cardUid ? `Saved on the door${state.door.reported_at ? ` since ${formatDateTimeInManila(state.door.reported_at)}` : ''}. Works offline too.` : '')
+      : cardUid ? 'Waiting for the door to receive it. It needs to be online.' : 'Waiting for the door to remove the old card. It needs to be online.';
+  const chip = !cardUid ? ['Not set', ' is-off'] : doorUid === cardUid ? ['Saved on door', ' is-auto'] : ['Waiting for door', ' is-on'];
+
+  return (
+    <section className="settings-policy-box settings-ecard" aria-labelledby="settings-ecard-title">
+      <header className="settings-policy-box-head">
+        <h3 id="settings-ecard-title">Emergency card</h3>
+        <p>A card that opens the door at any time, even offline. Change it here without uploading the door firmware again.</p>
+      </header>
+      {state.loading ? <p className="settings-room-note settings-ecard-pad">Loading…</p>
+        : state.error ? <p className="settings-room-note is-error settings-ecard-pad">{state.error}</p>
+        : (
+          <div className="settings-room">
+            <div className="settings-room-hours">
+              <div className="settings-room-status">
+                <span className={`settings-door-tag${chip[1]}`}>{chip[0]}</span>
+                {cardUid ? <strong>{state.card.name} · {cardEnding(cardUid)}</strong> : <span>No portal card set.</span>}
+              </div>
+              {doorLine ? <p className="settings-room-note" role="status">{doorLine}</p> : null}
+              <div className="settings-room-inputs">
+                <label>Card UID
+                  <input type="text" value={form.uid} maxLength={10} autoComplete="off" placeholder="10 characters, e.g. 4300C46DDF"
+                    onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }))} disabled={busy} />
+                </label>
+                <label>Name
+                  <input type="text" value={form.name} maxLength={60} placeholder="Emergency card"
+                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={busy} />
+                </label>
+                <div className="settings-ecard-actions">
+                  <button type="button" className="settings-primary-button" onClick={() => submit(uid, name)} disabled={busy || !uidValid || !changed}>
+                    {busy ? 'Saving…' : 'Save card'}
+                  </button>
+                  {cardUid ? (
+                    <button type="button" className="settings-secondary-button" onClick={() => submit('', '')} disabled={busy}>Remove</button>
+                  ) : null}
+                </div>
+              </div>
+              {form.uid && !uidValid ? <p className="settings-room-note is-error">The UID has 10 characters: 0-9 and A-F.</p> : null}
+              {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
+              <div className="settings-ecard-scans">
+                <div className="settings-ecard-scans-head">
+                  <span>Recent scans</span>
+                  <button type="button" onClick={loadScans} disabled={scans.loading}>
+                    <RefreshCcw size={13} aria-hidden="true" /> {scans.loading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                {scans.list.length === 0
+                  ? <p className="settings-room-note">{scans.loading ? 'Loading scans…' : 'Tap the new card on the RFID scanner, then Refresh.'}</p>
+                  : (
+                    <ul>
+                      {scans.list.map((scan) => {
+                        const scanUid = String(scan.rfidUid).toUpperCase();
+                        const taken = scan.registrationStatus === 'registered';
+                        return (
+                          <li key={scan.id}>
+                            <div>
+                              <strong>{scanUid}</strong>
+                              <span>{scan.scannedAt}{taken ? ' · registered to a user' : ''}</span>
+                            </div>
+                            <button type="button" disabled={busy || taken} onClick={() => setForm((current) => ({ ...current, uid: scanUid }))}>Use</button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+              </div>
+            </div>
+            <ul className="settings-room-rules">
+              <li><b>Two emergency cards work together:</b> this one, and the door&apos;s built-in card{state.builtIn ? ` (${state.builtIn.name}, ${cardEnding(state.builtIn.uid)})` : ''}, which is set in the door firmware and can only be changed there.</li>
+              <li>Both open the door at any time, online and offline. Every use is saved in the access logs.</li>
+              <li>The door receives a change within a few seconds while online and keeps it through restarts and power cuts. While it is offline, the old card keeps working until it reconnects.</li>
+              <li>Use a card that is not registered to anyone. Every change needs your password and is saved in the Door control logs.</li>
+            </ul>
+          </div>
+        )}
+    </section>
+  );
+}
+
 function DoorControlCard({ user }) {
   const door = useDoorStatus();
   const [showLogs, setShowLogs] = useState(false);
@@ -1344,6 +1527,7 @@ function DoorControlCard({ user }) {
         </button>
       </div>
       <DoorControlPanel door={door} user={user} variant="sections" modeDetails={DOOR_MODE_DETAILS} lockGuide={DOOR_LOCK_GUIDE} />
+      {user?.role === 'super_admin' ? <EmergencyCardSection user={user} deviceId={door.deviceId} /> : null}
       {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
   );

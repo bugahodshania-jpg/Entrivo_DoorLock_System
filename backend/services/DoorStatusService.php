@@ -203,7 +203,7 @@ final class DoorStatusService
             // Scheduling mode and any remote lock/unlock waiting for this door.
             try {
                 require_once __DIR__ . '/DoorControlService.php';
-                $reply += (new DoorControlService($this->pdo))->forController($deviceId, $input['command_done'] ?? null);
+                $reply += (new DoorControlService($this->pdo))->forController($deviceId, $input['command_done'] ?? null, $input['emergency_card_uid'] ?? null);
             } catch (Throwable $error) {
                 error_log('Door status controls: ' . $error->getMessage());
             }

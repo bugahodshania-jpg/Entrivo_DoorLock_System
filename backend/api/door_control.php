@@ -14,7 +14,12 @@ try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
         // Door control logs (GET ?actor_id=&device_id=), or staff room access (?view=room_access).
         $service = new DoorControlService();
-        echo json_encode(($_GET['view'] ?? '') === 'room_access' ? $service->roomAccess($_GET) : $service->history($_GET), JSON_THROW_ON_ERROR);
+        $result = match ($_GET['view'] ?? '') {
+            'room_access' => $service->roomAccess($_GET),
+            'emergency_card' => $service->emergencyCard($_GET),
+            default => $service->history($_GET),
+        };
+        echo json_encode($result, JSON_THROW_ON_ERROR);
         exit;
     }
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new DoorStatusException('Use POST to control the door.', 405);
@@ -23,12 +28,13 @@ try {
     $service = new DoorControlService();
     // action: "schedule_mode" (mode auto|on|off), "room_hours" (start, end),
     // "staff_room_access" (user_id, allowed), "admin_door_access" (user_id,
-    // any_time), or "lock" / "unlock".
+    // any_time), "emergency_card" (uid, name; uid "" removes it), or "lock" / "unlock".
     $result = match ($input['action'] ?? null) {
         'schedule_mode' => $service->setScheduleMode($input),
         'room_hours' => $service->setRoomHours($input),
         'staff_room_access' => $service->setStaffRoomAccess($input),
         'admin_door_access' => $service->setAdminDoorAccess($input),
+        'emergency_card' => $service->setEmergencyCard($input),
         default => $service->sendCommand($input),
     };
     echo json_encode($result, JSON_THROW_ON_ERROR);

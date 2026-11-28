@@ -10,6 +10,10 @@
  * is also an emergency card: the authenticated controller flags it with each
  * scan, and it is remembered in door_emergency_cards (with its name), so it
  * works online too and the logs show its name.
+ *
+ * A Super Admin can also set a portal emergency card per door (Settings >
+ * Door control). It works next to the built-in card; the controller saves it
+ * so it opens the door offline too.
  */
 final class EmergencyCards
 {
@@ -21,7 +25,7 @@ final class EmergencyCards
     /** @return array<string, string> upper-case UID => display name */
     public static function names(): array
     {
-        $cards = self::reportedCards();
+        $cards = self::reportedCards() + self::portalCards();
         $configured = getenv('DOOR_EMERGENCY_RFID_UIDS');
         if (!is_string($configured)) return $cards;
         foreach (explode(',', $configured) as $entry) {
@@ -71,6 +75,29 @@ final class EmergencyCards
             // Table not created yet (no controller has reported its card).
         }
         return self::$reported;
+    }
+
+    /** @var array<string, string>|null portal cards (Settings > Door control), per request */
+    private static ?array $portal = null;
+
+    /** @return array<string, string> */
+    private static function portalCards(): array
+    {
+        if (self::$portal !== null) return self::$portal;
+        try {
+            require_once __DIR__ . '/../config/connection.php';
+            require_once __DIR__ . '/DoorControlService.php';
+            return self::$portal = DoorControlService::portalEmergencyCards(entrivo_pdo());
+        } catch (Throwable) {
+            return self::$portal = [];
+        }
+    }
+
+    /** Forget the per-request lists (after the portal card changes, and in tests). */
+    public static function reset(): void
+    {
+        self::$reported = null;
+        self::$portal = null;
     }
 
     /** @return list<string> */

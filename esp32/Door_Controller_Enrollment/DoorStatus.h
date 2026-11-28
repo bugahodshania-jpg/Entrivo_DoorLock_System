@@ -1,6 +1,7 @@
 #ifndef ENTRIVO_DOOR_STATUS_H
 #define ENTRIVO_DOOR_STATUS_H
 
+#include <Arduino.h>
 #include <stdint.h>
 
 // Reports run on the main loop with the same HTTP path as enrollment.
@@ -22,5 +23,10 @@ const char *doorScheduleMode();
 // Milliseconds since the backend last accepted a status report (since boot
 // when none has); used to announce a lost connection.
 unsigned long backendSilentMs();
+// The portal emergency card (Settings > Door control), saved in NVS so it
+// opens the door offline too. It works next to the built-in card in
+// Secrets.h. Empty UID = none set.
+bool isPortalEmergencyCard(const String &uid);
+const char *portalEmergencyCardName();
 
 #endif

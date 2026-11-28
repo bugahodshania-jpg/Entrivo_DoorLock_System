@@ -42,8 +42,49 @@ namespace {
     bool commandFresh = false;
     int32_t lastDoneCommandId = 0;   // reported back until the backend clears it
     int32_t lastRunCommandId = 0;    // never run the same command twice
+    // Portal emergency card, kept in NVS ("" = none). Sent back in each report
+    // so the portal can show that the door saved it.
+    char portalCardUid[11] = "";
+    char portalCardName[61] = "Emergency card";
+
+    bool validCardUid(const char *uid) {
+        if (strlen(uid) != 10) return false;
+        for (int i = 0; i < 10; ++i) if (!isxdigit(static_cast<unsigned char>(uid[i]))) return false;
+        return true;
+    }
+
+    void readEmergencyCard(JsonDocument &reply) {
+        // Only a reply that carries it changes it: an older backend leaves the saved card.
+        if (!reply["emergency_card"].is<JsonObject>()) return;
+        const char *uid = reply["emergency_card"]["uid"] | "";
+        const char *name = reply["emergency_card"]["name"] | "";
+        if (*uid && !validCardUid(uid)) return;
+        String upper(uid);
+        upper.toUpperCase();
+        const char *label = *name ? name : "Emergency card";
+        if (upper == portalCardUid && !strcmp(label, portalCardName)) return;
+        strncpy(portalCardUid, upper.c_str(), sizeof(portalCardUid) - 1);
+        portalCardUid[sizeof(portalCardUid) - 1] = 0;
+        strncpy(portalCardName, label, sizeof(portalCardName) - 1);
+        portalCardName[sizeof(portalCardName) - 1] = 0;
+        if (controlStoreReady) {
+            controlStore.putString("ecard", portalCardUid);
+            controlStore.putString("ecname", portalCardName);
+        }
+        Serial.print("[DOOR CONTROL] Portal emergency card ");
+        if (*portalCardUid) {
+            Serial.print("saved: ");
+            Serial.print(portalCardName);
+            Serial.print(" (");
+            Serial.print(portalCardUid);
+            Serial.println(").");
+        } else {
+            Serial.println("removed.");
+        }
+    }
 
     void readControls(JsonDocument &reply) {
+        readEmergencyCard(reply);
         const char *mode = reply["schedule_mode"] | "";
         if ((!strcmp(mode, "auto") || !strcmp(mode, "on") || !strcmp(mode, "off")) && strcmp(mode, scheduleMode) != 0) {
             strncpy(scheduleMode, mode, sizeof(scheduleMode) - 1);
@@ -71,7 +112,7 @@ namespace {
     }
 
     void readReply(const String &body, bool unlocked) {
-        DynamicJsonDocument reply(768);
+        DynamicJsonDocument reply(1024);
         if (deserializeJson(reply, body) != DeserializationError::Ok) return;
         readControls(reply);
         // A newer offline schedule copy is downloaded by serviceAccessCache().
@@ -88,6 +129,8 @@ namespace {
         payload["sequence"] = ++sequence;
         // Signal strength for the portal's WiFi icon (connected / weak).
         payload["wifi_rssi"] = WiFi.RSSI();
+        // The portal emergency card this door has saved ("" = none).
+        payload["emergency_card_uid"] = portalCardUid;
         // Which offline schedule copy is saved, for the portal's Door control.
         payload["cache_version"] = accessCacheSavedVersion();
         payload["cache_valid_until"] = accessCacheValidUntil();
@@ -135,6 +178,12 @@ void initDoorStatus(bool unlocked) {
     if (controlStoreReady) {
         const String saved = controlStore.getString("mode", "auto");
         if (saved == "auto" || saved == "on" || saved == "off") strncpy(scheduleMode, saved.c_str(), sizeof(scheduleMode) - 1);
+        const String card = controlStore.getString("ecard", "");
+        if (validCardUid(card.c_str())) {
+            strncpy(portalCardUid, card.c_str(), sizeof(portalCardUid) - 1);
+            const String name = controlStore.getString("ecname", "Emergency card");
+            strncpy(portalCardName, name.length() ? name.c_str() : "Emergency card", sizeof(portalCardName) - 1);
+        }
     }
     initHttpLock();
     snprintf(bootId, sizeof(bootId), "%08lx%08lx%08lx%08lx",
@@ -185,6 +234,12 @@ bool offlineFingerEntryAllowed() {
 }
 
 const char *doorScheduleMode() { return scheduleMode; }
+
+bool isPortalEmergencyCard(const String &uid) {
+    return portalCardUid[0] != 0 && uid.equalsIgnoreCase(portalCardUid);
+}
+
+const char *portalEmergencyCardName() { return portalCardName; }
 
 unsigned long backendSilentMs() {
     return lastReportOkAt == 0 ? millis() : millis() - lastReportOkAt;

@@ -5,6 +5,7 @@ require_once __DIR__ . '/DoorStatusService.php';
 require_once __DIR__ . '/ActivityLogService.php';
 require_once __DIR__ . '/StaffRoomAccess.php';
 require_once __DIR__ . '/AdminDoorAccess.php';
+require_once __DIR__ . '/EmergencyCards.php';
 
 /**
  * Portal controls for the door controller:
@@ -16,6 +17,9 @@ require_once __DIR__ . '/AdminDoorAccess.php';
  *  - Remote lock / unlock by a Super Admin, or an Admin with the
  *    "door_override" privilege. The command waits here until the
  *    controller's next status report picks it up and confirms it.
+ *  - The portal emergency card, set by a Super Admin. It works next to the
+ *    door's built-in card (Secrets.h): the controller receives it in its
+ *    status reply, saves it in its own flash, and reports it back.
  * Each change needs the actor's own password, checked here on the server.
  */
 final class DoorControlService
@@ -48,6 +52,50 @@ final class DoorControlService
             mode_updated_by INT NULL DEFAULT NULL,
             mode_updated_at DATETIME NULL DEFAULT NULL
         )");
+    }
+
+    public const EMERGENCY_COLUMNS = [
+        'emergency_card_uid' => 'VARCHAR(10) NULL DEFAULT NULL',
+        'emergency_card_name' => 'VARCHAR(60) NULL DEFAULT NULL',
+        'emergency_card_by' => 'INT NULL DEFAULT NULL',
+        'emergency_card_at' => 'DATETIME NULL DEFAULT NULL',
+        // What the controller last reported it has saved ('' = none).
+        'emergency_card_door_uid' => 'VARCHAR(10) NULL DEFAULT NULL',
+        'emergency_card_door_at' => 'DATETIME NULL DEFAULT NULL',
+    ];
+
+    /** Adds the portal emergency card columns. DDL commits implicitly: call outside a transaction. */
+    public static function ensureEmergencySchema(PDO $pdo): void
+    {
+        self::ensureSchema($pdo);
+        foreach (self::EMERGENCY_COLUMNS as $column => $type) {
+            if ($pdo->query("SHOW COLUMNS FROM door_controller_controls LIKE '{$column}'")->fetch()) continue;
+            try {
+                $pdo->exec("ALTER TABLE door_controller_controls ADD COLUMN {$column} {$type}");
+            } catch (PDOException $error) {
+                if ((int) ($error->errorInfo[1] ?? 0) !== 1060) throw $error; // added meanwhile
+            }
+        }
+    }
+
+    /**
+     * Portal emergency cards of every door, upper-case UID => name. Empty when
+     * none is set or the columns do not exist yet.
+     * @return array<string, string>
+     */
+    public static function portalEmergencyCards(PDO $pdo): array
+    {
+        try {
+            $rows = $pdo->query("SELECT emergency_card_uid, emergency_card_name FROM door_controller_controls
+                WHERE emergency_card_uid IS NOT NULL AND emergency_card_uid <> ''")->fetchAll(PDO::FETCH_NUM);
+        } catch (PDOException) {
+            return [];
+        }
+        $cards = [];
+        foreach ($rows as [$uid, $name]) {
+            $cards[strtoupper((string) $uid)] = is_string($name) && $name !== '' ? $name : EmergencyCards::DEFAULT_NAME;
+        }
+        return $cards;
     }
 
     /** Current controls of a device; defaults when nothing is stored yet. */
@@ -143,9 +191,21 @@ final class DoorControlService
      * For the controller's status report: confirm a finished command and hand
      * over the current mode and any pending command.
      */
-    public function forController(int $deviceId, mixed $doneId): array
+    public function forController(int $deviceId, mixed $doneId, mixed $reportedCardUid = null): array
     {
         try {
+            // The portal emergency card the controller has saved (newer firmware only).
+            if (is_string($reportedCardUid) && ($reportedCardUid === '' || preg_match('/^[A-Fa-f0-9]{10}$/D', $reportedCardUid) === 1)) {
+                try {
+                    $this->pdo->prepare('UPDATE door_controller_controls SET
+                            emergency_card_door_at = IF(emergency_card_door_uid <=> ?, emergency_card_door_at, NOW()),
+                            emergency_card_door_uid = ?
+                        WHERE device_id = ?')
+                        ->execute([strtoupper($reportedCardUid), strtoupper($reportedCardUid), $deviceId]);
+                } catch (PDOException) {
+                    // Columns not added yet: no portal card has been set.
+                }
+            }
             if (is_int($doneId) && $doneId > 0) {
                 $before = $this->row($deviceId);
                 $done = $this->pdo->prepare('UPDATE door_controller_controls SET command = NULL, command_done_id = ?, command_done_at = NOW()
@@ -163,6 +223,15 @@ final class DoorControlService
             return ['schedule_mode' => 'auto'];
         }
         $reply = ['schedule_mode' => $controls['schedule_mode']];
+        // Always sent once the columns exist, so removing it reaches the door
+        // too ('' = no portal card). Left out otherwise: the door keeps its own.
+        $row = $this->row($deviceId);
+        if ($row && array_key_exists('emergency_card_uid', $row)) {
+            $reply['emergency_card'] = [
+                'uid' => (string) ($row['emergency_card_uid'] ?? ''),
+                'name' => (string) ($row['emergency_card_name'] ?? ''),
+            ];
+        }
         if ($controls['pending_command']) {
             $reply['command'] = ['id' => $controls['pending_command']['id'], 'action' => $controls['pending_command']['action']];
         }
@@ -287,6 +356,103 @@ final class DoorControlService
         return ['success' => true, 'message' => $anyTime
             ? $name . ' can now enter the room any time, without a schedule.'
             : $name . ' now needs a schedule or an approved override to enter the room.'] + $this->roomAccess($input);
+    }
+
+    /**
+     * Super Admin view of the portal emergency card (GET ?view=emergency_card):
+     * the card, who set it, and whether the door has saved it.
+     */
+    public function emergencyCard(array $input): array
+    {
+        $actor = $this->viewer($input, 'Only a Super Admin can view the emergency card.');
+        if ($actor['role'] !== 'super_admin') {
+            throw new DoorStatusException('Only a Super Admin can view the emergency card.', 403);
+        }
+        $deviceId = $this->deviceId($input);
+        $row = $this->row($deviceId);
+        $has = $row && array_key_exists('emergency_card_uid', $row);
+        $uid = $has ? (string) ($row['emergency_card_uid'] ?? '') : '';
+        $doorUid = $has ? $row['emergency_card_door_uid'] : null;
+        $setBy = $has && $row['emergency_card_by'] ? ($this->adminName((int) $row['emergency_card_by']) ?? 'A Super Admin') : null;
+        return [
+            'success' => true,
+            'card' => $uid !== '' ? [
+                'uid' => $uid,
+                'name' => (string) ($row['emergency_card_name'] ?: EmergencyCards::DEFAULT_NAME),
+                'set_at' => $row['emergency_card_at'],
+                'set_by' => $setBy,
+            ] : null,
+            // null: the door has not reported it (older firmware, or not yet).
+            'door' => $doorUid === null ? null : [
+                'uid' => (string) $doorUid,
+                'matches' => strtoupper((string) $doorUid) === strtoupper($uid),
+                'reported_at' => $row['emergency_card_door_at'],
+            ],
+            'built_in' => $this->builtInCard($deviceId),
+        ];
+    }
+
+    /** Super Admin: set (uid, name) or remove (uid "") the portal emergency card. */
+    public function setEmergencyCard(array $input): array
+    {
+        $actor = $this->authorizedActor($input, ['super_admin']);
+        $deviceId = $this->deviceId($input);
+        $uid = $input['uid'] ?? null;
+        $uid = is_string($uid) ? strtoupper(preg_replace('/\s+/', '', $uid)) : null;
+        if ($uid === null || ($uid !== '' && preg_match('/^[A-F0-9]{10}$/D', $uid) !== 1)) {
+            throw new DoorStatusException('Enter the card UID: 10 characters, 0-9 and A-F.', 422);
+        }
+        $name = is_string($input['name'] ?? null) ? trim(preg_replace('/\s+/', ' ', $input['name'])) : '';
+        $name = $name !== '' ? mb_substr($name, 0, 60) : EmergencyCards::DEFAULT_NAME;
+        if ($uid !== '') {
+            try {
+                $query = $this->pdo->prepare('SELECT 1 FROM rfid_cards WHERE UPPER(rfid_uid) = ? LIMIT 1');
+                $query->execute([$uid]);
+                $taken = (bool) $query->fetchColumn();
+            } catch (PDOException) {
+                $taken = false; // no cards table yet
+            }
+            if ($taken) {
+                throw new DoorStatusException('This card is registered to a user. Use an unregistered card as the emergency card.', 422);
+            }
+            if (($this->builtInCard($deviceId)['uid'] ?? null) === $uid) {
+                throw new DoorStatusException("This is already the door's built-in emergency card. Use a different card.", 422);
+            }
+        }
+        self::ensureEmergencySchema($this->pdo);
+        $before = $this->row($deviceId);
+        $beforeUid = $before ? (string) ($before['emergency_card_uid'] ?? '') : '';
+        $this->pdo->prepare('INSERT INTO door_controller_controls (device_id, emergency_card_uid, emergency_card_name, emergency_card_by, emergency_card_at)
+            VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE emergency_card_uid = VALUES(emergency_card_uid),
+            emergency_card_name = VALUES(emergency_card_name), emergency_card_by = VALUES(emergency_card_by), emergency_card_at = NOW()')
+            ->execute([$deviceId, $uid === '' ? null : $uid, $uid === '' ? null : $name, $actor['id']]);
+        EmergencyCards::reset();
+        // The door's saved schedule copy lists emergency cards too: rebuild its version now.
+        @unlink(sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'entrivo_door_access_cache_' . $deviceId . '.json');
+        $ending = static fn (string $value): string => 'ending ' . substr($value, -4);
+        $log = $uid === ''
+            ? 'Removed the portal emergency card' . ($beforeUid !== '' ? ' (card ' . $ending($beforeUid) . ')' : '') . '.'
+            : ($beforeUid === $uid ? 'Renamed the portal emergency card (card ' . $ending($uid) . ') to ' . $name . '.'
+                : 'Set the portal emergency card to ' . $name . ' (card ' . $ending($uid) . ')'
+                    . ($beforeUid !== '' ? ', replacing card ' . $ending($beforeUid) : '') . '.');
+        (new ActivityLogService($this->pdo))->record($actor['id'], 'Update', $log, 'Success', null, 'door', (string) $deviceId);
+        return ['success' => true, 'message' => $uid === ''
+            ? 'Removed. The door stops accepting that card once it receives the change.'
+            : 'Saved. The door accepts ' . $name . ' once it receives the change, within a few seconds while online.']
+            + $this->emergencyCard($input);
+    }
+
+    /** The door's built-in card (Secrets.h), as the controller reported it; null if never reported. */
+    private function builtInCard(int $deviceId): ?array
+    {
+        try {
+            $query = $this->pdo->prepare('SELECT rfid_uid, card_name FROM door_emergency_cards WHERE device_id = ? ORDER BY reported_at DESC LIMIT 1');
+            $query->execute([$deviceId]);
+            $row = $query->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            return null; // the door has not reported its card yet
+        }
+        return $row ? ['uid' => strtoupper((string) $row['rfid_uid']), 'name' => (string) $row['card_name']] : null;
     }
 
     private function adminName(int $userId): ?string
@@ -421,9 +587,11 @@ final class DoorControlService
                 ? 'Only an administrator with the door override privilege can lock or unlock the door remotely.'
                 : (in_array('admin', $roles, true)
                 ? 'Only an administrator can change door scheduling.'
+                : (($input['action'] ?? '') === 'emergency_card'
+                    ? 'Only a Super Admin can change the emergency card.'
                 : (in_array($input['action'] ?? '', ['room_hours', 'staff_room_access', 'admin_door_access'], true)
                     ? 'Only a Super Admin can change who enters the room without a schedule.'
-                    : 'Only a Super Admin can lock or unlock the door remotely.')), 403);
+                    : 'Only a Super Admin can lock or unlock the door remotely.'))), 403);
         }
         if (!password_verify($password, (string) $user['password_hash'])) {
             $what = match ($input['action'] ?? '') {
@@ -431,6 +599,7 @@ final class DoorControlService
                 'room_hours' => 'change the staff room hours',
                 'staff_room_access' => 'change staff room access',
                 'admin_door_access' => 'change an Admin door access setting',
+                'emergency_card' => 'change the emergency card',
                 'lock' => 'remotely lock the door',
                 default => 'remotely unlock the door',
             };

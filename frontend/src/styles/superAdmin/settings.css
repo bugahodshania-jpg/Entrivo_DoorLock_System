@@ -1690,3 +1690,22 @@
 .settings-room-toggle.is-on > span { background: #0c7a45; }
 .settings-room-toggle.is-on > span::after { left: 14px; }
 .settings-room-toggle:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* Door control: portal emergency card */
+.settings-ecard { margin-top: 14px; }
+.settings-ecard-pad { padding: 12px 14px; }
+.settings-ecard .settings-room-status strong { color: #10251d; font-size: 13px; }
+.settings-ecard .settings-room-status span:not(.settings-door-tag) { color: #5c6b76; font-size: 13px; }
+.settings-ecard-actions { display: flex; gap: 8px; grid-column: 1 / -1; }
+.settings-ecard-actions button { box-sizing: border-box; height: 36px; padding: 0 16px; white-space: nowrap; }
+.settings-ecard-scans { border-top: 1px solid #e6eeea; display: grid; gap: 6px; padding-top: 10px; }
+.settings-ecard-scans-head { align-items: center; display: flex; justify-content: space-between; }
+.settings-ecard-scans-head span { color: #10251d; font-size: 12px; font-weight: 700; }
+.settings-ecard-scans button { align-items: center; background: #fff; border: 1px solid #d7e0db; border-radius: 4px; color: #0c4b2d; cursor: pointer; display: inline-flex; font: inherit; font-size: 11px; font-weight: 700; gap: 4px; height: 26px; padding: 0 8px; }
+.settings-ecard-scans button:hover:not(:disabled) { background: #eef5f1; border-color: #0c4b2d; }
+.settings-ecard-scans button:disabled { color: #9aa8a1; cursor: not-allowed; }
+.settings-ecard-scans ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.settings-ecard-scans li { align-items: center; border: 1px solid #e3e9e6; border-radius: 4px; display: flex; gap: 8px; justify-content: space-between; padding: 6px 8px; }
+.settings-ecard-scans li > div { display: grid; min-width: 0; }
+.settings-ecard-scans li strong { color: #1a2e26; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.settings-ecard-scans li span { color: #5f6f68; font-size: 11px; }

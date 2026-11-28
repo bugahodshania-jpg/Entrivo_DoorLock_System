@@ -298,9 +298,19 @@ namespace {
         }
     }
 
-    bool isOfflineAccessCard(const String &uid) {
+    // Emergency cards that open the door even when the backend is unreachable:
+    // the built-in card (Secrets.h) and the portal card saved in NVS. Both work.
+    bool isBuiltInEmergencyCard(const String &uid) {
         const String card(OFFLINE_ACCESS_CARD_UID);
         return card.length() == 10 && uid.equalsIgnoreCase(card);
+    }
+
+    bool isOfflineAccessCard(const String &uid) {
+        return isBuiltInEmergencyCard(uid) || isPortalEmergencyCard(uid);
+    }
+
+    String emergencyCardName(const String &uid) {
+        return isBuiltInEmergencyCard(uid) ? String(OFFLINE_ACCESS_CARD_NAME) : String(portalEmergencyCardName());
     }
 
     void discardBufferedScans() {
@@ -329,10 +339,10 @@ namespace {
             // Connection lost: the emergency card works locally, same in/out process.
             granted = grantedOffline = true;
             decision = DoorDecision{};
-            message = String("Backend unreachable: ") + OFFLINE_ACCESS_CARD_NAME + (isExit
+            message = String("Backend unreachable: ") + emergencyCardName(uid) + (isExit
                 ? " (emergency card) accepted locally (exit saved for the access log)."
                 : " (emergency card) accepted locally (entry saved for the access log).");
-            SerialLog::warn(String("[OFFLINE] ") + OFFLINE_ACCESS_CARD_NAME + " (emergency card " + uid + ") used without the backend.");
+            SerialLog::warn(String("[OFFLINE] ") + emergencyCardName(uid) + " (emergency card " + uid + ") used without the backend.");
         }
         else if (!granted && backendUnreachable && isExit) {
             // Nobody may be trapped by an outage. The exit reader is inside the
@@ -361,7 +371,7 @@ namespace {
         const bool lockedIn = isExit && !isDoorUnlocked();
         const bool alreadyOpen = !isExit && isDoorUnlocked();
         SerialLog::result(granted, granted
-            ? (emergencyExit ? (isOfflineAccessCard(uid) ? String(OFFLINE_ACCESS_CARD_NAME) : String("Emergency card"))
+            ? (emergencyExit ? (isOfflineAccessCard(uid) ? emergencyCardName(uid) : String("Emergency card"))
                     + ": door unlocked. Touch the sensor to lock"
                 : lockedIn ? "Exit approved, door unlocked so you can leave. Touch outside to lock"
                 : isExit ? "Exit approved, touch to lock"
