@@ -946,6 +946,11 @@
   grid-template-columns: 1fr;
 }
 
+/* One column: no divider beside the fields. */
+.manage-users-rfid-modal .pending-registration-review-body dl > div {
+  border-right: 0;
+}
+
 .manage-users-rfid-steps {
   color: #3d4f47;
   font-size: 12px;
@@ -954,10 +959,17 @@
   padding-left: 18px;
 }
 
+/* Same 12px inset as the Cards fields, so the edges line up. */
 .manage-users-rfid-scans-head {
   align-items: center;
+  border-bottom: 1px solid #e6eeea;
   display: flex;
   justify-content: space-between;
+  padding-right: 12px;
+}
+
+.manage-users-rfid-scans-head h3 {
+  border-bottom: 0;
 }
 
 .manage-users-rfid-scans-head button,
@@ -994,7 +1006,7 @@
   display: grid;
   gap: 6px;
   list-style: none;
-  margin: 6px 0 0;
+  margin: 6px 12px 0;
   max-height: 220px;
   overflow-y: auto;
   padding: 0;
