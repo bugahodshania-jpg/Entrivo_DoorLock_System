@@ -45,6 +45,22 @@ final class DoorStatusService
         $controls = new DoorControlService($this->pdo);
         foreach ($doors as &$door) $door['controls'] = $controls->controls((int) $door['device_id']);
         unset($door);
+        // Whether the door's saved schedule copy matches the latest one (the
+        // version is cached for a minute, so this does not rebuild it each poll).
+        foreach ($doors as &$door) {
+            $saved = &$door['saved_schedules'];
+            $saved['up_to_date'] = null;
+            if (!$saved['reported']) continue;
+            try {
+                require_once __DIR__ . '/DoorAccessCacheService.php';
+                $latest = (new DoorAccessCacheService($this->pdo))->cachedVersion((int) $door['device_id']);
+                $saved['up_to_date'] = $saved['version'] === $latest;
+            } catch (Throwable $error) {
+                error_log('Door status saved schedules: ' . $error->getMessage());
+            }
+            unset($saved);
+        }
+        unset($door);
         // While a door is unlocked, say who unlocked it (the header card's modal).
         $occupant = null;
         foreach ($doors as &$door) {
@@ -68,7 +84,10 @@ final class DoorStatusService
         $report = false;
         if (DoorStatusSchema::exists($this->pdo)) {
             $wifi = DoorStatusSchema::hasWifiColumn($this->pdo) ? 'wifi_rssi' : 'NULL AS wifi_rssi';
-            $query = $this->pdo->prepare("SELECT door_state,received_at,{$wifi},TIMESTAMPDIFF(MICROSECOND,received_at,NOW(6))/1000000 AS age_seconds FROM door_controller_status WHERE device_id=?");
+            $cache = DoorStatusSchema::hasCacheColumns($this->pdo)
+                ? 'cache_version,cache_valid_until,cache_saved_at'
+                : 'NULL AS cache_version,NULL AS cache_valid_until,NULL AS cache_saved_at';
+            $query = $this->pdo->prepare("SELECT door_state,received_at,{$wifi},{$cache},TIMESTAMPDIFF(MICROSECOND,received_at,NOW(6))/1000000 AS age_seconds FROM door_controller_status WHERE device_id=?");
             $query->execute([$deviceId]);
             $report = $query->fetch(PDO::FETCH_ASSOC);
         }
@@ -87,6 +106,17 @@ final class DoorStatusService
             'wifi_rssi' => $online && isset($report['wifi_rssi']) ? (int) $report['wifi_rssi'] : null,
             'wifi_expires_in_ms' => $online ? max(0, (int) floor((self::WIFI_FRESH_SECONDS - $age) * 1000)) : 0,
             'expires_in_ms' => $online ? max(0, (int) floor((self::FRESH_SECONDS - $age) * 1000)) : 0,
+            // The offline schedule copy the door last reported (kept while offline,
+            // since it is what the door is using then). reported = false: the
+            // door's firmware does not send it yet.
+            'saved_schedules' => [
+                'reported' => $report !== false && $report['cache_version'] !== null,
+                'version' => $report && $report['cache_version'] !== null ? (int) $report['cache_version'] : null,
+                'saved_at' => $report['cache_saved_at'] ?? null,
+                'valid_until' => $report && $report['cache_valid_until'] !== null
+                    ? (new DateTimeImmutable('@' . (int) $report['cache_valid_until']))->setTimezone(new DateTimeZone('Asia/Manila'))->format('Y-m-d H:i:s')
+                    : null,
+            ],
         ];
     }
 
@@ -121,6 +151,11 @@ final class DoorStatusService
         // WiFi strength is optional: older firmware does not send it.
         $rssi = filter_var($input['wifi_rssi'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => -127, 'max_range' => 0]]);
         $storeWifi = DoorStatusSchema::ensureWifiColumn($this->pdo);
+        // The offline schedule copy the door has saved. Optional: older firmware
+        // does not send it, and then the stored values are left as they were.
+        $cacheVersion = filter_var($input['cache_version'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 4294967295]]);
+        $cacheUntil = filter_var($input['cache_valid_until'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 4294967295]]);
+        $storeCache = $cacheVersion !== false && DoorStatusSchema::ensureCacheColumns($this->pdo);
         $this->pdo->beginTransaction();
         try {
             // Sensor read requests lock the same device row, serializing their guard
@@ -145,6 +180,15 @@ final class DoorStatusService
                 $this->pdo->prepare('INSERT INTO door_controller_status (device_id,door_state,boot_id,report_sequence,received_at) VALUES (?,?,?,?,NOW(6))
                     ON DUPLICATE KEY UPDATE door_state=VALUES(door_state),boot_id=VALUES(boot_id),report_sequence=VALUES(report_sequence),received_at=NOW(6)')
                     ->execute([$deviceId, $state, $bootId, $sequence]);
+            }
+            if ($storeCache) {
+                // Saved time = when the door first reported this copy (a restart
+                // reports the same copy again and keeps the time). 0 = none saved.
+                $this->pdo->prepare('UPDATE door_controller_status SET
+                        cache_saved_at=CASE WHEN ? = 0 THEN NULL WHEN cache_version <=> ? THEN cache_saved_at ELSE NOW() END,
+                        cache_version=?, cache_valid_until=?
+                    WHERE device_id=?')
+                    ->execute([$cacheVersion, $cacheVersion, $cacheVersion, $cacheVersion === 0 || $cacheUntil === false ? null : $cacheUntil, $deviceId]);
             }
             if ($state === 'unlocked') {
                 // A read queued just before an unlock must not start or resume later.

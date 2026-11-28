@@ -42,6 +42,42 @@ final class DoorStatusSchema
         return self::$hasWifiColumn = true;
     }
 
+    private static ?bool $hasCacheColumns = null;
+
+    /** True when door_controller_status stores which offline schedule copy the door has saved. */
+    public static function hasCacheColumns(PDO $pdo): bool
+    {
+        if (self::$hasCacheColumns !== null) return self::$hasCacheColumns;
+        try {
+            return self::$hasCacheColumns = (bool) $pdo->query("SHOW COLUMNS FROM door_controller_status LIKE 'cache_saved_at'")->fetch();
+        } catch (PDOException) {
+            return false;
+        }
+    }
+
+    /**
+     * Adds the offline schedule copy columns when missing: the version the
+     * door reports, the end of the days it covers (Unix time), and when the
+     * door first reported that version. Call outside a transaction.
+     */
+    public static function ensureCacheColumns(PDO $pdo): bool
+    {
+        if (self::hasCacheColumns($pdo) || $pdo->inTransaction()) return self::hasCacheColumns($pdo);
+        foreach ([
+            'cache_version INT UNSIGNED NULL DEFAULT NULL',
+            'cache_valid_until INT UNSIGNED NULL DEFAULT NULL',
+            'cache_saved_at DATETIME NULL DEFAULT NULL',
+        ] as $column) {
+            try {
+                $pdo->exec("ALTER TABLE door_controller_status ADD COLUMN {$column}");
+            } catch (PDOException $error) {
+                // 1060: the column exists already (another request, or a partial earlier run).
+                if ((int) ($error->errorInfo[1] ?? 0) !== 1060) return false;
+            }
+        }
+        return self::$hasCacheColumns = true;
+    }
+
     public static function definition(): string
     {
         return "CREATE TABLE IF NOT EXISTS door_controller_status (
@@ -50,7 +86,10 @@ final class DoorStatusSchema
             boot_id CHAR(32) NOT NULL,
             report_sequence BIGINT UNSIGNED NOT NULL,
             received_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-            wifi_rssi SMALLINT NULL DEFAULT NULL
+            wifi_rssi SMALLINT NULL DEFAULT NULL,
+            cache_version INT UNSIGNED NULL DEFAULT NULL,
+            cache_valid_until INT UNSIGNED NULL DEFAULT NULL,
+            cache_saved_at DATETIME NULL DEFAULT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
     }
 }

@@ -36,5 +36,9 @@ OfflineAnswer checkOfflineCard(const String &uid);
 String accessCacheSummary();
 // True when an offline entry would be checked against the saved schedules now.
 bool accessCacheUsableNow();
+// The saved copy's version and the end of the days it covers (Unix time),
+// sent in each door status report so the portal can show it. 0 = none saved.
+uint32_t accessCacheSavedVersion();
+uint32_t accessCacheValidUntil();
 
 #endif

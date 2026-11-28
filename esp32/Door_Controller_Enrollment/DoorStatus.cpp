@@ -88,6 +88,9 @@ namespace {
         payload["sequence"] = ++sequence;
         // Signal strength for the portal's WiFi icon (connected / weak).
         payload["wifi_rssi"] = WiFi.RSSI();
+        // Which offline schedule copy is saved, for the portal's Door control.
+        payload["cache_version"] = accessCacheSavedVersion();
+        payload["cache_valid_until"] = accessCacheValidUntil();
         // Confirms a finished remote lock/unlock so the backend clears it.
         if (lastDoneCommandId) payload["command_done"] = lastDoneCommandId;
         String body;

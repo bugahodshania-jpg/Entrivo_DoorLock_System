@@ -234,6 +234,14 @@ bool accessCacheUsableNow() {
     return header.valid && activeSlot <= 1 && now >= header.validFrom && now < header.validUntil;
 }
 
+uint32_t accessCacheSavedVersion() {
+    return header.valid && activeSlot <= 1 ? header.version : 0;
+}
+
+uint32_t accessCacheValidUntil() {
+    return header.valid && activeSlot <= 1 ? header.validUntil : 0;
+}
+
 String accessCacheSummary() {
     if (partition == nullptr) return "unavailable (no data partition)";
     if (!header.valid) return "none saved yet (downloaded once the backend is reached)";

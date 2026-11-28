@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarClock, LockKeyhole, LockKeyholeOpen, UserRound, WifiOff } from 'lucide-react';
+import { CalendarCheck, CalendarClock, LockKeyhole, LockKeyholeOpen, UserRound, WifiOff } from 'lucide-react';
 import axiosClient from '../api/axiosClient';
 import { ActionConfirmProvider, useActionConfirm } from './ActionConfirm';
 import { useDoorStatus } from '../hooks/useDoorStatus';
@@ -130,6 +130,40 @@ function DoorModal({ door, user, canControl, onClose }) {
  * (Super Admin, or an Admin with the door override privilege). Used in the header door popup and on the Settings page.
  * Must render inside an ActionConfirmProvider.
  */
+// Which copy of today's and the next 7 days' schedules the door has saved,
+// so an admin can confirm the latest changes reached it before it goes offline.
+const SAVED_SCHEDULE_CHIPS = {
+  current: ['Up to date', ''],
+  updating: ['Updating', ' is-unknown'],
+  none: ['None saved', ' is-unlocked'],
+  unknown: ['Not reported', ' is-unknown'],
+};
+
+function SavedSchedulesSection({ saved, offline }) {
+  const status = saved?.status || 'unknown';
+  const [chip, tone] = SAVED_SCHEDULE_CHIPS[status];
+  const covers = saved?.lastDay ? ` Covers through ${saved.lastDay}.` : '';
+  const text = status === 'unknown'
+    ? 'The door has not reported its saved schedules. Upload the latest door firmware to see them here.'
+    : status === 'none'
+      ? (offline ? 'The door has no saved schedules yet.' : 'The door has no saved schedules yet. It downloads them within about a minute while locked.')
+      : status === 'updating'
+        ? `${offline ? 'Schedules changed since the door last saved them; it downloads the new copy once it is back online.' : 'Schedules changed. The door downloads the new copy within about a minute while locked.'}${saved.savedAt ? ` Last saved ${saved.savedAt}.` : ''}${covers}`
+        : `Saved ${saved.savedAt || 'recently'}.${covers}${offline ? ' Changes made while it is offline reach it once it reconnects.' : ''}`;
+  return (
+    <section className="door-section" aria-labelledby="door-section-saved-title">
+      <header className="door-section-head">
+        <span className="door-section-icon"><CalendarCheck size={16} aria-hidden="true" /></span>
+        <div>
+          <h4 id="door-section-saved-title">Saved schedules</h4>
+          <p>{text}</p>
+        </div>
+        <span className={`door-section-chip${tone}`}>{chip}</span>
+      </header>
+    </section>
+  );
+}
+
 export function DoorControlPanel({
   door, user, canControl = true, onBusyChange, confirmingRef, variant = 'compact', modeDetails = null, lockGuide = null,
 }) {
@@ -252,6 +286,8 @@ export function DoorControlPanel({
               </div>
             </section>
           ) : null}
+
+          <SavedSchedulesSection saved={door.savedSchedules} offline={offline} />
 
           {showLock ? (
             <section className="door-section" aria-labelledby="door-section-lock-title">
