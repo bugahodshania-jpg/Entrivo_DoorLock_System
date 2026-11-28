@@ -1695,14 +1695,15 @@
 .settings-ecard { background: #fff; border: 1px solid #e3ebe6; border-radius: 4px; }
 .settings-ecard-pad { padding: 12px 14px; }
 .settings-ecard-body { display: grid; gap: 14px; padding: 14px; }
-.settings-ecard-cards { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.settings-ecard-main { align-items: start; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.settings-ecard-cards { display: grid; gap: 12px; }
 .settings-ecard-current { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 4px; padding: 12px 14px; }
 .settings-ecard-current-head { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
 .settings-ecard-current-head > span:first-child { color: #5c6b76; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .settings-ecard-current .settings-door-tag.is-off { background: #f3f4f3; color: #5b645f; }
 .settings-ecard-current strong { color: #10251d; font-size: 14px; }
 .settings-ecard-current small { color: #5c6b76; font-size: 12px; line-height: 1.4; }
-.settings-ecard-form { border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 10px; max-width: 560px; padding: 12px 14px; }
+.settings-ecard-form { border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 10px; padding: 12px 14px; }
 .settings-ecard h4 { color: #10251d; font-size: 13px; font-weight: 700; margin: 0; }
 .settings-ecard-form label { color: #4f5f58; display: grid; font-size: 12px; font-weight: 600; gap: 4px; }
 .settings-ecard-form input { border: 1px solid #d7e4de; border-radius: 3px; box-sizing: border-box; font: inherit; font-size: 13px; height: 36px; padding: 0 10px; width: 100%; }
@@ -1724,7 +1725,8 @@
 .settings-ecard-picker-menu li > div { display: grid; min-width: 0; }
 .settings-ecard-picker-menu li strong { color: #1a2e26; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .settings-ecard-picker-menu li span { color: #5f6f68; font-size: 11px; }
+.settings-ecard-not-found { background: #fbf2cc; border-radius: 3px; color: #7a5d10; padding: 8px 10px; }
 .settings-ecard-note { border-top: 1px solid #e6eeea; color: #5c6b76; font-size: 12px; line-height: 1.5; margin: 0; padding-top: 12px; }
 @media (max-width: 760px) {
-  .settings-ecard-cards { grid-template-columns: minmax(0, 1fr); }
+  .settings-ecard-main { grid-template-columns: minmax(0, 1fr); }
 }

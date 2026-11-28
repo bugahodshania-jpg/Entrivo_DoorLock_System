@@ -1399,7 +1399,7 @@ function EmergencyCardSection({ user, deviceId }) {
         seen.add(uid);
         return true;
       });
-      setScans({ loading: false, list: list.slice(0, 3) });
+      setScans({ loading: false, list: list.slice(0, 30) });
     } catch {
       setScans({ loading: false, list: [] });
     }
@@ -1427,6 +1427,8 @@ function EmergencyCardSection({ user, deviceId }) {
   const uid = form.uid.trim().toUpperCase();
   const name = form.name.trim();
   const uidValid = /^[0-9A-F]{10}$/.test(uid);
+  // Typing filters the recent scans; the menu shows the 3 newest matches.
+  const matches = scans.list.filter((scan) => String(scan.rfidUid).toUpperCase().includes(uid)).slice(0, 3);
   const changed = uid !== cardUid || (name || 'Emergency card') !== (state.card?.name || 'Emergency card');
 
   async function submit(nextUid, nextName) {
@@ -1470,25 +1472,7 @@ function EmergencyCardSection({ user, deviceId }) {
         : state.error ? <p className="settings-room-note is-error settings-ecard-pad">{state.error}</p>
         : (
           <div className="settings-ecard-body">
-            <div className="settings-ecard-cards">
-              <div className="settings-ecard-current">
-                <div className="settings-ecard-current-head">
-                  <span>Portal card</span>
-                  <span className={`settings-door-tag${chip[1]}`}>{chip[0]}</span>
-                </div>
-                <strong>{cardUid ? `${state.card.name} · ${cardEnding(cardUid)}` : 'No portal card'}</strong>
-                <small role="status">{doorLine}</small>
-              </div>
-              <div className="settings-ecard-current">
-                <div className="settings-ecard-current-head">
-                  <span>Built-in card</span>
-                  <span className="settings-door-tag is-auto">Always on</span>
-                </div>
-                <strong>{state.builtIn ? `${state.builtIn.name} · ${cardEnding(state.builtIn.uid)}` : 'Not reported yet'}</strong>
-                <small>Set in the door firmware (Secrets.h). Changed only by uploading.</small>
-              </div>
-            </div>
-
+            <div className="settings-ecard-main">
             <div className="settings-ecard-form">
               <h4>{cardUid ? 'Change the portal card' : 'Set the portal card'}</h4>
               <div className="settings-ecard-picker" ref={pickerRef}>
@@ -1497,7 +1481,10 @@ function EmergencyCardSection({ user, deviceId }) {
                   placeholder="Tap the card on the scanner, then click here to pick it"
                   role="combobox" aria-expanded={pickerOpen} aria-controls="settings-ecard-picker-list"
                   onFocus={openPicker} onClick={openPicker}
-                  onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }))} disabled={busy} />
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }));
+                    setPickerOpen(true);
+                  }} disabled={busy} />
                 {pickerOpen ? (
                   <div className="settings-ecard-picker-menu" id="settings-ecard-picker-list" role="listbox" aria-label="Recent scans">
                     <div className="settings-ecard-picker-head">
@@ -1506,11 +1493,17 @@ function EmergencyCardSection({ user, deviceId }) {
                         <RefreshCcw size={13} aria-hidden="true" /> {scans.loading ? 'Refreshing…' : 'Refresh'}
                       </button>
                     </div>
-                    {scans.list.length === 0
-                      ? <p className="settings-room-note">{scans.loading ? 'Loading scans…' : 'No scans yet. Tap the new card on the RFID scanner, then Refresh.'}</p>
+                    {matches.length === 0
+                      ? (
+                        <p className={`settings-room-note${uid && !scans.loading ? ' settings-ecard-not-found' : ''}`}>
+                          {scans.loading ? 'Loading scans…'
+                            : uid ? `Not found: no recent scan matches ${uid}. Check the UID, or tap the card on the scanner and Refresh.`
+                            : 'No scans yet. Tap the new card on the RFID scanner, then Refresh.'}
+                        </p>
+                      )
                       : (
                         <ul>
-                          {scans.list.map((scan) => {
+                          {matches.map((scan) => {
                             const scanUid = String(scan.rfidUid).toUpperCase();
                             const taken = scan.registrationStatus === 'registered';
                             const picked = scanUid === uid;
@@ -1546,6 +1539,25 @@ function EmergencyCardSection({ user, deviceId }) {
                   <button type="button" className="settings-secondary-button" onClick={() => submit('', '')} disabled={busy}>Remove</button>
                 ) : null}
               </div>
+            </div>
+            <div className="settings-ecard-cards">
+              <div className="settings-ecard-current">
+                <div className="settings-ecard-current-head">
+                  <span>Portal card</span>
+                  <span className={`settings-door-tag${chip[1]}`}>{chip[0]}</span>
+                </div>
+                <strong>{cardUid ? `${state.card.name} · ${cardEnding(cardUid)}` : 'No portal card'}</strong>
+                <small role="status">{doorLine}</small>
+              </div>
+              <div className="settings-ecard-current">
+                <div className="settings-ecard-current-head">
+                  <span>Built-in card</span>
+                  <span className="settings-door-tag is-auto">Always on</span>
+                </div>
+                <strong>{state.builtIn ? `${state.builtIn.name} · ${cardEnding(state.builtIn.uid)}` : 'Not reported yet'}</strong>
+                <small>Set in the door firmware (Secrets.h). Changed only by uploading.</small>
+              </div>
+            </div>
             </div>
 
             <p className="settings-ecard-note">
