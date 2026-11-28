@@ -1377,7 +1377,7 @@ function EmergencyCardSection({ user, deviceId }) {
         seen.add(uid);
         return true;
       });
-      setScans({ loading: false, list: list.slice(0, 5) });
+      setScans({ loading: false, list: list.slice(0, 3) });
     } catch {
       setScans({ loading: false, list: [] });
     }
