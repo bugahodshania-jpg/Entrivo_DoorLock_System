@@ -5,8 +5,8 @@
 
 .settings-hero {
   align-items: flex-start;
-  background: #e8f7ee;
-  border: 1px solid #bfe5cd;
+  background: #08281c;
+  border: 1px solid #164b36;
   border-radius: 4px;
   display: flex;
   gap: 18px;
@@ -15,14 +15,17 @@
 }
 
 .settings-hero .admin-dashboard-eyebrow {
+  color: #f0c423;
   font-size: 11px;
 }
 
 .settings-hero h2 {
+  color: #f4f6f1;
   font-size: 20px;
 }
 
-.settings-hero p {
+.settings-hero p:not(.admin-dashboard-eyebrow) {
+  color: #b7cec0;
   font-size: 13px;
 }
 
