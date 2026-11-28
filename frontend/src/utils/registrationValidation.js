@@ -50,8 +50,9 @@ export function validateSchoolEmail(value) {
 
 export function validateName(value = '', label, { required = true } = {}) {
   if (!value.trim()) return required ? `${label} is required.` : '';
-  if (/[^A-Za-zÑñ ]/.test(value)) return 'Use letters only, with one space between words.';
+  if (/[^A-Za-zÑñ -]/.test(value)) return 'Use letters only, with one space or hyphen between words.';
   if (/ {2,}/.test(value)) return `${label} cannot contain consecutive spaces. Use only one space between words.`;
+  if (!/^[A-Za-zÑñ]+(?:[ -][A-Za-zÑñ]+)*$/.test(value.trim())) return 'A hyphen must sit between two letters, as in Mary-Ann.';
   if (value.trim().length > 50) return `${label} must be 50 characters or fewer.`;
   return '';
 }

@@ -44,9 +44,18 @@ verify(
     'Long valid names must produce a fifty-character username while preserving its separator and surname allocation.'
 );
 verify(RegistrationInputValidation::name(' Niño ', 'First name') === 'Niño', 'One edge space may be trimmed.');
+verify(RegistrationInputValidation::name('mary-ann', 'First name') === 'Mary-Ann', 'Hyphenated names are allowed and capitalized.');
+verify(RegistrationInputValidation::generatedUsername('Mary-Ann', 'Dela Cruz-Santos') === 'maryann.delacruzsantos', 'Automatic usernames drop hyphens.');
+foreach (['-Ann', 'Ann-', 'Mary--Ann', 'Mary - Ann'] as $badName) {
+    try {
+        RegistrationInputValidation::name($badName, 'First name');
+        verify(false, "A stray hyphen must be rejected: {$badName}");
+    } catch (InvalidArgumentException) {
+    }
+}
 verify(RegistrationInputValidation::address('santo-niño', 'Barangay', true) === 'Santo-Niño', 'Capitalization must include Ñ and hyphenated words.');
 foreach ([
-    ['first_name', 'Juan2'], ['first_name', 'Juan!'], ['first_name', 'Juan-Paul'],
+    ['first_name', 'Juan2'], ['first_name', 'Juan!'], ['first_name', 'Juan-'],
     ['first_name', 'Juan  Carlos'], ['middle_name', 'G.'], ['middle_name', '  '],
     ['last_name', 'Dela   Cruz'], ['last_name', "Cruz\n"], ['last_name', "Cruz\tSantos"],
     ['contact_number', '08123456789'], ['contact_number', '0912345678'], ['contact_number', '091234567890'],

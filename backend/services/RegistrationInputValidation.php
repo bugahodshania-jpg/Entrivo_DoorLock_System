@@ -48,8 +48,8 @@ class RegistrationInputValidation
             throw new InvalidArgumentException("{$label} must be 50 characters or fewer.");
         }
         if ($optional && $name === ' ') return null;
-        if (str_contains($name, '  ') || !preg_match('/^[A-Za-zÑñ]+(?: [A-Za-zÑñ]+)*$/uD', trim($name, ' '))) {
-            throw new InvalidArgumentException('Use letters only, with one space between words.');
+        if (str_contains($name, '  ') || !preg_match('/^[A-Za-zÑñ]+(?:[ -][A-Za-zÑñ]+)*$/uD', trim($name, ' '))) {
+            throw new InvalidArgumentException('Use letters only, with one space or hyphen between words.');
         }
         return self::capitalizeWords(trim($name, ' '));
     }
@@ -118,8 +118,8 @@ class RegistrationInputValidation
     public static function generatedUsername(string $firstName, string $lastName): string
     {
         $first = implode('', array_slice(explode(' ', $firstName), 0, 2));
-        $first = strtolower(str_replace(['Ñ', 'ñ'], ['n', 'n'], $first));
-        $last = substr(strtolower(str_replace(['Ñ', 'ñ', ' '], ['n', 'n', ''], $lastName)), 0, 48);
+        $first = strtolower(str_replace(['Ñ', 'ñ', '-'], ['n', 'n', ''], $first));
+        $last = substr(strtolower(str_replace(['Ñ', 'ñ', ' ', '-'], ['n', 'n', '', ''], $lastName)), 0, 48);
         return substr($first, 0, 49 - strlen($last)) . '.' . $last;
     }
 
