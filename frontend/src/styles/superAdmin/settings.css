@@ -1700,6 +1700,7 @@
 .settings-ecard-current { background: #f7faf8; border: 1px solid #e3ebe6; border-radius: 4px; display: grid; gap: 4px; padding: 12px 14px; }
 .settings-ecard-current-head { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
 .settings-ecard-current-head > span:first-child { color: #5c6b76; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.settings-ecard-current .settings-door-tag { flex: 0 0 auto; padding: 3px 10px; white-space: nowrap; }
 .settings-ecard-current .settings-door-tag.is-off { background: #f3f4f3; color: #5b645f; }
 .settings-ecard-current strong { color: #10251d; font-size: 14px; }
 .settings-ecard-current small { color: #5c6b76; font-size: 12px; line-height: 1.4; }
