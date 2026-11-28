@@ -1,27 +1,17 @@
-export const SETTINGS_STORAGE_KEY = 'entrivo_system_settings';
-
+// Every new schedule and override gets this grace period: someone who enters
+// later than the start plus this many minutes counts as Late in the reports.
+// It does not extend door access. Each schedule keeps the value it was saved with.
 export const defaultGracePeriodMinutes = 15;
 
-export function normalizeGracePeriodMinutes(value) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    return defaultGracePeriodMinutes;
-  }
-
-  return Math.min(120, Math.max(0, Math.round(parsed)));
-}
+// Earlier versions let each browser save its own default here; drop it so
+// every browser uses the same value.
+const LEGACY_STORAGE_KEYS = ['entrivo_system_settings', 'entrivo_system_settings_saved_at'];
 
 export function getDefaultGracePeriodMinutes() {
   try {
-    const rawValue = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-
-    if (!rawValue) {
-      return defaultGracePeriodMinutes;
-    }
-
-    return normalizeGracePeriodMinutes(JSON.parse(rawValue)?.defaultGracePeriodMinutes);
+    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
   } catch {
-    return defaultGracePeriodMinutes;
+    // Storage unavailable: nothing to clean up.
   }
+  return defaultGracePeriodMinutes;
 }

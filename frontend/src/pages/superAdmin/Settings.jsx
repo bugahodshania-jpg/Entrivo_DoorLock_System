@@ -13,12 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
-import { formatDateTimeInManila, getManilaDateTimeStamp } from '../../utils/dateTime';
-import {
-  SETTINGS_STORAGE_KEY,
-  defaultGracePeriodMinutes,
-  normalizeGracePeriodMinutes,
-} from '../../utils/systemSettings';
+import { formatDateTimeInManila } from '../../utils/dateTime';
 import { useActionConfirm } from '../../components/ActionConfirm';
 import ErrorNoticeModal from '../../components/ErrorNoticeModal';
 import { DoorControlPanel } from '../../components/DoorStatusCard';
@@ -26,28 +21,6 @@ import { useDoorStatus } from '../../hooks/useDoorStatus';
 import '../../styles/superAdmin/dashboard.css';
 import '../../styles/superAdmin/settings.css';
 import '../../styles/superAdmin/rfid.css';
-
-const defaultSettings = {
-  defaultGracePeriodMinutes,
-};
-
-function readStoredSettings() {
-  try {
-    const rawValue = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-
-    if (!rawValue) {
-      return defaultSettings;
-    }
-
-    return {
-      defaultGracePeriodMinutes: normalizeGracePeriodMinutes(
-        JSON.parse(rawValue)?.defaultGracePeriodMinutes,
-      ),
-    };
-  } catch {
-    return defaultSettings;
-  }
-}
 
 function formatPasswordLastUpdated(profile) {
   if (profile?.password_last_updated_label) {
@@ -80,9 +53,7 @@ function getSettingsTabFromHash() {
 
 export default function Settings({ user }) {
   const confirmAction = useActionConfirm();
-  const [settings, setSettings] = useState(() => readStoredSettings());
   const [saveNotice, setSaveNotice] = useState('');
-  const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [activeTab, setActiveTab] = useState(() => getSettingsTabFromHash());
   const [adminProfile, setAdminProfile] = useState(null);
   const [adminProfileError, setAdminProfileError] = useState('');
@@ -136,26 +107,6 @@ export default function Settings({ user }) {
 
     return () => window.clearTimeout(timeoutId);
   }, [saveNotice]);
-
-  useEffect(() => {
-    if (!pendingConfirmation) {
-      return undefined;
-    }
-
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') {
-        setPendingConfirmation(null);
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pendingConfirmation]);
-
-  const isDirty = useMemo(() => {
-    return JSON.stringify(settings) !== JSON.stringify(readStoredSettings());
-  }, [settings]);
 
   const tabs = useMemo(
     () => [
@@ -616,59 +567,6 @@ export default function Settings({ user }) {
     }
   }
 
-  function updateSetting(key, value) {
-    setSettings((current) => ({
-      ...current,
-      [key]: value,
-    }));
-    setSaveNotice('');
-  }
-
-  function persistSettings(nextSettings, notice = 'Settings saved successfully.') {
-    const normalized = {
-      defaultGracePeriodMinutes: normalizeGracePeriodMinutes(nextSettings.defaultGracePeriodMinutes),
-    };
-
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
-    const timestamp = getManilaDateTimeStamp();
-    window.localStorage.setItem(`${SETTINGS_STORAGE_KEY}_saved_at`, timestamp);
-    setSettings(normalized);
-    setSaveNotice(notice);
-  }
-
-  function requestConfirmation(payload) {
-    setPendingConfirmation(payload);
-  }
-
-  function closeConfirmation() {
-    setPendingConfirmation(null);
-  }
-
-  async function confirmPendingChange() {
-    if (!pendingConfirmation) {
-      return;
-    }
-
-    const confirmed = await confirmAction({
-      step: 'password',
-      title: 'Security Verification',
-      message: 'Enter your password to confirm this action.',
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    if (pendingConfirmation.type === 'save') {
-      handleSaveSettings();
-    }
-
-    closeConfirmation();
-  }
-
-  function handleSaveSettings() {
-    persistSettings(settings);
-  }
-
   function handleSelectTab(tabKey) {
     setActiveTab(tabKey);
     window.history.replaceState(null, '', `${window.location.pathname}${settingsHashByTab[tabKey] || ''}`);
@@ -716,7 +614,7 @@ export default function Settings({ user }) {
           <h2>Account details, the door&apos;s access rules, and door control.</h2>
           <p>
             Update the signed-in administrator profile and password, review who can enter and when,
-            set the default grace period for new schedules, and control the door&apos;s scheduling and lock.
+            and control the door&apos;s scheduling and lock.
           </p>
         </div>
       </section>
@@ -733,45 +631,6 @@ export default function Settings({ user }) {
             <X size={16} aria-hidden="true" />
           </button>
         </section>
-      ) : null}
-
-      {pendingConfirmation ? (
-        <div
-          className="settings-modal-overlay"
-          role="presentation"
-          onClick={closeConfirmation}
-        >
-          <div
-            className="settings-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={pendingConfirmation.title || 'Confirm change'}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="settings-modal-header">
-              <h3>{pendingConfirmation.title || 'Confirm change'}</h3>
-              <button
-                type="button"
-                className="settings-modal-close"
-                onClick={closeConfirmation}
-                aria-label="Close dialog"
-              >
-                <X size={18} aria-hidden="true" />
-              </button>
-            </div>
-            <p className="settings-modal-body">
-              {pendingConfirmation.message || 'Apply this change?'}
-            </p>
-            <div className="settings-modal-actions">
-              <button type="button" className="settings-secondary-button" onClick={closeConfirmation}>
-                Cancel
-              </button>
-              <button type="button" className="settings-primary-button" onClick={confirmPendingChange}>
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
       ) : null}
 
       <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
@@ -1184,7 +1043,7 @@ export default function Settings({ user }) {
           <div className="dashboard-panel-header">
             <div>
               <span>Access policy</span>
-              <p>The rules the door applies to every fingerprint and RFID scan, and the default grace period for new schedules.</p>
+              <p>The rules the door applies to every fingerprint and RFID scan.</p>
             </div>
             <ShieldCheck size={18} aria-hidden="true" className="settings-card-icon" />
           </div>
@@ -1192,65 +1051,6 @@ export default function Settings({ user }) {
           <AccessPolicyRules onOpenDoorControl={() => handleSelectTab('door')} />
 
           <StaffRoomHours user={user} />
-
-          <section className="settings-policy-box" aria-labelledby="settings-policy-grace">
-            <header className="settings-policy-box-head">
-              <h3 id="settings-policy-grace">Default grace period</h3>
-              <p>Filled in on each new schedule and override.</p>
-            </header>
-            <div className="settings-policy-grace">
-            <div className="settings-policy-grace-controls">
-            <label className="settings-field settings-policy-grace-field">
-              <span>Minutes</span>
-              <div className="settings-input-suffix">
-                <input
-                  type="number"
-                  min="0"
-                  max="120"
-                  value={settings.defaultGracePeriodMinutes}
-                  onChange={(event) => {
-                    const rawValue = event.target.value;
-
-                    if (rawValue === '') {
-                      updateSetting('defaultGracePeriodMinutes', '');
-                      return;
-                    }
-
-                    const parsed = Number(rawValue);
-                    updateSetting(
-                      'defaultGracePeriodMinutes',
-                      Number.isFinite(parsed)
-                        ? Math.min(120, Math.max(0, parsed))
-                        : defaultGracePeriodMinutes,
-                    );
-                  }}
-                />
-                <small>minutes</small>
-              </div>
-            </label>
-            <button
-              type="button"
-              className="settings-primary-button"
-              onClick={() =>
-                requestConfirmation({
-                  type: 'save',
-                  title: 'Save grace period',
-                  message: 'Save the default grace period now?',
-                })
-              }
-              disabled={!isDirty}
-            >
-              <Save size={16} aria-hidden="true" />
-              Save
-            </button>
-            </div>
-            <ul className="settings-policy-note">
-              <li>Shown in schedules and reports. An existing schedule keeps its own grace period when edited.</li>
-              <li>It does not extend door access: the door opens only between the schedule&apos;s start and end.</li>
-              <li>Saved in this browser only.</li>
-            </ul>
-            </div>
-          </section>
 
         </article>
         ) : null}
