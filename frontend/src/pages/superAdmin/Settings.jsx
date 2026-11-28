@@ -11,7 +11,7 @@ import {
   UserCircle,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axiosClient from '../../api/axiosClient';
 import { formatDateTimeInManila } from '../../utils/dateTime';
 import { useActionConfirm } from '../../components/ActionConfirm';
@@ -1349,6 +1349,28 @@ function EmergencyCardSection({ user, deviceId }) {
   const [scans, setScans] = useState({ loading: false, list: [] });
   const [notice, setNotice] = useState({ text: '', error: false });
   const [busy, setBusy] = useState(false);
+  // Card UID picker: clicking the field lists the recent scans to choose from.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const close = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !pickerRef.current?.contains(event.target)) setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [pickerOpen]);
+
+  function openPicker() {
+    if (busy) return;
+    if (!pickerOpen) loadScans();
+    setPickerOpen(true);
+  }
 
   function apply(data) {
     setState({ loading: false, error: '', card: data.card || null, door: data.door || null, builtIn: data.built_in || null });
@@ -1467,58 +1489,62 @@ function EmergencyCardSection({ user, deviceId }) {
               </div>
             </div>
 
-            <div className="settings-ecard-edit">
-              <div className="settings-ecard-form">
-                <h4>{cardUid ? 'Change the portal card' : 'Set the portal card'}</h4>
-                <label>Card UID
-                  <input type="text" value={form.uid} maxLength={10} autoComplete="off" placeholder="Tap the card, then pick it from Recent scans"
-                    onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }))} disabled={busy} />
-                </label>
-                <label>Name
-                  <input type="text" value={form.name} maxLength={60} placeholder="Emergency card"
-                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={busy} />
-                </label>
-                {form.uid && !uidValid ? <p className="settings-room-note is-error">The UID has 10 characters: 0-9 and A-F.</p> : null}
-                {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
-                <div className="settings-ecard-actions">
-                  <button type="button" className="settings-primary-button" onClick={() => submit(uid, name)} disabled={busy || !uidValid || !changed}>
-                    {busy ? 'Saving…' : 'Save card'}
-                  </button>
-                  {cardUid ? (
-                    <button type="button" className="settings-secondary-button" onClick={() => submit('', '')} disabled={busy}>Remove</button>
-                  ) : null}
-                </div>
+            <div className="settings-ecard-form">
+              <h4>{cardUid ? 'Change the portal card' : 'Set the portal card'}</h4>
+              <div className="settings-ecard-picker" ref={pickerRef}>
+                <label htmlFor="settings-ecard-uid">Card UID</label>
+                <input id="settings-ecard-uid" type="text" value={form.uid} maxLength={10} autoComplete="off"
+                  placeholder="Tap the card on the scanner, then click here to pick it"
+                  role="combobox" aria-expanded={pickerOpen} aria-controls="settings-ecard-picker-list"
+                  onFocus={openPicker} onClick={openPicker}
+                  onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }))} disabled={busy} />
+                {pickerOpen ? (
+                  <div className="settings-ecard-picker-menu" id="settings-ecard-picker-list" role="listbox" aria-label="Recent scans">
+                    <div className="settings-ecard-picker-head">
+                      <span>Recent scans</span>
+                      <button type="button" onClick={loadScans} disabled={scans.loading}>
+                        <RefreshCcw size={13} aria-hidden="true" /> {scans.loading ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                    {scans.list.length === 0
+                      ? <p className="settings-room-note">{scans.loading ? 'Loading scans…' : 'No scans yet. Tap the new card on the RFID scanner, then Refresh.'}</p>
+                      : (
+                        <ul>
+                          {scans.list.map((scan) => {
+                            const scanUid = String(scan.rfidUid).toUpperCase();
+                            const taken = scan.registrationStatus === 'registered';
+                            const picked = scanUid === uid;
+                            return (
+                              <li key={scan.id} role="option" aria-selected={picked} aria-disabled={taken} className={picked ? 'is-picked' : ''}>
+                                <div>
+                                  <strong>{scanUid}</strong>
+                                  <span>{scan.scannedAt}{taken ? ' · registered to a user' : ''}</span>
+                                </div>
+                                <button type="button" disabled={taken}
+                                  onClick={() => { setForm((current) => ({ ...current, uid: scanUid })); setPickerOpen(false); }}>
+                                  {picked ? 'Picked' : 'Use'}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                  </div>
+                ) : null}
               </div>
-
-              <div className="settings-ecard-scans">
-                <div className="settings-ecard-scans-head">
-                  <h4>Recent scans</h4>
-                  <button type="button" onClick={loadScans} disabled={scans.loading}>
-                    <RefreshCcw size={13} aria-hidden="true" /> {scans.loading ? 'Refreshing…' : 'Refresh'}
-                  </button>
-                </div>
-                {scans.list.length === 0
-                  ? <p className="settings-room-note">{scans.loading ? 'Loading scans…' : 'Tap the new card on the RFID scanner, then Refresh.'}</p>
-                  : (
-                    <ul>
-                      {scans.list.map((scan) => {
-                        const scanUid = String(scan.rfidUid).toUpperCase();
-                        const taken = scan.registrationStatus === 'registered';
-                        const picked = scanUid === uid;
-                        return (
-                          <li key={scan.id} className={picked ? 'is-picked' : ''}>
-                            <div>
-                              <strong>{scanUid}</strong>
-                              <span>{scan.scannedAt}{taken ? ' · registered to a user' : ''}</span>
-                            </div>
-                            <button type="button" disabled={busy || taken || picked} onClick={() => setForm((current) => ({ ...current, uid: scanUid }))}>
-                              {picked ? 'Picked' : 'Use'}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+              <label>Name
+                <input type="text" value={form.name} maxLength={60} placeholder="Emergency card"
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={busy} />
+              </label>
+              {form.uid && !uidValid ? <p className="settings-room-note is-error">The UID has 10 characters: 0-9 and A-F.</p> : null}
+              {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
+              <div className="settings-ecard-actions">
+                <button type="button" className="settings-primary-button" onClick={() => submit(uid, name)} disabled={busy || !uidValid || !changed}>
+                  {busy ? 'Saving…' : 'Save card'}
+                </button>
+                {cardUid ? (
+                  <button type="button" className="settings-secondary-button" onClick={() => submit('', '')} disabled={busy}>Remove</button>
+                ) : null}
               </div>
             </div>
 
