@@ -55,6 +55,10 @@ export const PRIVILEGE_META = {
     label: 'Settings',
     path: '/super-admin/settings',
   },
+  door_override: {
+    label: 'Override the Door',
+    path: null,
+  },
 };
 
 export const PRIVILEGE_PATHS = Object.fromEntries(
@@ -123,6 +127,16 @@ export function portalHref(path) {
   const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
 
   return `${currentPortalBase()}${normalizedSuffix}`;
+}
+
+// Remote lock / unlock from Door Control. Super Admins always can; an Admin
+// needs the door_override privilege (the server checks it too).
+export function canOverrideDoor(user, privileges = user?.privileges) {
+  if (user?.role === 'super_admin') {
+    return true;
+  }
+
+  return user?.role === 'admin' && normalizePrivileges(privileges, 'admin').includes('door_override');
 }
 
 export function canDeleteRecords(user) {

@@ -73,6 +73,11 @@ class UserPrivilegeService
             'description' => 'Access system settings.',
             'path' => '/super-admin/settings',
         ],
+        'door_override' => [
+            'label' => 'Override the Door',
+            'description' => 'Remotely lock or unlock the door at any time from Door Control, outside the schedules.',
+            'path' => null,
+        ],
     ];
 
     public const ROLE_DEFAULTS = [
@@ -90,6 +95,7 @@ class UserPrivilegeService
             'activity_logs',
             'reports',
             'settings',
+            'door_override',
         ],
         'admin' => [
             'dashboard',
@@ -244,6 +250,7 @@ class UserPrivilegeService
                     'delete_users',
                     'fingerprint_update',
                     'pending_overrides',
+                    'door_override',
                 ]);
             }
 

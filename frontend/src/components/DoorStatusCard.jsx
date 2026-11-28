@@ -5,6 +5,7 @@ import axiosClient from '../api/axiosClient';
 import { ActionConfirmProvider, useActionConfirm } from './ActionConfirm';
 import { useDoorStatus } from '../hooks/useDoorStatus';
 import { ACCESS_TYPE_LABELS, ROLE_LABELS } from '../utils/accessStatusPoller';
+import { canOverrideDoor } from '../utils/privileges';
 import '../styles/shared/actionConfirm.css';
 import '../styles/shared/accessStatusModal.css';
 import '../styles/shared/doorStatus.css';
@@ -32,7 +33,8 @@ export default function DoorStatusCard({ user }) {
   </>;
 
   // An unlocked door opens "who is using the door"; administrators can always
-  // open the panel for the scheduling mode (and, Super Admin, remote lock).
+  // open the panel for the scheduling mode (and remote lock, for a Super Admin
+  // or an Admin with the door override privilege).
   if (door.state !== 'unlocked' && !canControl && !open) {
     return <div className={`door-status-card is-${door.state}`} role="status"
       aria-label={`Door status: ${door.label}. ${door.deviceName}`} title={`${door.deviceName} · Door ${label}`}>
@@ -124,8 +126,8 @@ function DoorModal({ door, user, canControl, onClose }) {
 }
 
 /**
- * The door's connection notice, live state, scheduling mode and (Super Admin)
- * remote lock. Used in the header door popup and on the Settings page.
+ * The door's connection notice, live state, scheduling mode and remote lock
+ * (Super Admin, or an Admin with the door override privilege). Used in the header door popup and on the Settings page.
  * Must render inside an ActionConfirmProvider.
  */
 export function DoorControlPanel({
@@ -134,7 +136,20 @@ export function DoorControlPanel({
   const confirmAction = useActionConfirm();
   const [busy, setBusyState] = useState(false);
   const [notice, setNotice] = useState({ text: '', error: false });
-  const isSuperAdmin = user?.role === 'super_admin';
+  // Privileges saved at sign-in; refreshed here so a Super Admin's change in
+  // Manage Users shows without signing out. The server enforces it either way.
+  const [freshPrivileges, setFreshPrivileges] = useState(null);
+  const canLock = canOverrideDoor(user, freshPrivileges ?? user?.privileges);
+  useEffect(() => {
+    if (user?.role !== 'admin' || !user?.id) return undefined;
+    let cancelled = false;
+    axiosClient.get('/api/user_privileges.php', { params: { user_id: user.id } })
+      .then((response) => {
+        if (!cancelled && Array.isArray(response.data?.privileges)) setFreshPrivileges(response.data.privileges);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, user?.role]);
   const setBusy = (value) => {
     setBusyState(value);
     onBusyChange?.(value);
@@ -201,7 +216,7 @@ export function DoorControlPanel({
     const statusLine = offline
       ? (door.scheduleMode === 'off' ? 'No internet. Registered users can enter; entries sync later.' : 'No internet. The door checks its saved schedules; entries sync later.')
       : 'Online. Changes reach the door within a few seconds.';
-    const showLock = canControl && isSuperAdmin;
+    const showLock = canControl && canLock;
     return (
       <div className="door-split">
         <div className="door-split-main">
@@ -244,7 +259,7 @@ export function DoorControlPanel({
                 <span className="door-section-icon"><LockKeyhole size={16} aria-hidden="true" /></span>
                 <div>
                   <h4 id="door-section-lock-title">Remote lock</h4>
-                  <p>Super Admin only</p>
+                  <p>Any time, outside the schedules</p>
                 </div>
                 <span className={`door-section-chip is-${door.state}`}>{offline ? 'Offline' : door.label}</span>
               </header>
@@ -333,7 +348,7 @@ export function DoorControlPanel({
               <small>{SCHEDULE_MODES.find((option) => option.value === door.scheduleMode)?.hint}</small>
             </div>
 
-            {isSuperAdmin ? (
+            {canLock ? (
               <div className="door-control-group">
                 <span className="door-control-label"><LockKeyhole size={15} aria-hidden="true" /> Remote lock</span>
                 <button type="button" role="switch" aria-checked={door.state === 'locked'}

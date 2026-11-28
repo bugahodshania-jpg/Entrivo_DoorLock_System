@@ -3287,7 +3287,11 @@ export default function ManageUsers({ user: currentUser } = {}) {
                     <ul className="manage-users-privileges-list">
                       {privilegesCatalog
                         .filter(
-                          (item) => item.key !== 'delete_requests' || privilegesRole !== 'super_admin',
+                          // Super Admins delete directly and can always override the
+                          // door, so these Admin-only privileges are not listed for them.
+                          (item) =>
+                            !['delete_requests', 'door_override'].includes(item.key) ||
+                            privilegesRole !== 'super_admin',
                         )
                         .map((item) => {
                           const checked = privilegesSelected.includes(item.key);

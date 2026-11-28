@@ -12,7 +12,8 @@ require_once __DIR__ . '/StaffRoomAccess.php';
  *    its sensor may enter (saved and logged later). "on": schedules always
  *    apply, offline too (offline, only the emergency card enters). "off":
  *    schedules never apply; any active registered user may enter.
- *  - Remote lock / unlock by a Super Admin. The command waits here until the
+ *  - Remote lock / unlock by a Super Admin, or an Admin with the
+ *    "door_override" privilege. The command waits here until the
  *    controller's next status report picks it up and confirms it.
  * Each change needs the actor's own password, checked here on the server.
  */
@@ -67,6 +68,15 @@ final class DoorControlService
         ];
     }
 
+    /** Whether this active admin account may lock / unlock the door remotely. */
+    public static function canOverride(PDO $pdo, int $userId): bool
+    {
+        require_once __DIR__ . '/UserPrivilegeService.php';
+        $privileges = new UserPrivilegeService($pdo);
+        return $privileges->actorRole($userId) === 'super_admin'
+            || $privileges->actorHasPrivilege($userId, 'door_override');
+    }
+
     public static function scheduleMode(PDO $pdo, int $deviceId): string
     {
         try {
@@ -100,11 +110,18 @@ final class DoorControlService
 
     public function sendCommand(array $input): array
     {
-        $actor = $this->authorizedActor($input, ['super_admin']);
-        $deviceId = $this->deviceId($input);
         $action = $input['action'] ?? null;
         if (!is_string($action) || !in_array($action, self::ACTIONS, true)) {
             throw new DoorStatusException('Choose lock or unlock.', 422);
+        }
+        $actor = $this->authorizedActor($input, ['admin', 'super_admin']);
+        $deviceId = $this->deviceId($input);
+        // Super Admins can always override; an Admin needs the "door_override"
+        // privilege, set by a Super Admin in Manage Users > Roles & Privileges.
+        if ($actor['role'] !== 'super_admin' && !self::canOverride($this->pdo, $actor['id'])) {
+            (new ActivityLogService($this->pdo))->record($actor['id'], 'Update',
+                'Refused an attempt to remotely ' . $action . ' the door: no door override privilege.', 'Failed', null, 'door', (string) $deviceId);
+            throw new DoorStatusException('Your account is not allowed to lock or unlock the door remotely. Ask a Super Admin for the door override privilege.', 403);
         }
         $door = (new DoorStatusService($this->pdo))->snapshot($deviceId);
         if (!$door['online']) {
@@ -362,11 +379,13 @@ final class DoorControlService
         $query->execute([$actorId]);
         $user = $query->fetch(PDO::FETCH_ASSOC);
         if (!$user || (int) $user['is_active'] !== 1 || !in_array($user['role'], $roles, true)) {
-            throw new DoorStatusException(in_array('admin', $roles, true)
+            throw new DoorStatusException(in_array($input['action'] ?? '', self::ACTIONS, true)
+                ? 'Only an administrator with the door override privilege can lock or unlock the door remotely.'
+                : (in_array('admin', $roles, true)
                 ? 'Only an administrator can change door scheduling.'
                 : (in_array($input['action'] ?? '', ['room_hours', 'staff_room_access'], true)
                     ? 'Only a Super Admin can change staff room access.'
-                    : 'Only a Super Admin can lock or unlock the door remotely.'), 403);
+                    : 'Only a Super Admin can lock or unlock the door remotely.')), 403);
         }
         if (!password_verify($password, (string) $user['password_hash'])) {
             $what = match ($input['action'] ?? '') {

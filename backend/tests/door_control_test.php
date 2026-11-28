@@ -20,7 +20,7 @@ function expectDoorControlError(callable $call, int $status, string $message): v
 }
 
 $pdo = entrivo_pdo();
-$tables = ['users', 'fingerprint_devices', 'door_controller_status', 'door_controller_controls', 'schedules', 'access_overrides', 'activity_logs', 'activity_transactions'];
+$tables = ['users', 'fingerprint_devices', 'door_controller_status', 'door_controller_controls', 'schedules', 'access_overrides', 'activity_logs', 'activity_transactions', 'user_privileges'];
 try {
     // Connection-local shadow tables: real accounts and door rows are never touched.
     $pdo->exec('CREATE TEMPORARY TABLE users (id INT PRIMARY KEY, role VARCHAR(20), is_active INT, password_hash VARCHAR(255), username VARCHAR(60) NULL) ENGINE=InnoDB');
@@ -37,6 +37,8 @@ try {
         actor_user_id INT UNSIGNED NULL, target_user_id INT UNSIGNED NULL, activity_type VARCHAR(32) NOT NULL, entity_type VARCHAR(64) NULL,
         entity_id VARCHAR(64) NULL, description VARCHAR(512) NOT NULL, status VARCHAR(32) NOT NULL DEFAULT 'Success',
         ip_address VARCHAR(45) NULL, user_agent VARCHAR(512) NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB");
+    $pdo->exec('CREATE TEMPORARY TABLE user_privileges (user_id INT UNSIGNED NOT NULL, privilege_key VARCHAR(64) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, privilege_key)) ENGINE=InnoDB');
     $hash = password_hash('secret-pass', PASSWORD_DEFAULT);
     $users = $pdo->prepare('INSERT INTO users (id, role, is_active, password_hash) VALUES (?, ?, ?, ?)');
     foreach ([[1, 'super_admin', 1, $hash], [2, 'admin', 1, $hash], [3, 'faculty', 1, $hash]] as $row) $users->execute($row);
@@ -49,7 +51,8 @@ try {
     // Password and role are checked on the server.
     expectDoorControlError(fn () => $service->setScheduleMode(['actor_id' => 2, 'password' => 'wrong', 'mode' => 'off']), 422, 'A wrong password must be refused.');
     expectDoorControlError(fn () => $service->setScheduleMode(['actor_id' => 3, 'password' => 'secret-pass', 'mode' => 'off']), 403, 'Faculty cannot change scheduling.');
-    expectDoorControlError(fn () => $service->sendCommand(['actor_id' => 2, 'password' => 'secret-pass', 'action' => 'unlock']), 403, 'An admin cannot lock or unlock remotely.');
+    expectDoorControlError(fn () => $service->sendCommand(['actor_id' => 2, 'password' => 'secret-pass', 'action' => 'unlock']), 403, 'An admin without the door override privilege cannot lock or unlock remotely.');
+    expectDoorControlError(fn () => $service->sendCommand(['actor_id' => 3, 'password' => 'secret-pass', 'action' => 'unlock']), 403, 'Faculty cannot lock or unlock remotely.');
 
     // An admin turns scheduling Off: any active registered account enters.
     $result = $service->setScheduleMode(['actor_id' => 2, 'password' => 'secret-pass', 'mode' => 'off']);
@@ -76,11 +79,18 @@ try {
     expectDoorControl($logs[0]['description'] === 'The door confirmed the remote unlock.', 'Door control logs are newest first.');
     expectDoorControlError(fn () => $service->history(['actor_id' => 3, 'device_id' => 1]), 403, 'Faculty cannot read the door control logs.');
 
+    // A Super Admin grants an admin the door override privilege: the admin can then lock remotely.
+    $pdo->exec("INSERT INTO user_privileges (user_id, privilege_key) VALUES (2, 'dashboard'), (2, 'door_override')");
+    $service->sendCommand(['actor_id' => 2, 'password' => 'secret-pass', 'action' => 'lock']);
+    expectDoorControl(($service->forController(1, null)['command']['action'] ?? null) === 'lock', 'An admin with the door override privilege can lock remotely.');
+    $text = implode(' | ', array_column($service->history(['actor_id' => 1, 'device_id' => 1])['logs'], 'description'));
+    expectDoorControl(str_contains($text, 'no door override privilege'), 'The refused override attempt is logged: ' . $text);
+
     // An offline controller cannot be sent a command.
     $pdo->exec('UPDATE door_controller_status SET received_at = NOW(6) - INTERVAL 10 MINUTE');
     expectDoorControlError(fn () => $service->sendCommand(['actor_id' => 1, 'password' => 'secret-pass', 'action' => 'lock']), 409, 'An offline door must refuse a command.');
 
-    echo "PASS: door scheduling (Auto default, On, Off: entry without a schedule) changed by admins only with their password; remote lock/unlock by a Super Admin only, delivered to the controller and cleared once it confirms; refused while the door is offline.\n";
+    echo "PASS: door scheduling (Auto default, On, Off: entry without a schedule) changed by admins only with their password; remote lock/unlock by a Super Admin or an admin with the door override privilege, delivered to the controller and cleared once it confirms; refused while the door is offline.\n";
 } finally {
     foreach ($tables as $table) $pdo->exec('DROP TEMPORARY TABLE IF EXISTS ' . $table);
 }
