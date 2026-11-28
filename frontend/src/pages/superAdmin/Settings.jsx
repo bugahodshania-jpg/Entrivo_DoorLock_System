@@ -1429,37 +1429,54 @@ function EmergencyCardSection({ user, deviceId }) {
   }
 
   const doorLine = doorUid === null
-    ? (cardUid ? 'The door has not confirmed it yet. Upload the latest door firmware if this does not change.' : '')
+    ? (cardUid ? 'Not confirmed by the door yet. Upload the latest door firmware if this does not change.' : 'Set a card below to add a second emergency card.')
     : doorUid === cardUid
-      ? (cardUid ? `Saved on the door${state.door.reported_at ? ` since ${formatDateTimeInManila(state.door.reported_at)}` : ''}. Works offline too.` : '')
-      : cardUid ? 'Waiting for the door to receive it. It needs to be online.' : 'Waiting for the door to remove the old card. It needs to be online.';
+      ? (cardUid ? `Saved on the door${state.door.reported_at ? ` since ${formatDateTimeInManila(state.door.reported_at)}` : ''}.` : 'Set a card below to add a second emergency card.')
+      : cardUid ? 'Waiting for the door to receive it. The door must be online.' : 'Waiting for the door to remove the old card. The door must be online.';
   const chip = !cardUid ? ['Not set', ' is-off'] : doorUid === cardUid ? ['Saved on door', ' is-auto'] : ['Waiting for door', ' is-on'];
 
   return (
     <section className="settings-policy-box settings-ecard" aria-labelledby="settings-ecard-title">
       <header className="settings-policy-box-head">
         <h3 id="settings-ecard-title">Emergency card</h3>
-        <p>A card that opens the door at any time, even offline. Change it here without uploading the door firmware again.</p>
+        <p>Opens the door at any time, online and offline. Change the portal card here without uploading the door firmware.</p>
       </header>
       {state.loading ? <p className="settings-room-note settings-ecard-pad">Loading…</p>
         : state.error ? <p className="settings-room-note is-error settings-ecard-pad">{state.error}</p>
         : (
-          <div className="settings-room">
-            <div className="settings-room-hours">
-              <div className="settings-room-status">
-                <span className={`settings-door-tag${chip[1]}`}>{chip[0]}</span>
-                {cardUid ? <strong>{state.card.name} · {cardEnding(cardUid)}</strong> : <span>No portal card set.</span>}
+          <div className="settings-ecard-body">
+            <div className="settings-ecard-cards">
+              <div className="settings-ecard-current">
+                <div className="settings-ecard-current-head">
+                  <span>Portal card</span>
+                  <span className={`settings-door-tag${chip[1]}`}>{chip[0]}</span>
+                </div>
+                <strong>{cardUid ? `${state.card.name} · ${cardEnding(cardUid)}` : 'No portal card'}</strong>
+                <small role="status">{doorLine}</small>
               </div>
-              {doorLine ? <p className="settings-room-note" role="status">{doorLine}</p> : null}
-              <div className="settings-room-inputs">
+              <div className="settings-ecard-current">
+                <div className="settings-ecard-current-head">
+                  <span>Built-in card</span>
+                  <span className="settings-door-tag is-auto">Always on</span>
+                </div>
+                <strong>{state.builtIn ? `${state.builtIn.name} · ${cardEnding(state.builtIn.uid)}` : 'Not reported yet'}</strong>
+                <small>Set in the door firmware (Secrets.h). Changed only by uploading.</small>
+              </div>
+            </div>
+
+            <div className="settings-ecard-edit">
+              <div className="settings-ecard-form">
+                <h4>{cardUid ? 'Change the portal card' : 'Set the portal card'}</h4>
                 <label>Card UID
-                  <input type="text" value={form.uid} maxLength={10} autoComplete="off" placeholder="10 characters, e.g. 4300C46DDF"
+                  <input type="text" value={form.uid} maxLength={10} autoComplete="off" placeholder="Tap the card, then pick it from Recent scans"
                     onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value.replace(/\s+/g, '').toUpperCase() }))} disabled={busy} />
                 </label>
                 <label>Name
                   <input type="text" value={form.name} maxLength={60} placeholder="Emergency card"
                     onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={busy} />
                 </label>
+                {form.uid && !uidValid ? <p className="settings-room-note is-error">The UID has 10 characters: 0-9 and A-F.</p> : null}
+                {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
                 <div className="settings-ecard-actions">
                   <button type="button" className="settings-primary-button" onClick={() => submit(uid, name)} disabled={busy || !uidValid || !changed}>
                     {busy ? 'Saving…' : 'Save card'}
@@ -1469,11 +1486,10 @@ function EmergencyCardSection({ user, deviceId }) {
                   ) : null}
                 </div>
               </div>
-              {form.uid && !uidValid ? <p className="settings-room-note is-error">The UID has 10 characters: 0-9 and A-F.</p> : null}
-              {notice.text ? <p className={`settings-room-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</p> : null}
+
               <div className="settings-ecard-scans">
                 <div className="settings-ecard-scans-head">
-                  <span>Recent scans</span>
+                  <h4>Recent scans</h4>
                   <button type="button" onClick={loadScans} disabled={scans.loading}>
                     <RefreshCcw size={13} aria-hidden="true" /> {scans.loading ? 'Refreshing…' : 'Refresh'}
                   </button>
@@ -1485,13 +1501,16 @@ function EmergencyCardSection({ user, deviceId }) {
                       {scans.list.map((scan) => {
                         const scanUid = String(scan.rfidUid).toUpperCase();
                         const taken = scan.registrationStatus === 'registered';
+                        const picked = scanUid === uid;
                         return (
-                          <li key={scan.id}>
+                          <li key={scan.id} className={picked ? 'is-picked' : ''}>
                             <div>
                               <strong>{scanUid}</strong>
                               <span>{scan.scannedAt}{taken ? ' · registered to a user' : ''}</span>
                             </div>
-                            <button type="button" disabled={busy || taken} onClick={() => setForm((current) => ({ ...current, uid: scanUid }))}>Use</button>
+                            <button type="button" disabled={busy || taken || picked} onClick={() => setForm((current) => ({ ...current, uid: scanUid }))}>
+                              {picked ? 'Picked' : 'Use'}
+                            </button>
                           </li>
                         );
                       })}
@@ -1499,12 +1518,12 @@ function EmergencyCardSection({ user, deviceId }) {
                   )}
               </div>
             </div>
-            <ul className="settings-room-rules">
-              <li><b>Two emergency cards work together:</b> this one, and the door&apos;s built-in card{state.builtIn ? ` (${state.builtIn.name}, ${cardEnding(state.builtIn.uid)})` : ''}, which is set in the door firmware and can only be changed there.</li>
-              <li>Both open the door at any time, online and offline. Every use is saved in the access logs.</li>
-              <li>The door receives a change within a few seconds while online and keeps it through restarts and power cuts. While it is offline, the old card keeps working until it reconnects.</li>
-              <li>Use a card that is not registered to anyone. Every change needs your password and is saved in the Door control logs.</li>
-            </ul>
+
+            <p className="settings-ecard-note">
+              Both cards open the door at any time and every use is logged. The door receives a change within a few seconds while
+              online and keeps it through restarts; while offline, the old card works until it reconnects. Use a card that is not
+              registered to anyone. Every change needs your password and is saved in the Door control logs.
+            </p>
           </div>
         )}
     </section>
