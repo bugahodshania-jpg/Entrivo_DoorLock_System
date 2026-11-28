@@ -2487,6 +2487,34 @@ export default function ManageUsers({ user: currentUser } = {}) {
                       </div>
                     </section>
                   ) : null}
+                  {viewUser.role === 'admin' || viewUser.role === 'super_admin' ? (
+                    <section className="pending-registration-review-card manage-users-room-card">
+                      <h3>Door access</h3>
+                      <div className="manage-users-room-row">
+                        <div>
+                          <strong>
+                            Room entry:{' '}
+                            {viewUser.role === 'admin' && roomAccess.adminNeedsSchedule.has(Number(viewUser.id))
+                              ? 'Needs a schedule'
+                              : 'Any time'}
+                          </strong>
+                          <p>
+                            {viewUser.role === 'super_admin'
+                              ? 'Super Admins enter the room any time, without a schedule.'
+                              : roomAccess.adminNeedsSchedule.has(Number(viewUser.id))
+                                ? 'Enters only during an approved schedule or override, like faculty.'
+                                : 'Enters the room any time, without a schedule. A Super Admin can require a schedule.'}
+                          </p>
+                        </div>
+                        {viewUser.role === 'admin' && roomAccess.canEdit ? (
+                          <button type="button" className="manage-users-room-button" onClick={() => openDoorAccessModal(viewUser)}>
+                            <DoorOpen size={14} aria-hidden="true" />
+                            Change
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
                   {viewGroups.slice(1).map((group) => (
                     <section className="pending-registration-review-card" key={group.title}>
                       <h3>{group.title}</h3>
