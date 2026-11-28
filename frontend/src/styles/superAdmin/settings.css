@@ -1692,7 +1692,7 @@
 .settings-room-toggle:disabled { cursor: not-allowed; opacity: 0.6; }
 
 /* Door control: portal emergency card */
-.settings-ecard { margin-top: 14px; }
+.settings-ecard { background: #fff; border: 1px solid #e3ebe6; border-radius: 4px; }
 .settings-ecard-pad { padding: 12px 14px; }
 .settings-ecard-body { display: grid; gap: 14px; padding: 14px; }
 .settings-ecard-cards { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }

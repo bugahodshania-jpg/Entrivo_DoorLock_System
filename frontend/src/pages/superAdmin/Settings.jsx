@@ -41,6 +41,7 @@ const settingsTabByHash = {
   '#admin-information': 'admin',
   '#access-policy': 'access',
   '#door-control': 'door',
+  '#emergency-card': 'emergency',
 };
 
 const settingsHashByTab = Object.fromEntries(
@@ -113,9 +114,13 @@ export default function Settings({ user }) {
       { key: 'admin', label: 'Admin information' },
       { key: 'access', label: 'Access policy' },
       { key: 'door', label: 'Door control' },
+      // Only a Super Admin can view or change the emergency card.
+      ...(user?.role === 'super_admin' ? [{ key: 'emergency', label: 'Emergency card' }] : []),
     ],
-    [],
+    [user?.role],
   );
+  // A tab this account cannot open (e.g. #emergency-card for an Admin) shows the first one.
+  const shownTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : 'admin';
 
   const adminDisplayName = useMemo(() => {
     const fullName = [
@@ -639,8 +644,8 @@ export default function Settings({ user }) {
             key={tab.key}
             type="button"
             role="tab"
-            className={`settings-tab${activeTab === tab.key ? ' is-active' : ''}`}
-            aria-selected={activeTab === tab.key}
+            className={`settings-tab${shownTab === tab.key ? ' is-active' : ''}`}
+            aria-selected={shownTab === tab.key}
             onClick={() => handleSelectTab(tab.key)}
           >
             {tab.label}
@@ -649,7 +654,7 @@ export default function Settings({ user }) {
       </nav>
 
       <section className="settings-grid" aria-label="Settings panels">
-        {activeTab === 'admin' ? (
+        {shownTab === 'admin' ? (
         <article className="settings-card" role="tabpanel" aria-label="Admin information">
           <div className="dashboard-panel-header">
             <div>
@@ -1038,7 +1043,7 @@ export default function Settings({ user }) {
         </article>
         ) : null}
 
-        {activeTab === 'access' ? (
+        {shownTab === 'access' ? (
         <article className="settings-card" role="tabpanel" aria-label="Access policy">
           <div className="dashboard-panel-header">
             <div>
@@ -1055,7 +1060,9 @@ export default function Settings({ user }) {
         </article>
         ) : null}
 
-        {activeTab === 'door' ? <DoorControlCard user={user} /> : null}
+        {shownTab === 'door' ? <DoorControlCard user={user} /> : null}
+
+        {shownTab === 'emergency' ? <EmergencyCardTab user={user} /> : null}
       </section>
       <ErrorNoticeModal
         open={Boolean(adminProfileError)}
@@ -1436,11 +1443,7 @@ function EmergencyCardSection({ user, deviceId }) {
   const chip = !cardUid ? ['Not set', ' is-off'] : doorUid === cardUid ? ['Saved on door', ' is-auto'] : ['Waiting for door', ' is-on'];
 
   return (
-    <section className="settings-policy-box settings-ecard" aria-labelledby="settings-ecard-title">
-      <header className="settings-policy-box-head">
-        <h3 id="settings-ecard-title">Emergency card</h3>
-        <p>Opens the door at any time, online and offline. Change the portal card here without uploading the door firmware.</p>
-      </header>
+    <section className="settings-ecard" aria-label="Emergency cards">
       {state.loading ? <p className="settings-room-note settings-ecard-pad">Loading…</p>
         : state.error ? <p className="settings-room-note is-error settings-ecard-pad">{state.error}</p>
         : (
@@ -1530,6 +1533,22 @@ function EmergencyCardSection({ user, deviceId }) {
   );
 }
 
+function EmergencyCardTab({ user }) {
+  const door = useDoorStatus();
+  return (
+    <article className="settings-card" role="tabpanel" aria-label="Emergency card">
+      <div className="dashboard-panel-header">
+        <div>
+          <span>Emergency card</span>
+          <p>Cards that open the door at any time, online and offline. Change the portal card here without uploading the door firmware.</p>
+        </div>
+        <IdCard size={18} aria-hidden="true" className="settings-card-icon" />
+      </div>
+      <EmergencyCardSection user={user} deviceId={door.deviceId} />
+    </article>
+  );
+}
+
 function DoorControlCard({ user }) {
   const door = useDoorStatus();
   const [showLogs, setShowLogs] = useState(false);
@@ -1546,7 +1565,6 @@ function DoorControlCard({ user }) {
         </button>
       </div>
       <DoorControlPanel door={door} user={user} variant="sections" modeDetails={DOOR_MODE_DETAILS} lockGuide={DOOR_LOCK_GUIDE} />
-      {user?.role === 'super_admin' ? <EmergencyCardSection user={user} deviceId={door.deviceId} /> : null}
       {showLogs ? <DoorLogsModal user={user} deviceId={door.deviceId} onClose={() => setShowLogs(false)} /> : null}
     </article>
   );
